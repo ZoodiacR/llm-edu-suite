@@ -1,0 +1,8 @@
+# Everything needed to run the tests, the scripts AND open/execute the notebooks.
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+jupyterlab>=4.0      # open the notebooks
+ipykernel>=6.0       # register the venv as a Jupyter kernel
+nbclient>=0.8        # execute notebooks headlessly (CI / tools/run_notebooks.py)
+nbformat>=5.7
+requests>=2.31       # OpenAICompatibleClient (vLLM / Ollama / OpenAI)

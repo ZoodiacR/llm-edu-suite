@@ -1,0 +1,8 @@
+torch>=2.3
+numpy>=1.24
+matplotlib>=3.7
+pytest>=7.0
+# optional
+# jupyterlab            # to open the notebooks
+# requests              # OpenAICompatibleClient
+# sentence-transformers # SentenceTransformerEmbedder (real embeddings for RAG)
