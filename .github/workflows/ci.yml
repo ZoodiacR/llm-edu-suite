@@ -29,6 +29,16 @@ jobs:
       - name: RAG demo on the sample docs
         run: python scripts/rag_demo.py --docs data/sample_docs --eval data/sample_eval.json
       - name: MCP server answers over stdio
-        run: python -c "import sys; sys.path.insert(0, '.'); from llmsuite.mcp import MCPClient, StdioTransport, result_text; c = MCPClient(StdioTransport([sys.executable, 'scripts/mcp_server.py'])); c.initialize(); print(result_text(c.call_tool('calculate', {'expression': '6*7'}))); c.close()"
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, ".")
+          from llmsuite.mcp import MCPClient, StdioTransport, result_text
+          client = MCPClient(StdioTransport([sys.executable, "scripts/mcp_server.py"]))
+          client.initialize()
+          assert result_text(client.call_tool("calculate", {"expression": "6*7"})) == "42"
+          client.close()
+          print("MCP server OK")
+          EOF
       - name: Execute the PyTorch-free notebooks (10, 11, 13, 14, 15, 16)
         run: python tools/run_notebooks.py 10 11 13 14 15 16
