@@ -11,7 +11,7 @@
 1. [El modelo por dentro](#1-el-modelo-por-dentro)
    - [1.1 Tokenización](#11-tokenización) · [1.2 El bloque transformer](#12-el-bloque-transformer-y-el-flujo-residual) · [1.3 Atención, RoPE y normalización](#13-atención-rope-y-normalización) · [1.4 Atención eficiente](#14-atención-eficiente-para-contextos-largos) · [1.5 FFN y Mixture of Experts](#15-ffn-y-mixture-of-experts) · [1.6 Encoders y encoder-decoders](#16-encoders-y-encoder-decoders)
 2. [Pre-training e inferencia](#2-pre-training-e-inferencia)
-   - [2.1 El objetivo](#21-el-objetivo-predecir-el-siguiente-token) · [2.2 Optimizador y schedule](#22-optimizador-y-plan-de-learning-rate) · [2.3 Leyes de escalado](#23-leyes-de-escalado) · [2.4 Decodificación](#24-estrategias-de-decodificación) · [2.5 KV-cache](#25-prefill-decode-y-kv-cache) · [2.6 Batching y serving](#26-batching-y-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Cuantización](#28-cuantización)
+   - [2.0 Datos de pre-entrenamiento](#20-datos-de-pre-entrenamiento) · [2.1 El objetivo](#21-el-objetivo-predecir-el-siguiente-token) · [2.2 Optimizador y schedule](#22-optimizador-y-plan-de-learning-rate) · [2.3 Leyes de escalado](#23-leyes-de-escalado) · [2.3b Sistemas](#23b-sistemas-memoria-precisión-kernels-y-paralelismo) · [2.4 Decodificación](#24-estrategias-de-decodificación) · [2.5 KV-cache](#25-prefill-decode-y-kv-cache) · [2.6 Batching y serving](#26-batching-y-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Cuantización](#28-cuantización)
 3. [Post-training](#3-post-training)
    - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-y-fine-tuning-eficiente) · [3.3 Destilación](#33-destilación) · [3.4 RLHF, DPO y GRPO](#34-de-rlhf-a-dpo-y-grpo)
 4. [Aplicaciones](#4-aplicaciones)
@@ -291,7 +291,60 @@ No lleva máscara causal: cada token de salida puede leer toda la entrada. Las c
 
 ## 2. Pre-training e inferencia
 
-Términos de esta parte: [glosario, Entrenamiento y post-training](glosario.md#entrenamiento-y-post-training) e [Inferencia y sistemas](glosario.md#inferencia-y-sistemas).
+Términos de esta parte: [glosario, Datos de pre-entrenamiento](glosario.md#datos-de-pre-entrenamiento), [Entrenamiento y post-training](glosario.md#entrenamiento-y-post-training) e [Inferencia y sistemas](glosario.md#inferencia-y-sistemas).
+
+### 2.0 Datos de pre-entrenamiento
+
+**Problema.** Un corpus de pre-entrenamiento empieza como crawls de la web (Common Crawl: miles de millones de páginas por snapshot) y casi todo lo que contiene no sirve para aprender: menús, plantillas, spam, listados, páginas copiadas de otras páginas. Los modelos abiertos que alcanzaron a los cerrados en 2023–2024 lo hicieron sobre todo con mejores datos, no con arquitecturas nuevas (FineWeb, DCLM, el pipeline de Llama 3). El trabajo de datos es la mayor parte del trabajo.
+
+**El pipeline.** El crawl se reduce entre uno y dos órdenes de magnitud:
+
+```
+crawl (WARC) -> extracción de texto -> idioma -> filtros de URL y seguridad -> filtros de calidad
+             -> deduplicación (exacta, casi-duplicados) -> descontaminación -> mezcla -> tokenización
+```
+
+FineWeb (Penedo et al., 2024) documenta cada paso con ablaciones: un filtro solo se quedaba si un modelo pequeño entrenado con los datos filtrados puntuaba mejor en benchmarks. Ese es el método de referencia: los filtros se eligen por su efecto en un modelo entrenado, no a ojo.
+
+**Por qué hacen daño los duplicados.** Las crawls son muy redundantes (sitios espejo, plantillas, artículos sindicados, boilerplate); Lee et al. (2022) encontraron en C4 secuencias repetidas decenas de miles de veces. Los duplicados **gastan cómputo** (el modelo paga otra vez por texto que ya ha visto), **causan memorización** (una secuencia vista muchas veces se reproduce literalmente, un riesgo de privacidad y copyright; Carlini et al., 2021, 2023) y **filtran evaluaciones** (un benchmark copiado en la web acaba en el entrenamiento e infla las notas). La deduplicación exacta (hash del texto normalizado) es lineal y atrapa los espejos, pero un solo carácter cambiado la derrota; para lo demás hace falta detectar casi-duplicados.
+
+**Jaccard y MinHash.** Un documento $A$ se representa por su conjunto de **shingles** (por ejemplo, 5-gramas de palabras), y el solapamiento entre dos documentos es su similitud de Jaccard:
+
+$$J(A, B) = \frac{|A \cap B|}{|A \cup B|}$$
+
+Comparar todos los pares es $O(N^2)$, imposible con miles de millones de documentos. **MinHash** (Broder, 1997) aplica una función hash aleatoria $h$ a cada shingle y se queda con el mínimo. Para una permutación aleatoria,
+
+$$\Pr\big[\min h(A) = \min h(B)\big] = J(A, B)$$
+
+porque el mínimo sobre $A \cup B$ puede ser con igual probabilidad cualquiera de sus elementos, y los dos mínimos coinciden exactamente cuando ese elemento está en $A \cap B$. Con $k$ funciones hash independientes, la fracción de mínimos que coinciden en las dos **firmas** de longitud $k$ estima $J$ con error típico
+
+$$\mathrm{SE}(\hat J) = \sqrt{\frac{J(1-J)}{k}}$$
+
+En la práctica, las permutaciones se sustituyen por funciones afines $h_i(x) = (a_i x + b_i) \bmod p$ con un primo grande $p$ (un primo de Mersenne hace barata la operación módulo).
+
+**LSH: encontrar los pares candidatos.** La firma ya es pequeña, pero compararlas todas sigue siendo cuadrático. **Locality-sensitive hashing** parte cada firma en $b$ bandas de $r$ filas y mete los documentos en buckets por cada banda; dos documentos son candidatos si coinciden *exactamente* en alguna banda:
+
+$$\Pr[\text{candidato}] = 1 - \big(1 - J^r\big)^b$$
+
+Es una curva en S con un umbral suave cerca de
+
+$$J^* \approx \left(\frac{1}{b}\right)^{1/r}$$
+
+Los pares por encima se encuentran casi siempre y los de debajo casi nunca. Con $b = 16$ y $r = 8$ (128 funciones hash), $J^* \approx 0.71$. Más filas por banda afilan la curva y suben el umbral; más bandas lo bajan a cambio de más candidatos. Los candidatos se verifican (Jaccard estimado por encima del umbral) y los pares aceptados se agrupan con union-find, de modo que sobrevive un documento por cluster. La elección de $b$ y $r$ no es un detalle técnico: el umbral define qué es un "duplicado". FineWeb usa 5-gramas y un umbral cerca de 0.75, que quita copias con otra plantilla y reescrituras ligeras pero conserva documentos que solo se citan entre sí. `datatrove`, `text-dedup` y las implementaciones en Spark hacen exactamente esto a escala de miles de millones de documentos.
+
+**Filtros heurísticos.** Quitan lo que obviamente no es prosa. Las reglas de **Gopher** (Rae et al., 2021) acotan el número de palabras y la longitud media de palabra, limitan símbolos, líneas con viñetas y puntos suspensivos, exigen stop words comunes del inglés y penalizan líneas y n-gramas repetidos. Las de **C4** (Raffel et al., 2020) conservan las líneas que terminan en puntuación y descartan páginas con llaves de código o "lorem ipsum". Son baratas, interpretables y conviene registrar qué regla quita cada documento para poder auditarlas.
+
+**Filtros basados en modelo.** Puntúan cada documento con un clasificador pequeño entrenado para reconocer buen texto. **FineWeb-Edu** entrenó un regresor sobre un encoder BERT con 450.000 documentos que Llama-3-70B calificó por valor educativo (0 a 5); quedarse con los de nota 3 o más dio grandes ganancias en benchmarks de conocimiento con el mismo presupuesto de tokens. **DCLM** (Li et al., 2024) hizo lo mismo con un clasificador fastText. El compromiso: todo filtro quita también algo de texto bueno, y un clasificador codifica el gusto de quien etiquetó sus datos (favorece la prosa de libro de texto frente a la conversación o el código). Reglas y clasificador miden cosas distintas: las reglas quitan lo que no es texto; el clasificador juzga cuánto vale el texto.
+
+**Descontaminación.** Si las preguntas del test están en los datos de entrenamiento, el benchmark mide memoria, no capacidad. La comprobación estándar (GPT-3, Llama) indexa n-gramas largos (8 a 13 tokens) de cada benchmark y marca los documentos de entrenamiento que los comparten. Es barata y atrapa las copias literales; la contaminación parafraseada necesita similitud de embeddings o, sencillamente, no se detecta. Y no hace falta que nadie copie el test a propósito: la web se repite, y el mismo texto existe en los dos sitios.
+
+**Datos sintéticos y model collapse.** El texto escrito por LLMs es ya una parte grande de los datos de post-training y una parte creciente del pre-training (los "libros de texto" de los modelos Phi, Cosmopedia). Es controlable y barato, pero las muestras de un modelo son menos diversas que el texto humano, y entrenar repetidamente con salidas de modelos estrecha la distribución: las colas desaparecen primero y la variedad cae de generación en generación (***model collapse***, Shumailov et al., 2024). Los datos sintéticos necesitan la misma deduplicación y los mismos filtros que los datos web, más medidas explícitas de diversidad (léxica, como los bigramas distintos, y de embeddings), y se evalúan entrenando con ellos: un clasificador de calidad que premia lo que *parece* educativo premia justo el texto escrito para parecerlo.
+
+**Modos de fallo.** Un umbral que quita en silencio un dominio entero (código, otros idiomas o dialectos que el clasificador ve como "baja calidad"). Una deduplicación demasiado agresiva que quita repetición legítima (licencias que tienen que estar, frases comunes). Contaminación de benchmarks descubierta después de publicar. Datos sintéticos que inflan las mismas métricas que los juzgan. Un cambio en un sitio que inunda el corpus de boilerplate sin que nadie lo vea: por eso se monitoriza la proporción de cada fuente y de cada filtro en el tiempo, la tasa de duplicados por fuente, la distribución de notas del clasificador y una muestra leída por una persona en cada versión.
+
+**Papers clave.** Broder (1997), *On the resemblance and containment of documents*; Rae et al. (2021, Gopher); Raffel et al. (2020, T5 / C4); Carlini et al. (2021, 2023); Lee et al. (2022), *Deduplicating Training Data Makes Language Models Better*; Penedo et al. (2024), *The FineWeb Datasets*; Li et al. (2024, DataComp-LM / DCLM); Shumailov et al. (2024), *AI models collapse when trained on recursively generated data*.
+
+> **Notebook:** [18 · Ingeniería de datos](../../notebooks/02_pretraining_and_inference/18_data_engineering.ipynb) (se lee antes del 05) · **En el curso:** sobre 12.000 documentos de FineWeb y un crawl simulado de 13.500 con duplicados plantados, el hash exacto quita las 1.100 copias plantadas y nada más (13.500 → 12.400); MinHash + LSH desde cero ($k = 128$, 16 × 8, umbral 0.7) acepta 1.633 pares (→ 10.767) con recall del 100 % en copias con otra plantilla y con el 1 % de palabras cambiadas, 72.2 % con el 3 % y 0 % con el 10 %, sobre la curva teórica y sin falsos positivos; las reglas de Gopher y C4 quitan el 12.0 % (1.173 documentos por la regla de puntuación final de C4); el clasificador de FineWeb-Edu da 1.20 de media y 2.0 % con nota ≥ 3 a FineWeb tras las reglas, frente a 3.04 y 47.6 % a FineWeb-Edu; la descontaminación con 13-gramas encuentra las 50 de 50 fugas plantadas y 29 solapes naturales (noticias sindicadas); dos `TransformerLM` de ~16M entrenados con los mismos 12.3M de tokens quedan empatados en held-out (5.547 en bruto frente a 5.537 limpio, ruido), pero en los 43 documentos repetidos 10 veces el modelo en bruto baja a 4.350 frente a 5.281 (memorización); los 60 pasajes sintéticos de `qwen2.5:3b` sacan 4.15 en el clasificador frente a 3.14 del texto humano, con 0.60 bigramas distintos frente a 0.72.
 
 ### 2.1 El objetivo: predecir el siguiente token
 
@@ -309,7 +362,7 @@ El entrenamiento solo reduce el término KL; la entropía del texto es irreducib
 
 **Lo que sustituyó.** BERT (enmascarado, solo un 15 % de posiciones con pérdida y sin forma natural de generar), T5 (span corruption, dos pilas) o UL2 (mezcla de denoisers) perdieron frente al LM causal como opción por defecto: cada token es un objetivo, entrenamiento e inferencia coinciden y escala sin trucos. GPT-3 mostró el **in-context learning**, y eso lo consolidó. Para código se añade *fill-in-the-middle*.
 
-**Los datos deciden casi todo.** El pipeline típico (extracción, idioma, filtros heurísticos, clasificador de calidad, deduplicación exacta y MinHash, PII, descontaminación de benchmarks, pesos por dominio y una fase final de *annealing* con datos de alta calidad) es donde los datasets abiertos más han mejorado (RefinedWeb, FineWeb-Edu). Repetir datos unas pocas épocas es casi tan bueno como datos nuevos (Muennighoff et al., 2023).
+**Los datos deciden casi todo.** El pipeline típico (extracción, idioma, filtros heurísticos, clasificador de calidad, deduplicación exacta y MinHash, PII, descontaminación de benchmarks, pesos por dominio y una fase final de *annealing* con datos de alta calidad) es donde los datasets abiertos más han mejorado (RefinedWeb, FineWeb-Edu); el [apartado 2.0](#20-datos-de-pre-entrenamiento) lo desarrolla. Repetir datos unas pocas épocas es casi tan bueno como datos nuevos (Muennighoff et al., 2023).
 
 ### 2.2 Optimizador y plan de learning rate
 
@@ -340,6 +393,72 @@ y, minimizando con $C$ fijo, concluyó que parámetros y datos deben crecer en i
 **Óptimo de entrenamiento no es óptimo de despliegue.** Un modelo servido a millones de usuarios se paga sobre todo en inferencia, que escala con $N$. Por eso se **sobre-entrenan** modelos pequeños muy por encima de 20 tokens por parámetro (Llama 3 8B, unos 15T tokens, ~1.900 por parámetro): la pérdida sigue bajando, más despacio por FLOP.
 
 > **Notebook:** [05 · Pre-training](../../notebooks/02_pretraining_and_inference/05_pretraining.ipynb) · **En el curso:** pérdida inicial $\approx \ln V$ y test de fuga de la máscara causal como sanity checks; el corpus sintético tiene un suelo exacto ($4 \ln 10 = 9.21$ nats por frase) que los modelos alcanzan en ~100 pasos, el modelo grande llega antes y coseno y WSD acaban prácticamente iguales.
+
+### 2.3b Sistemas: memoria, precisión, kernels y paralelismo
+
+**Problema.** Las leyes de escalado dicen cuánto cómputo hace falta; no dicen si el entrenamiento cabe en la GPU, a qué velocidad va ni cómo se reparte entre muchas. Esa es la parte de sistemas de la ingeniería de LLMs, y casi todas sus decisiones consisten en cambiar un recurso (memoria, cómputo, comunicación) por otro.
+
+**Contabilidad de cómputo.** Un forward cuesta unos $2N$ FLOPs por token (una multiplicación y una suma por peso) y el backward el doble, así que entrenar cuesta
+
+$$C \approx 6\,N\,D \quad \text{FLOPs para } D \text{ tokens}$$
+
+más un término de atención de unos $12\,L\,d\,T$ FLOPs por token ($L$ capas de ancho $d$, contexto $T$), que solo pesa cuando $T$ es grande frente a $d$ (Kaplan et al., 2020; Chowdhery et al., 2022). La **model FLOPs utilization** mide qué fracción del pico de la GPU es trabajo útil:
+
+$$\mathrm{MFU} = \frac{\text{tokens/s} \times (6N + 12LdT)}{\text{pico de FLOP/s}}$$
+
+Solo cuenta los FLOPs del modelo, no los que se recalculan con checkpointing (eso sería la *hardware FLOPs utilization*, HFU). Los entrenamientos grandes bien ajustados llegan al 40–60 %.
+
+**Contabilidad de memoria.** Con Adam y precisión mixta, cada parámetro cuesta (Rajbhandari et al., 2020):
+
+$$\underbrace{2}_{\text{pesos bf16}} + \underbrace{2}_{\text{gradientes bf16}} + \underbrace{4 + 4 + 4}_{\text{pesos maestros fp32},\ m,\ v} = 16 \ \text{bytes} \quad\Rightarrow\quad 16\Psi \ \text{bytes para } \Psi \text{ parámetros}$$
+
+Un 7B necesita unos 112 GB antes de la primera activación; en fp32 puro también son 16 bytes (4 + 4 + 8). Las **activaciones**, las salidas de cada capa que se guardan para el backward, crecen con batch × secuencia × ancho × capas, más un término en $T^2$ si la atención guarda la matriz de scores (Korthikanti et al., 2022, dan unos $sbh(34 + 5as/h)$ bytes por capa en 16 bits, con secuencia $s$, batch $b$, ancho $h$ y $a$ cabezas). En secuencias largas y batches grandes son ellas, no los parámetros, las que deciden qué cabe. Una parte fácil de olvidar son los logits: batch × $T$ × $V$ números guardados para la pérdida.
+
+**Intensidad aritmética y roofline.** Que una operación esté limitada por cómputo o por memoria depende de su **intensidad aritmética** $I$, los FLOPs por byte movido. El modelo *roofline* acota el rendimiento:
+
+$$\text{FLOP/s alcanzables} = \min\big(\text{pico de FLOP/s},\ I \times \text{ancho de banda de memoria}\big)$$
+
+Una matmul $n \times n$ hace $O(n^3)$ trabajo sobre $O(n^2)$ datos y va cerca del pico; las operaciones elemento a elemento, las normalizaciones y el softmax hacen $O(1)$ trabajo por byte y están limitadas por memoria. Es la misma cuenta que explica el decode en el [apartado 2.5](#25-prefill-decode-y-kv-cache).
+
+**Trucos que cambian un recurso por otro.**
+
+- **Precisión mixta** (Micikevicius et al., 2018): calcular en bf16 o fp16 en los tensor cores (varias veces el throughput de fp32) y guardar los pesos maestros en fp32, para que las actualizaciones pequeñas no se pierdan por redondeo. bf16 tiene los 8 bits de exponente de fp32, así que no necesita *loss scaling*; fp16, con 5 bits de exponente, sí, o los gradientes pequeños se quedan en cero. fp8 (de Hopper en adelante) añade escalas por tensor o por bloque.
+- **Activation checkpointing** (Chen et al., 2016): guardar solo la entrada de cada bloque y recalcular su interior durante el backward. Cuesta un forward extra (~30 % más de cómputo) y deja en memoria un tensor por bloque más el interior de un solo bloque a la vez; con un checkpoint cada $\sqrt{L}$ capas, la memoria de activaciones baja a $O(\sqrt{L})$. La recomputación selectiva (Korthikanti et al., 2022) recalcula solo las partes grandes y baratas, como la atención.
+- **FlashAttention** (Dao et al., 2022; Dao, 2023): la atención estándar escribe en HBM la matriz $S = QK^\top$ de $T \times T$, la lee para el softmax y la vuelve a leer para multiplicar por $V$; su coste lo dominan esos bytes, no los FLOPs. FlashAttention es **IO-aware**: parte $Q$, $K$ y $V$ en bloques que caben en la SRAM del chip y mantiene para cada fila un máximo $m$ y una suma $\ell$ que se corrigen con cada bloque nuevo $j$ (*softmax online*):
+
+  $$m' = \max(m, \tilde m_j), \qquad \ell' = e^{m - m'}\,\ell + e^{\tilde m_j - m'}\,\tilde\ell_j, \qquad O' = \frac{e^{m - m'}\,\ell\,O + e^{\tilde m_j - m'}\,\tilde P_j V_j}{\ell'}$$
+
+  El resultado es exacto, la memoria es lineal en $T$ y el backward recalcula $S$ por bloques en lugar de guardarla. FlashAttention-2 reparte mejor el trabajo entre warps y FlashAttention-3 aprovecha la asincronía de Hopper; el kernel *memory-efficient* (Rabe y Staats, 2021; xformers) y la atención fusionada de cuDNN aplican la misma idea. Ninguno reduce el cómputo $O(T^2)$: eso es el [apartado 1.4](#14-atención-eficiente-para-contextos-largos).
+- **Fusión de kernels y CUDA graphs.** Cada operación de PyTorch lanza un kernel con un coste fijo de unos microsegundos de CPU, y cada operación elemento a elemento lee y escribe su tensor entero en HBM. `torch.compile` (TorchDynamo captura el grafo; su backend por defecto, `inductor`, genera kernels de Triton) fusiona cadenas de operaciones en un solo kernel que lee una vez y escribe una vez. Un **CUDA graph** graba una secuencia de kernels con sus direcciones de memoria y la reproduce con un solo lanzamiento: no ahorra bytes ni FLOPs, ahorra lanzamientos, y exige formas estáticas. Es lo que usan los servidores de inferencia para el paso de decode.
+
+**Paralelismo.**
+
+| Estrategia | Qué se reparte | Comunicación por paso | Para qué |
+|---|---|---|---|
+| de datos (DDP) | el batch; cada GPU tiene el modelo entero | all-reduce de los gradientes | modelos que caben en una GPU |
+| ZeRO-1 / 2 / 3, FSDP | estados del optimizador (1), + gradientes (2), + pesos (3) | reduce-scatter + all-gather | modelos grandes sin cambiar su código |
+| de tensor (Megatron) | cada matmul entre GPUs | all-reduce dentro de cada capa | capas muy anchas, dentro de un nodo (enlaces rápidos) |
+| de pipeline | las capas, por etapas | activaciones entre etapas | modelos muy profundos, entre nodos |
+| de secuencia / contexto | la secuencia | bloques de atención | contextos muy largos |
+| de expertos | los expertos de una capa MoE | all-to-all del enrutado | modelos MoE ([apartado 1.5](#15-ffn-y-mixture-of-experts)) |
+
+El paralelismo de datos descansa en un hecho exacto: la media de los gradientes de $k$ trozos de un batch es el gradiente del batch entero, así que $k$ GPUs con batch $b$ entrenan como una con batch $kb$. El **all-reduce en anillo** hace un reduce-scatter y un all-gather de $k-1$ pasos cada uno, y en cada paso cada GPU envía un trozo de $P/k$ bytes:
+
+$$\text{bytes enviados por GPU} = 2\,\frac{k-1}{k}\,P$$
+
+casi independiente de $k$; por eso DDP escala mientras la red siga el ritmo, y solapa la comunicación con el backward agrupando los gradientes en *buckets*. **ZeRO** (Rajbhandari et al., 2020) quita la redundancia de DDP repartiendo los estados entre las $N_d$ GPUs de datos:
+
+$$\text{memoria por GPU:}\quad \text{DDP } 16\Psi, \qquad \text{ZeRO-1 } 4\Psi + \frac{12\Psi}{N_d}, \qquad \text{ZeRO-2 } 2\Psi + \frac{14\Psi}{N_d}, \qquad \text{ZeRO-3 } \frac{16\Psi}{N_d}$$
+
+ZeRO-1 y ZeRO-2 comunican lo mismo que DDP (un reduce-scatter más un all-gather); ZeRO-3 añade el all-gather de los pesos antes del forward y del backward de cada capa, alrededor de 1.5 veces el volumen de DDP. FSDP (Zhao et al., 2023) es la implementación de PyTorch (*full shard* es ZeRO-3; en FSDP2, `fully_shard`). Los modelos más grandes combinan estrategias ("paralelismo 3D/4D", Narayanan et al., 2021): tensor dentro del nodo, pipeline y FSDP entre nodos. El pipeline paga una burbuja de tiempo ocioso de $(p-1)/(m+p-1)$ con $p$ etapas y $m$ micro-batches (GPipe; 1F1B la reduce en memoria).
+
+**Lo que sustituyó.** Antes de ZeRO, un modelo que no cabía en una GPU necesitaba paralelismo de modelo escrito a mano (Megatron) o pipelines; antes de FlashAttention, el contexto largo estaba limitado por la memoria $O(T^2)$, y por eso proliferaron las atenciones aproximadas. Hoy la pila por defecto es bf16, atención fusionada, FSDP o ZeRO-3 y, a gran escala, tensor parallelism dentro del nodo (`torchtitan`, Megatron-LM / NeMo, DeepSpeed).
+
+**Modos de fallo.** Falta de memoria por las activaciones, no por los parámetros, que aparece al crecer la secuencia o el batch. *Fallbacks* silenciosos: una build sin FlashAttention, o Windows paginando memoria de GPU en la RAM del sistema; los dos se ven como un frenazo repentino, no como un error. fp16 sin loss scaling: gradientes que se quedan en cero. Escalado limitado por la comunicación: añadir GPUs no acelera porque la red no sigue a los all-gathers de ZeRO-3. No determinismo entre ejecuciones por los kernels de GPU, que importa al comparar diferencias pequeñas.
+
+**Papers clave.** Chen et al. (2016), *Training Deep Nets with Sublinear Memory Cost*; Micikevicius et al. (2018), *Mixed Precision Training*; Shoeybi et al. (2019), *Megatron-LM*; Rajbhandari et al. (2020), *ZeRO*; Kaplan et al. (2020), *Scaling Laws for Neural Language Models*; Rabe y Staats (2021), *Self-attention Does Not Need O(n²) Memory*; Narayanan et al. (2021), *Efficient Large-Scale Language Model Training on GPU Clusters*; Dao et al. (2022), *FlashAttention*, y Dao (2023), *FlashAttention-2*; Korthikanti et al. (2022), *Reducing Activation Recomputation in Large Transformer Models*; Chowdhery et al. (2022, PaLM, MFU); Zhao et al. (2023), *PyTorch FSDP*.
+
+> **Notebook:** [19 · Sistemas: memoria, precisión, kernels y paralelismo](../../notebooks/02_pretraining_and_inference/19_systems_memory_and_parallelism.ipynb) (se lee después del 05) · **En el curso:** en una RTX 3060 Laptop de 6 GB, con un `TransformerLM` de 29.4M de parámetros, los pesos fp32 ocupan 0.111 GB (0.110 predichos), los gradientes 0.118 y Adam 0.219, pero las activaciones pasan de 0.43 a 3.39 GB de batch 2 a 16; bf16 hace el paso 2.2× más rápido y baja el pico de 2.18 a 1.66 GB; el checkpointing recorta el pico un 57 % (fp32) y un 51 % (bf16) por ~22 % más de tiempo; la atención ingenua ocupa 4.1 GB a 8.192 tokens y se queda sin memoria a 16.384, mientras los kernels fusionados (memory-efficient y cuDNN; FlashAttention-2 no está en las wheels de Windows) necesitan 0.22 GB a 16.384 y cuDNN tarda 51.9 ms; el backend *math* sin fusionar desborda a la memoria compartida de Windows (8.1 GB en una tarjeta de 6 GB, 978 ms); el profiler pone el 47 % del tiempo de GPU en matmuls, con 1.136 kernels por paso; sin Triton no hay `inductor`, pero `backend="cudagraphs"` da 4.1× (8.68 → 2.11 ms) con la misma salida; la MFU es del 32 % (7.38 TFLOP/s frente a un pico medido de 23.0, 36.608 tokens/s); un DDP real con dos procesos (`gloo`, `FileStore`, `mp.spawn`) acaba con los mismos pesos que un proceso con el batch global (7.45e-9) y hace all-reduce de 0.53 MB por paso; y la calculadora da para un 7B 112 GB por GPU con DDP frente a 14 GB con FSDP en 8 GPUs (1.8 GB con 64), y para un 70B 140 GB con 8 y 17.5 GB con 64.
 
 ### 2.4 Estrategias de decodificación
 

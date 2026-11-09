@@ -2,9 +2,9 @@
 
 🇪🇸 [Versión en español](../es/guia_notebooks.md) · [← Back to the index](README.md)
 
-The 18 notebooks one by one: what you build, which tools you use, which concepts you take away, what gets measured and what results come out.
+The 20 notebooks one by one: what you build, which tools you use, which concepts you take away, what gets measured and what results come out.
 
-The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings. **Notebook 17** (encoders and encoder-decoders) mixes both halves and is read right after 04, before 05: it closes the architecture topic with the two transformer families that are not decoder-only.
+The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings. **Notebook 17** (encoders and encoder-decoders) mixes both halves and is read right after 04, before 05: it closes the architecture topic with the two transformer families that are not decoder-only. **Notebook 18** (data engineering) is read right before 05: deduplication, quality filtering, decontamination and synthetic data on a real FineWeb sample, and two `TransformerLM`s trained on raw and clean data to see what changes. **Notebook 19** (systems) is read right after 05: it measures on the course's GPU where the memory and the time of a training run go (weights, gradients, Adam and activations, bf16, activation checkpointing, attention kernels, profiling, CUDA graphs and MFU) and how training is split across several GPUs (real DDP in two processes and a ZeRO / FSDP calculator).
 
 **How to use this guide.** Read the entry before you open the notebook, run it cell by cell, then come back and compare your numbers with the ones here. Every number below comes from the run committed to the repository (a laptop with a 6 GB RTX 3060). Your numbers will move a little: small models are sensitive to each machine's arithmetic, and anything an LLM generates or judges changes between runs. Where a result is fragile, the notebook says so, and so does this guide. Every notebook also has theory sections ("Background: ...") before the code that uses them; the long version of that theory, with the equations, is in the [theoretical foundations](foundations.md).
 
@@ -13,19 +13,21 @@ The course has two halves. **Notebooks 00–06** build a language model from scr
 - **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA in 07) and `optimum-quanto`. The first run downloads SmolLM2 from the Hugging Face Hub. Each notebook caps its own VRAM (`VRAM_BUDGET_GB`) so it fits on the GPU next to Ollama: 2 GB by default in 07, which trains nine models and whose 4-bit model leaves ~0.1 GB behind, and 1.5 GB in 08 and 09.
 - **10–16**: **Ollama must be running** with `qwen2.5:3b` and `nomic-embed-text` pulled. The first cell (`setup()` from `llm_edu_suite.config`) checks this. Notebook 10 also uses `qwen2.5:7b` as the RAGAS judge if it is pulled (`ollama pull qwen2.5:7b`, optional; otherwise the 3B model judges). In notebook 12, Ollama is only needed for the content embeddings and the LLM layer (requests and explanations); SASRec, the two-tower model and the LightGBM ranker are plain PyTorch and LightGBM, and MovieLens-1M is downloaded into `data/cache/` on the first run.
 - **17**: `transformers` (ModernBERT-base and Flan-T5-small, downloaded from the Hugging Face Hub on the first run), `datasets` (Banking77), `scikit-learn` (logistic regression) and **Ollama running** with `qwen2.5:3b` and `nomic-embed-text` for section 2.
+- **18**: `datasets` (FineWeb and FineWeb-Edu samples, about 100 MB streamed once and kept in `data/cache/`), `transformers` (the `HuggingFaceFW/fineweb-edu-classifier`, ~440 MB, and the SmolLM2 tokenizer), `llm_edu_suite.model` for the two models it trains, and **Ollama running** with `qwen2.5:3b` for section 7 (synthetic data). About 30 minutes on the RTX 3060: two trainings of 10–11 minutes and about 3 minutes of LLM generation.
+- **19**: PyTorch and `llm_edu_suite.model` only, no downloads and no Ollama, but it **needs a CUDA GPU** (it measures GPU memory and kernels; without one it stops with a message at the start). The Windows PyTorch wheels ship without FlashAttention-2 and without Triton (the `inductor` backend of `torch.compile`): the notebook detects this and carries on with what is available, and DDP runs in two CPU processes with `gloo`. About 5 minutes on the RTX 3060.
 - **LangSmith is optional.** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env`, every LangChain/LangGraph call in 10–16 is traced. Without a key everything still runs, and notebook 15 skips the cells that need the LangSmith server and prints that it skipped them. The committed run had LangSmith on.
 
 | Topic | Notebooks | GPU time of the final run |
 |---|---|---|
 | Start here | [00](#00) | 32 s |
 | Architecture | [01](#01) · [02](#02) · [03](#03) · [04](#04) · [17](#17) | 5 s · 31 s · 180 s · 48 s · ≈ 15 min (≈ 19.5 min) |
-| Pre-training and inference | [05](#05) · [06](#06) · [09](#09) | 35 s · 61 s · 53 s (≈ 2.5 min) |
+| Pre-training and inference | [18](#18) · [05](#05) · [19](#19) · [06](#06) · [09](#09) | ≈ 30 min · 35 s · ≈ 5 min · 61 s · 53 s (≈ 37.5 min) |
 | Post-training | [07](#07) · [08](#08) | ≈ 14 min · 645 s (≈ 25 min) |
 | Applications | [10](#10) · [12](#12) · [13](#13) | ≈ 19 min · ≈ 25 min · 140 s (≈ 46 min) |
 | Agents and MCP | [11](#11) · [14](#14) · [16](#16) | 56 s · 119 s · 65 s (≈ 4 min) |
 | LLMOps | [15](#15) | 129 s |
 
-Notebooks 07, 10 and 12 were re-run for v2.1 and their times are approximate: 07 now also trains QLoRA, 10 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 12 includes ~11 minutes of ranker feature building. In total, about an hour and a half for notebooks 00–16, plus about 15 minutes for 17, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU.
+Notebooks 07, 10 and 12 were re-run for v2.1 and their times are approximate: 07 now also trains QLoRA, 10 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 12 includes ~11 minutes of ranker feature building. In total, about an hour and a half for notebooks 00–16, plus about 15 minutes for 17, about 30 for 18 and about 5 for 19, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU. Notebook 19 does not run without a CUDA GPU.
 
 ---
 
@@ -103,7 +105,7 @@ With only 300 steps even the dense model is at 0.3%: ***induction heads*** appea
 
 **Results.** With top-2 of 8 experts, the layer has 3× (2.99×) more total than active parameters. Aux-free balancing takes an unbalanced router **from 4.0× to 1.15×** with `bias_lr=0.01`, while 0.1 oscillates (it only gets to 1.68×; the plot shows it). On the toy corpus MoE does not beat the dense model: dense ppl 3.24, MoE with auxiliary loss 3.31, MoE aux-free 3.24, with the same active parameters. The notebook explains why MoE pays off at scale.
 
-**Next:** [17](#17), which completes the architecture topic, and then 05.
+**Next:** [17](#17), which completes the architecture topic, then [18](#18) (the data) and 05.
 
 ---
 
@@ -163,6 +165,59 @@ Flan-T5-small (77M): a 19M encoder stack, a 25M decoder stack (with cross-attent
 - **Flan-T5-small** classifies the stolen-card message correctly ("lost card") and writes a reasonable summary, but its translation is wrong: "Einzahlung" means *deposit*, not *purchase*. The last layer's cross-attention map is dominated by two *attention sinks* (the "e" of "Translate" and `</s>`), with a faint alignment underneath. The last layer of a small model is a poor place to look for alignment.
 - The notebook ends with "Results" and an "In production" section with a decision guide (no labels: an LLM with constrained decoding; hundreds of labels: embeddings + logistic regression; for the last points: fine-tune an encoder), what to monitor and the typical failure modes (label drift, over-confidence out of distribution, train/test leakage).
 
+**Next:** [18](#18), what happens to text before pre-training, and then 05.
+
+---
+
+<a id="18"></a>
+## 18 · Data engineering for LLMs: deduplication, quality filtering, decontamination
+`notebooks/02_pretraining_and_inference/18_data_engineering.ipynb` · modules `model`, `config` · `datasets`, `transformers`, LangChain (Ollama)
+
+Read it right before 05: this is what happens to text before a model ever sees it. The most repeated sentence in LLM engineering is that the data matters more than the model, and the open models that caught up with closed ones in 2023–2024 did it largely through better data (FineWeb, DCLM, Llama 3's data pipeline). This notebook builds the main steps of that pipeline on a real sample, measures what each one removes and why, and finally checks whether cleaning actually changes the trained model.
+
+**What you build.** On a **FineWeb** sample (12,000 documents, 6.2M words, median 297 per document; streamed once into `data/cache/`, ODC-By license, not redistributed) and a **FineWeb-Edu** reference (1,000 documents):
+1. A **simulated raw crawl** with known duplicates, because FineWeb is already deduplicated: 10,000 base documents plus 600 exact copies (a mirror), 50 documents copied 10 times each (syndicated content) and 600 near-duplicates of each of four kinds (another template with the text unchanged, and another template with 1 %, 3 % or 10 % of the words replaced). 13,500 documents in total. The last 2,000 FineWeb documents stay out of everything as a clean held-out set.
+2. **Exact deduplication**: normalize (lowercase, collapse whitespace), SHA-1, keep the first document of each hash.
+3. **MinHash + LSH from scratch**: word 5-gram shingles hashed to 32 bits with CRC-32; 128 affine hash functions $h_i(x) = (a_i x + b_i) \bmod p$ with the Mersenne prime $p = 2^{61} - 1$; 16 bands of 8 rows; a candidate is accepted if its signatures agree on at least 70 % of positions, and accepted pairs are merged into clusters with union-find. Recall is measured per duplicate kind and compared with the theoretical curve.
+4. **Quality filters**: a compact version of the Gopher and C4 rules that records which rule removes each document (a per-rule funnel), then the **FineWeb-Edu classifier** (a 110M BERT encoder, like the ones in [17](#17)) scoring a sample of the survivors.
+5. **Decontamination** with 13-grams: 200 held-out documents act as a "benchmark", the first 300 words of 50 of them are pasted into training documents, and training documents sharing any 13-gram with the benchmark are flagged.
+6. **Does it change the model?**: two identical `TransformerLM`s (the one from 05, 4 layers of width 256, ~16M parameters, SmolLM2's 49k-token BPE tokenizer), one on the raw crawl and one on the clean corpus, with the same number of tokens.
+7. **Synthetic data**: `qwen2.5:3b` writes "textbook" passages on 20 topics (3 samples per topic at temperature 0.8), treated like any other data: near-duplicates with MinHash, diversity (distinct bigrams) and the classifier's score.
+
+**Tools.** `datasets.load_dataset("HuggingFaceFW/fineweb" / "HuggingFaceFW/fineweb-edu", name="sample-10BT", streaming=True)` with `itertools.islice` to read only the first documents; `hashlib.sha1` and `zlib.crc32`; NumPy for the signatures (the 128 hash functions vectorized over all of a document's shingles); `collections.defaultdict` as the per-band bucket table; union-find with path compression; `AutoModelForSequenceClassification` with `HuggingFaceFW/fineweb-edu-classifier` (truncated to 512 tokens, bf16); `AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM2-135M")`; `ModelConfig` and `TransformerLM` from `llm_edu_suite.model` with AdamW (`lr=1e-3`, `betas=(0.9, 0.95)`, `weight_decay=0.1`) and warm-up + cosine; `config.get_llm(temperature=0.8)` with `.batch(..., max_concurrency=4)`.
+
+**Key concepts**
+- The pre-training corpus pipeline: crawl → text extraction → language ID → URL and safety filters → quality filters → deduplication (exact and near-duplicate) → decontamination → mixing → tokenization. FineWeb kept a filter only if a small model trained on the filtered data scored better; the notebook copies that method at small scale.
+- Why duplicates hurt: they waste compute, cause **memorization** (a privacy and copyright risk) and leak evaluations.
+- **Jaccard similarity** between shingle sets and **MinHash**: $\Pr[\min h(A) = \min h(B)] = J(A, B)$, with standard error $\sqrt{J(1-J)/k}$ for $k$ hash functions.
+- **Banded LSH**: $\Pr[\text{candidate}] = 1 - (1 - J^r)^b$, an S-curve with a threshold near $(1/b)^{1/r}$; with $b = 16$, $r = 8$, $J \approx 0.71$. Bands and rows set the threshold, and the threshold defines what a "duplicate" is.
+- Heuristic rules (Gopher, C4) versus **model-based filters** (FineWeb-Edu, DCLM): the former remove what is not text; the latter judge what the text is worth, with the bias of whoever labelled their data.
+- **Decontamination** with long n-grams (8 to 13): cheap and reliable for verbatim copies, blind to paraphrases.
+- Synthetic data: controllable and cheap, but less diverse, and training recursively on model outputs narrows the distribution (***model collapse***).
+
+**Results**
+
+| Step | Measured | What it shows |
+|---|---|---|
+| exact dedup | 13,500 → 12,400 documents; all 1,100 planted copies removed, nothing else | cheap, exact, and blind to the smallest edit |
+| MinHash + LSH (k = 128, 16 × 8, threshold 0.7) | 1,693 candidate pairs, 1,633 accepted, 12,400 → 10,767 in 12 s; recall 100 % (template only and +1 %), 72.2 % (+3 %), 0 % (+10 %); 0 merges of different base documents | the measured detection rate sits on the theoretical curve $1 - (1 - J^8)^{16}$ |
+| Gopher + C4 rules | 10,767 → 9,472 (12.0 % removed); 1,173 by C4's terminal-punctuation rule, then length (66), non-alphabetic words (29), bullet lines (14), stop words (11) | rules remove menus, forum threads and fragments, not bad prose |
+| FineWeb-Edu classifier | mean 1.20 and 2.0 % scored ≥ 3 on FineWeb after the rules; 1.00 and 0.8 % on what they rejected; 3.04 and 47.6 % on FineWeb-Edu | model-based filtering is far more selective; spam in good prose survives the rules |
+| decontamination (13-grams) | 50 of 50 planted leaks found in 6 s, plus 29 natural overlaps (syndicated news) | contamination happens on its own when the web repeats itself |
+| training on raw vs clean (same 12.3M tokens) | held-out loss 5.547 vs 5.537 (perplexity 257 vs 254); loss on the 43 documents repeated 10 times 4.350 vs 5.281 | at this scale, dedup's measurable effect is less memorization at 27 % fewer tokens |
+| synthetic data (`qwen2.5:3b`, 60 passages in 196 s) | classifier score 4.15 (100 % ≥ 3) vs 3.14 (57 %) for human text; distinct bigrams 0.60 vs 0.72 | synthetic text games the quality classifier and is less diverse |
+
+**Honest findings**
+- **The threshold decides what a duplicate is.** One edited word breaks up to five 5-grams, so replacing 1 % of the words leaves a Jaccard around 0.9 (always caught), 3 % leaves 0.72–0.78, right on the threshold (72.2 %), and 10 % drops it to about 0.42, where LSH by design does not look (0 %). That the measured rates sit on the theoretical curve is the best check that the implementation is right. FineWeb uses 5-grams and a threshold near 0.75: it removes templated copies and light rewrites but keeps documents that merely quote each other.
+- **Rules and classifier measure different things.** What the rules reject scores 1.00 on average, close to what they keep (1.20), and the lowest-scored survivor is the terms-and-conditions page of an escort site: well-formed prose that passes every rule. Heuristics remove what is not text; a classifier is needed to judge what the text is worth. The cost: keeping only scores of 3 or more would throw away 98 % of the sample, and the classifier encodes one model's idea of "educational", which favours textbook prose over conversation or code. (The 47.6 % for FineWeb-Edu is not identical to theirs: they round the score before thresholding, and here the input is truncated at 512 tokens.)
+- **Nobody copies the test set on purpose.** The 29 flagged documents that were not planted share 13-grams with the benchmark because the web repeats itself: Associated Press stories republished by different sites. A benchmark built from web text has to be checked against the training corpus.
+- **Cleaning does not improve held-out loss at this scale, and the notebook says so.** Cleaning removed 27 % of the tokens (9.5M → 6.9M) and both models trained on the same 12.3M (1,500 steps of 32 × 256), so the clean model saw its data more times. 5.547 against 5.537 is within noise: FineWeb measured the gains of filtering on models trained for billions of tokens and on benchmarks, and a 16M model trained for a few minutes is far from that regime.
+- **Memorization does show.** On the 43 documents repeated 10 times that survived cleaning (the clean model saw each once), the raw model's loss is 4.350, well below its loss on unseen text (5.547), and the clean model's is 5.281, close to its own. Ten copies are enough for a small model to start memorizing, the effect Lee et al. (2022) and Carlini et al. (2023) measured on large models: duplication buys memorization, not knowledge.
+- **Synthetic text games the filter that judges it.** The classifier scores the `qwen2.5:3b` passages above human FineWeb-Edu text (4.15 vs 3.14) because it rewards what *looks* educational. They are not near-duplicates of each other (same-topic pairs share only 0.09 of their 3-grams, none above 0.5); the narrowing is subtler: the same structure and phrasing patterns across topics, visible in the distinct bigrams (0.60 vs 0.72). Synthetic data is evaluated by training on it, not by the classifier, and lexical diversity is the cheap early warning of collapse.
+- The notebook ends with "Results" and an "In production" section: use a framework built for this (`datatrove`, used for FineWeb, or NVIDIA NeMo Curator) and keep each step's decision per document; defaults (exact dedup, then MinHash on 5-grams with a threshold around 0.75, within each crawl snapshot first; Gopher and C4 as a baseline with a model score on top, its threshold chosen by small training ablations; decontaminate against every benchmark you report, with 8 to 13-grams; for synthetic data, varied prompts, personas and seeds, and measure diversity); what to monitor (each source's and filter's share over time, duplicate rates per source, the classifier's score distribution and a random sample read by a person at every release); and failure modes (a threshold that silently removes a whole domain such as code, other languages or dialects; over-aggressive dedup that removes legitimate repetition; contamination discovered after publication; synthetic data that inflates the metrics used to judge it).
+
+**Next:** [05](#05), where text like this becomes a trained model.
+
 ---
 
 <a id="05"></a>
@@ -174,6 +229,69 @@ Flan-T5-small (77M): a 19M encoder stack, a 25M decoder stack (with cross-attent
 **Key concepts.** Sanity checks (initial loss ≈ ln V, a test that the model cannot see the future); how to read the dashboard; **irreducible loss** (the *E* term of Chinchilla); a schedule ablation (cosine versus WSD); a scaling sanity check.
 
 **Results.** Validation perplexity 2.79 against a theoretical floor of 2.75 (**1.5% above the floor** in loss). At the same number of steps the 1.67M model learns much faster than the 125K one (loss 1.054 versus 1.259 at step 50). Cosine and WSD end up practically the same (1.024 versus 1.027).
+
+**Next:** [19](#19), which measures what a training run like this costs (memory, precision, kernels and parallelism), then [06](#06).
+
+---
+
+<a id="19"></a>
+## 19 · Systems for training LLMs: memory, precision, kernels and parallelism
+`notebooks/02_pretraining_and_inference/19_systems_memory_and_parallelism.ipynb` · modules `model`, `utils` · `torch.profiler`, `torch.utils.checkpoint`, `torch.nn.attention`, `torch.compile`, `torch.distributed`
+
+Read right after 05. Notebook 05 trains a model; this one looks at **what that costs and why**: the part of LLM engineering that decides whether a run fits on your hardware, how fast it goes and how it scales to many GPUs. Everything is measured on the course's GPU (an RTX 3060 Laptop, 6 GB), mostly with a 29.4M-parameter `TransformerLM` (width 512, 8 layers, vocabulary 8,192, context 512) on random tokens: what matters here is the cost, not what it learns.
+
+**What you build.**
+1. **Memory anatomy**: `torch.cuda.memory_allocated()` after moving the model, after forward + backward and after the optimizer step, against the textbook formula (in fp32, 4 bytes per parameter for the weights, 4 for the gradients and 8 for Adam's two moments), and the activation peak from batch 2 to 16 in fp32 and in bf16.
+2. **bf16 and activation checkpointing**: the same training step (batch 8) in fp32 and with bf16 autocast, with and without `torch.utils.checkpoint.checkpoint` around every block; time, peak memory and the loss after 30 steps on the same batches.
+3. **Attention kernels**: one causal attention layer (8 heads of 64, batch 1, bf16), forward and backward, from 512 to 16,384 tokens. The naive version materializes the $T \times T$ matrix; against it, the backends of `F.scaled_dot_product_attention` forced one at a time (math, FlashAttention-2, memory-efficient and cuDNN), after checking which ones this PyTorch build can run.
+4. **Profiling** one bf16 training step (batch 8) with `torch.profiler`: the operators with the most GPU time, the share that goes into matrix multiplications and the number of kernels launched.
+5. **Launch overhead and CUDA graphs**: a small model (6 layers of width 256) running the forward pass on 64 tokens at batch 1, as in decoding, in eager mode and captured with `torch.compile(backend="cudagraphs")`.
+6. **MFU**: tokens per second of full bf16 training steps at batch 16, converted into useful FLOP/s with $6N + 12LdT$ FLOPs per token and divided by the peak measured with a large bf16 matmul.
+7. **Data parallelism for real**: `DistributedDataParallel` in two CPU processes on a small `TransformerLM` (2 layers of width 64), checking that two processes with batch 4 end up with the same weights as one process with batch 8.
+8. **A ZeRO / FSDP calculator**: per-GPU memory for the model states ($16\Psi$ bytes) under DDP and the three ZeRO stages, for 7B and 70B with 8 and with 64 GPUs.
+
+**Tools.** `torch.cuda.memory_allocated`, `max_memory_allocated` and `reset_peak_memory_stats`; `torch.autocast("cuda", dtype=torch.bfloat16)`; `torch.utils.checkpoint.checkpoint`; `torch.nn.attention.sdpa_kernel` with `SDPBackend`; `torch.profiler.profile` with `ProfilerActivity.CUDA`; `torch.compile(backend="cudagraphs")`; `torch.distributed` with `gloo` and `init_method="file://..."` (a `FileStore`), `DistributedDataParallel` and `torch.multiprocessing.spawn`; `ModelConfig` and `TransformerLM` from `llm_edu_suite.model`.
+
+**Key concepts**
+- **Compute accounting**: training costs $C \approx 6ND$ FLOPs (2 per parameter per token forward, 4 backward), plus an attention term of about $12LdT$ per token that only matters when $T$ is large compared with $d$.
+- **16 bytes per parameter**: with Adam and mixed precision, 2 (bf16 weights) + 2 (gradients) + 12 (fp32 master weights and Adam's two moments); in plain fp32 it is also 16 (4 + 4 + 8). A 7B model needs about 112 GB before the first activation.
+- **Activations**: they grow with batch × sequence × width × layers, plus a $T^2$ term if the attention kernel stores the score matrix. For long sequences and large batches they dominate.
+- **Mixed precision**: compute in bf16 on the tensor cores with fp32 master weights. bf16 has fp32's exponent range and needs no *loss scaling*; fp16 does.
+- **Activation checkpointing**: keep only each block's input and recompute its internals during the backward pass, at the price of one extra forward pass (~30 % more compute).
+- **Arithmetic intensity**: FLOPs per byte moved. Large matmuls run near peak; element-wise operations, normalizations and softmax are memory-bound. That is why fusing kernels helps, and why FlashAttention wins mostly by moving fewer bytes.
+- **FlashAttention**: attention computed in tiles in the chip's SRAM with an online softmax. It never writes the $T \times T$ matrix to HBM, it is exact and its memory is linear in $T$.
+- **Kernel fusion and CUDA graphs**: every PyTorch operation launches a kernel with a fixed cost of a few microseconds. `torch.compile` fuses operations (its default backend generates Triton); a CUDA graph records a sequence of kernels and replays it with a single launch.
+- **MFU** (*model FLOPs utilization*): the share of the GPU's peak that is useful work; well-tuned large training runs reach 40–60 %.
+- **Parallelism**: data (DDP, an all-reduce of the gradients), ZeRO-1/2/3 and FSDP (shard the optimizer states, the gradients and the weights), tensor (each matmul across GPUs), pipeline (the layers in stages), sequence and expert. A ring **all-reduce** of $P$ bytes moves $2\frac{k-1}{k}P$ bytes per GPU, almost independent of the number of GPUs $k$.
+
+**Results**
+
+| Question | Measured on the RTX 3060 Laptop (6 GB) | Lesson |
+|---|---|---|
+| model memory, 29.4M parameters, fp32 + Adam | weights 0.111 GB, gradients 0.118 GB, Adam 0.219 GB (predicted 0.110 / 0.110 / 0.219) | the 16-bytes-per-parameter rule holds |
+| activations | 0.43 → 3.39 GB from batch 2 to 16 (fp32); 1.71 GB at batch 8 versus 0.45 GB of model states | activations decide what fits |
+| bf16 autocast | step 2.2× faster (275.6 → 123.6 ms), peak 2.18 → 1.66 GB | always on, with fp32 master weights |
+| activation checkpointing | peak −57 % in fp32 (2.18 → 0.93 GB) and −51 % in bf16 (1.66 → 0.81 GB) for ~22 % more time | the standard trade when memory is the limit |
+| attention kernels | naive: 4.1 GB at 8k tokens, out of memory at 16k; fused: 0.22 GB at 16k, 51.9 ms with cuDNN | fused kernels make long contexts possible; FlashAttention-2 is missing from the Windows wheels |
+| profile of one step | 226.9 ms of GPU time, 47 % in matmuls, 1,136 kernels | in a small model, element-wise ops and launches weigh a lot |
+| CUDA graphs | 8.68 → 2.11 ms per forward (4.1×), same output | launch overhead is real and removable |
+| efficiency | 36,608 tokens/s, 7.38 TFLOP/s, MFU 32 % (measured peak 23.0 TFLOP/s) | a reasonable baseline; large runs reach 40–60 % |
+| data parallelism (2 processes) | weights identical to one process with the global batch (max difference 7.45e-9); 0.53 MB all-reduced per step | DDP is large-batch training, plus an all-reduce |
+| ZeRO / FSDP calculator | 7B: 112 GB (DDP) → 14 GB per GPU (FSDP, 8 GPUs), 1.8 GB with 64; 70B: 140 GB with 8, 17.5 GB with 64 | sharding is what makes large models trainable |
+
+**Honest findings**
+- **The textbook arithmetic holds almost to the megabyte, and it is not what weighs most.** Weights 0.111 GB against 0.110 predicted, Adam 0.219 against 0.219; the gradients take 0.118 GB because of a few small autograd buffers. The activations dwarf it all: at batch 8 the forward + backward peak is 1.82 GB, about 1.71 GB of activations against 0.45 GB of model states, and an easy part to forget is the logits (batch × 512 × 8,192 numbers) kept for the loss. bf16 trims the activations by only about a quarter (2.47 GB at batch 16), because some of the saved tensors stay in fp32.
+- **bf16 and checkpointing combine.** bf16 makes a step 2.2× faster thanks to the tensor cores; checkpointing costs ~22 % more time (123.6 → 150.9 ms in bf16), close to the "one extra forward pass" of the theory. The loss is 9.062 in all four variants, but the data are random tokens: this only checks that the numerics agree, not that the model learns. Absolute step times move between runs on a laptop GPU (power and temperature limits); the ratios are what carry over.
+- **Knowing which kernel your build uses is part of the job.** The Windows PyTorch wheels do not include FlashAttention-2, so the fused kernels compared are memory-efficient and cuDNN, built on the same IO-aware idea. The naive version grows with the square of the sequence (0.035 GB at 512 tokens, 4.1 GB at 8,192, out of memory at 16,384); memory-efficient needs 0.118 GB at 8,192 (about 35× less) and 0.220 GB at 16,384, and cuDNN runs forward and backward at 16,384 tokens in 51.9 ms. At short lengths all of them are fast and the differences are noise.
+- **A Windows trap: slow instead of failing.** SDPA's unfused *math* backend reported 8.1 GB at 8,192 tokens on a 6 GB card and took 978 ms: the Windows driver spilled into system RAM ("shared GPU memory") instead of raising an out-of-memory error. If a job suddenly slows down instead of crashing, check whether it is paging into shared memory.
+- **Matmuls are only 47 %.** One bf16 step is 226.9 ms of GPU time and 1,136 kernels; outside the matmuls are the element-wise operations (`mul`, `copy_`, the RMSNorm and SwiGLU arithmetic), the fused attention backward (3.6 %) and AdamW (3.4 %). At width 512 each matmul is short and the memory-bound work weighs more: that is what kernel fusion (`torch.compile`, Triton, Liger kernels) targets.
+- **`torch.compile` without Triton.** The default backend, `inductor`, is unavailable (`TritonMissing`: Triton is not supported on Windows). With `backend="cudagraphs"` the small model's forward goes from 8.68 to 2.11 ms (4.1×) with identical output: the GPU does the same arithmetic, and what disappears is the CPU cost of launching hundreds of small kernels, the caveat of [06](#06). That is why vLLM, TensorRT-LLM and llama.cpp capture the decode step in CUDA graphs.
+- **An MFU of 32 %.** 36,608 tokens/s at 202 MFLOPs per token is 7.38 TFLOP/s of useful work against a measured peak of 23.0 TFLOP/s. That is reasonable for 29M parameters on a laptop; what is missing is the time outside matmuls and the launches. For perspective: at this speed, even this small model would need 4.5 hours to see its Chinchilla-optimal 588M tokens.
+- **DDP is large-batch training, split up.** After 5 steps, the weights of two processes with batch 4 and of one process with batch 8 differ by at most 7.45 × 10⁻⁹, floating-point rounding. Each step all-reduces 0.53 MB of gradients (the small model's 133k fp32 parameters). NCCL, the GPU backend, needs Linux and several GPUs, so `gloo` on CPU is used here; and instead of `torchrun`, whose TCP rendezvous needs libuv (which this PyTorch build lacks), the processes are launched with `torch.multiprocessing.spawn` and meet through a shared file (`init_method="file://..."`).
+- **Plain DDP does not scale memory.** It replicates the 16 bytes per parameter on every GPU: 112 GB per GPU for a 7B model, however many GPUs you add. ZeRO-1 brings it to 38.5 GB with 8 GPUs, ZeRO-2 to 26.2 GB and ZeRO-3 / FSDP to 14.0 GB (1.8 GB with 64). For 70B, from 1,120 GB to 140 GB per GPU with 8, still too much for an 80 GB H100, and 17.5 GB with 64. ZeRO-3 pays for that memory in communication (an all-gather of the weights before each layer); that is why the largest models combine tensor parallelism inside a node, over NVLink, with FSDP across nodes.
+- The notebook ends with "Results" and an "In production" section: defaults (bf16 with fp32 master weights; a fused attention kernel, checking the backend, which on Linux is FlashAttention-2/3; AdamW with weight decay, clipping and checkpointing only where memory forces it; a batch that fills memory and gradient accumulation for the effective batch); how to scale out (DDP while the 16 bytes per parameter fit on one GPU, FSDP with `fully_shard` or DeepSpeed ZeRO-3 when they do not, tensor parallelism inside a node for the largest models; `torchtitan`, Megatron-LM / NeMo and DeepSpeed as references, launched with `torchrun` on Linux with NCCL over NVLink or InfiniBand); measuring before optimizing (`torch.profiler` or Nsight Systems, MFU from $6N$ FLOPs per token against the real peak, tokens/s and memory per GPU on a dashboard, and a drop in MFU treated like any other regression), and the failure modes (out of memory from activations, silent fallbacks, fp16 without loss scaling, communication-bound scaling and nondeterminism between runs).
+
+**Next:** [06](#06), where the same ideas (memory-bound decoding, KV-cache, batching) apply to serving.
 
 ---
 

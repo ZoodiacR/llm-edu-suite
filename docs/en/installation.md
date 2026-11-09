@@ -4,7 +4,7 @@
 
 [← Back to the index](README.md)
 
-This guide gets the project ready to run **everything**: the test suite, the command-line scripts and the 17 notebooks.
+This guide gets the project ready to run **everything**: the test suite, the command-line scripts and the 20 notebooks.
 
 The course has two halves with different needs:
 
@@ -14,6 +14,8 @@ The course has two halves with different needs:
 | **07–09** | Hugging Face `transformers` + `peft` + `trl` + `bitsandbytes` + `optimum-quanto` on SmolLM2 | PyTorch and a one-time download of SmolLM2 from the Hugging Face Hub (~1 GB). A GPU makes them much faster; the QLoRA section of 07 needs an NVIDIA GPU (`bitsandbytes`). |
 | **10–16** | LangChain, RAGAS, LangGraph, LangSmith, the official MCP SDK + `langchain-mcp-adapters`; in 12, also FAISS and LightGBM | A local **Ollama** server with `qwen2.5:3b` and `nomic-embed-text` (and, optionally, `qwen2.5:7b` as notebook 10's judge). LangSmith is optional. Notebook 12 downloads MovieLens-1M (6 MB) on the first run. |
 | **17** | The from-scratch model with `causal=False`, Hugging Face `transformers` + `datasets` (ModernBERT-base, Flan-T5-small, Banking77), `scikit-learn` and LangChain | PyTorch, a first-run download of ModernBERT-base (~600 MB), Flan-T5-small (~300 MB) and Banking77 from the Hugging Face Hub, and **Ollama** with `qwen2.5:3b` and `nomic-embed-text` for the comparison in section 2. About 15 minutes on a GPU. |
+| **18** | The from-scratch `TransformerLM` (two trainings), Hugging Face `datasets` + `transformers` (FineWeb and FineWeb-Edu samples, the FineWeb-Edu classifier, the SmolLM2 tokenizer) and LangChain | PyTorch, about 100 MB of FineWeb samples streamed once and kept in `data/cache/`, the `HuggingFaceFW/fineweb-edu-classifier` (~440 MB) and **Ollama** with `qwen2.5:3b` for the synthetic-data section. About 30 minutes on a GPU (two trainings of 10–11 minutes and about 3 minutes of generation). |
+| **19** | The from-scratch `TransformerLM`, `torch.profiler`, `torch.utils.checkpoint`, the `F.scaled_dot_product_attention` backends, `torch.compile` and `torch.distributed` | CUDA PyTorch and **an NVIDIA GPU** (it measures GPU memory and kernels; without one it stops at the start). No downloads, no Ollama. On Windows, FlashAttention-2 and Triton are missing and `torchrun` does not work (see [GPU notes](#gpu-notes)); the notebook detects this and carries on. About 5 minutes. |
 
 No API key is required. Everything runs locally by default.
 
@@ -27,8 +29,8 @@ No API key is required. Everything runs locally by default.
 | [Ollama](https://ollama.com) | any recent version | 0.40.15 |
 | Disk: virtual environment | ~4 GB with the CUDA build of PyTorch (PyTorch alone is ~2.9 GB); much less with the CPU build | 4.1 GB |
 | Disk: Ollama models | ~2.2 GB (`qwen2.5:3b` 1.9 GB + `nomic-embed-text` 0.27 GB); 4.7 GB more with the optional `qwen2.5:7b` judge | |
-| Disk: downloaded data | MovieLens-1M, 6 MB zipped, in `data/cache/` | |
-| Disk: Hugging Face cache | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB), plus ~0.9 GB for notebook 17 (ModernBERT-base ~600 MB + Flan-T5-small ~300 MB, plus Banking77) | |
+| Disk: downloaded data | MovieLens-1M, 6 MB zipped, and the FineWeb (12,000 documents) and FineWeb-Edu (1,000) samples, about 45 MB of JSONL, in `data/cache/` | |
+| Disk: Hugging Face cache | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB), plus ~0.9 GB for notebook 17 (ModernBERT-base ~600 MB + Flan-T5-small ~300 MB, plus Banking77), and ~0.45 GB more for notebook 18 (`fineweb-edu-classifier` ~440 MB and the SmolLM2-135M tokenizer) | |
 
 The dependencies are declared once, in `pyproject.toml` (with lower bounds); `requirements.txt` only contains `-e .[dev]`, which installs the project from there with the `dev` extra (pytest and Jupyter). There is no `requirements-dev.txt` any more. The optional extras `openai` and `anthropic` add the cloud providers (see [Switching provider](#switching-provider)). v2.1 added two dependencies: `lightgbm>=4.5` (the LambdaMART ranker in notebook 12) and `bitsandbytes>=0.45` (the NF4 weights for QLoRA in notebook 07). Notebook 17 added `scikit-learn>=1.5` (logistic regression and the classification metrics). These are the versions the course was verified with:
 
@@ -220,15 +222,18 @@ The `.ipynb` files are **generated** from `tools/notebooks/nbNN_*.py` (and `scri
 
 - **SmolLM2** (notebooks 07–09 and `finetune.py`): from the Hugging Face Hub into the Hugging Face cache, on first use.
 - **ModernBERT-base, Flan-T5-small and Banking77** (notebook 17): `answerdotai/ModernBERT-base` (~600 MB), `google/flan-t5-small` (~300 MB) and the `PolyAI/banking77` dataset (CC BY 4.0) are downloaded from the Hugging Face Hub into its cache the first time the notebook runs.
+- **FineWeb, FineWeb-Edu and the FineWeb-Edu classifier** (notebook 18): the notebook streams (`datasets.load_dataset(..., streaming=True)`) the first 12,000 documents of `HuggingFaceFW/fineweb` and 1,000 of `HuggingFaceFW/fineweb-edu` (config `sample-10BT`), about 100 MB of download, and stores them once in `data/cache/fineweb_12k.jsonl` and `data/cache/fineweb_edu_1k.jsonl` (about 45 MB). Later runs read those files offline. FineWeb is ODC-By licensed and the repository does not redistribute it. The `HuggingFaceFW/fineweb-edu-classifier` (~440 MB) and the `HuggingFaceTB/SmolLM2-135M` tokenizer go into the Hugging Face cache on first use.
 - **MovieLens-1M** (notebook 12 and `scripts/generate_item_keywords.py`): `llm_edu_suite.recsys.download_movielens_1m()` fetches the official GroupLens zip (6 MB) and unzips it into `data/cache/ml-1m/` once. `data/cache/` is in `.gitignore`: the GroupLens license does not allow redistributing the dataset, so the repository does not include it and everyone downloads it from the original source. If you are offline, copy `ml-1m.zip` into `data/cache/` and the function will use it.
 - What *is* in the repository, because it is the course's own work: `data/recsys/ml1m_llm_keywords.json` (the keywords `qwen2.5:7b` wrote for each movie; regenerating them takes an hour, see [`generate_item_keywords.py`](cli_scripts.md#generate_item_keywordspy)) and `data/recsys/conversational_eval.json` (20 requests with checkable constraints).
 
 ## GPU notes
 
-- Nothing requires a GPU, but training is much faster with one: the notebook 00 mini LLM takes about **22 s on an RTX 3060 Laptop vs about 5 min on CPU**. `llm_edu_suite.utils.get_device()` picks `cuda` when available (Apple MPS only with `allow_mps=True`). On RTX 30xx or newer, training uses **bf16** mixed precision.
+- Nothing requires a GPU except notebook 19, but training is much faster with one: the notebook 00 mini LLM takes about **22 s on an RTX 3060 Laptop vs about 5 min on CPU**. `llm_edu_suite.utils.get_device()` picks `cuda` when available (Apple MPS only with `allow_mps=True`). On RTX 30xx or newer, training uses **bf16** mixed precision.
 - **VRAM budget on a 6 GB GPU.** Ollama keeps `qwen2.5:3b` loaded on the GPU for a few minutes after each call, using about **2.3 GB** of VRAM. The training notebooks cap their own PyTorch memory with `torch.cuda.set_per_process_memory_fraction` (environment variable `VRAM_BUDGET_GB`, e.g. `$env:VRAM_BUDGET_GB="3"` or `export VRAM_BUDGET_GB=3` to give them more). The default is **2 GB in notebook 07**, which trains nine models in a row and whose 4-bit QLoRA model leaves about 0.1 GB behind, and **1.5 GB in 08 and 09**.
 - **Do not run the training notebooks (07–09) and the Ollama notebooks (10–16) at the same time on a 6 GB GPU.** When the two compete for VRAM, Ollama can hang instead of failing. Run them one after the other, and if you need the memory back, unload the models with `ollama stop qwen2.5:3b` (`ollama ps` shows what is loaded).
 - If Ollama cannot fit a model on the GPU, it runs it (partly) on the CPU: it still works, only slower.
+- **Notebook 19 on Windows.** The Windows PyTorch wheels ship without FlashAttention-2 (SDPA then uses the memory-efficient or cuDNN kernels) and without Triton, so `torch.compile`'s default backend, `inductor`, fails with `TritonMissing` and the notebook uses `backend="cudagraphs"`. For FlashAttention-2, `torch.compile` with `inductor` or the `flash-attn` package, use Linux or WSL2. The notebook's DDP runs in two CPU processes with `gloo`, launched with `torch.multiprocessing.spawn` and connected through a shared file (`init_method="file://..."`, a `FileStore`), because `torchrun`'s TCP rendezvous needs libuv, which the Windows build does not include; NCCL, the GPU backend, exists only on Linux.
+- **Slow instead of out of memory.** On Windows, when a process exceeds the VRAM, the driver can spill into system RAM ("shared GPU memory") instead of raising an error: in notebook 19, SDPA's *math* backend reported 8.1 GB on a 6 GB card and took 978 ms. If something suddenly slows down, check the shared GPU memory in Task Manager.
 
 ## Troubleshooting
 
@@ -247,3 +252,6 @@ The `.ipynb` files are **generated** from `tools/notebooks/nbNN_*.py` (and `scri
 | The FlexAttention cell is skipped | PyTorch < 2.5 or no CPU support | It is optional; the rest of notebook 03 works the same |
 | `ImportError: numpy.core.multiarray failed to import` | matplotlib built for NumPy 1.x with NumPy 2.x installed | Use the project's `.venv` (or `pip install -U matplotlib`) |
 | Slow training | Everything runs on CPU | Install the CUDA build of PyTorch, or lower `--steps` / `--d-model` |
+| Notebook 19 stops with `this notebook measures GPU memory and kernels; it needs a CUDA GPU` | No NVIDIA GPU, or the CPU build of PyTorch | Install the CUDA build of PyTorch; without a GPU the notebook has nothing to measure |
+| `SDPA: FlashAttention-2: not available in this PyTorch build` or `inductor backend: unavailable here (TritonMissing)` in notebook 19 | The Windows PyTorch wheels do not include FlashAttention-2 or Triton | Harmless: the notebook compares the kernels that are available and uses CUDA graphs. To try the missing ones, run it on Linux or WSL2 |
+| `torchrun` fails on Windows with an error about libuv | `torchrun`'s TCP rendezvous needs libuv, which the Windows build lacks | Launch the processes with `torch.multiprocessing.spawn` and `init_method="file://..."`, as notebook 19 does, or use Linux or WSL2 |

@@ -14,7 +14,7 @@ Los identificadores de código (clases, funciones, argumentos) se mantienen en i
 
 El curso tiene dos mitades, y el paquete solo contiene código para una de ellas.
 
-- **Primera mitad (notebooks 00–06): el modelo construido desde cero en PyTorch.** Ver la atención, RoPE, MoE o una KV-cache escritas línea a línea es la mejor forma de entenderlas. Los módulos 1–9 de esta referencia (`utils`, `tokenizer`, `layers`, `model`, `data`, `training`, `inference`, `recsys` y `evaluation`) son ese modelo y sus herramientas. El notebook 12 (recomendadores) también los usa: reutiliza `TransformerLM` como recomendador secuencial y carga MovieLens-1M con `recsys`, y encima añade FAISS, LightGBM y LangChain. El notebook 17 (encoders y encoder-decoders) también: entrena el mismo `TransformerLM` con `ModelConfig(causal=False)` como encoder, y después pasa a ModernBERT y Flan-T5 con `transformers`.
+- **Primera mitad (notebooks 00–06): el modelo construido desde cero en PyTorch.** Ver la atención, RoPE, MoE o una KV-cache escritas línea a línea es la mejor forma de entenderlas. Los módulos 1–9 de esta referencia (`utils`, `tokenizer`, `layers`, `model`, `data`, `training`, `inference`, `recsys` y `evaluation`) son ese modelo y sus herramientas. El notebook 12 (recomendadores) también los usa: reutiliza `TransformerLM` como recomendador secuencial y carga MovieLens-1M con `recsys`, y encima añade FAISS, LightGBM y LangChain. El notebook 17 (encoders y encoder-decoders) también: entrena el mismo `TransformerLM` con `ModelConfig(causal=False)` como encoder, y después pasa a ModernBERT y Flan-T5 con `transformers`. El notebook 18 (ingeniería de datos) entrena dos `TransformerLM` con el tokenizador de SmolLM2, uno con datos en bruto y otro con datos limpios, y usa `config.get_llm` para generar datos sintéticos; la deduplicación, los filtros y la descontaminación están escritos en el propio notebook.
 - **Segunda mitad (notebooks 07–16): las herramientas que usa la industria.** Fine-tuning, cuantización, RAG, agentes, LLMOps y MCP se enseñan con frameworks reales: Hugging Face `transformers` / `peft` / `trl` / `optimum-quanto`, LangChain, LangGraph, LangSmith, RAGAS y el SDK oficial de MCP con `langchain-mcp-adapters`. Para esta mitad el paquete aporta [`config`](#10-config), el único sitio donde se eligen el modelo de chat, el juez, el de embeddings y el trazado, y los intervalos bootstrap de [`evaluation`](#9-evaluation) con los que el notebook 10 compara configuraciones.
 
 ### ¿Dónde está ahora...? (módulos eliminados en v2)
@@ -45,16 +45,16 @@ La versión 1 del paquete tenía implementaciones propias de estos temas. En v2 
 
 | # | Módulo | Qué contiene | Necesita `torch` | Lo importan los notebooks |
 |---|---|---|---|---|
-| 1 | [`utils`](#1-utils) | semillas, dispositivo, conteo de parámetros, cronómetro, impresión de máscaras | sí | 01–06, 12, 17 |
+| 1 | [`utils`](#1-utils) | semillas, dispositivo, conteo de parámetros, cronómetro, impresión de máscaras | sí | 01–06, 12, 17–19 |
 | 2 | [`tokenizer`](#2-tokenizer) | tokenizador BPE a nivel de bytes | no | 01, 05 |
 | 3 | [`layers`](#3-layers) | RMSNorm, RoPE, MHA/GQA/MQA, MLA, atenciones eficientes, SwiGLU, MoE | sí | 02, 03, 04 |
-| 4 | [`model`](#4-model) | `TransformerLM` configurable (causal o bidireccional), KV-cache, muestreo | sí | 02–06, 12, 17 |
+| 4 | [`model`](#4-model) | `TransformerLM` configurable (causal o bidireccional), KV-cache, muestreo | sí | 02–06, 12, 17–19 |
 | 5 | [`data`](#5-data) | corpus sintéticos y de texto, batching para preentrenamiento | sí | 01–06, 17 |
 | 6 | [`training`](#6-training) | schedules de LR, AdamW con grupos, bucle de entrenamiento, checkpoints | sí | 02–06, 17 |
 | 7 | [`inference`](#7-inference) | decodificación especulativa, generación por lotes, tamaño de KV-cache | sí | 06 |
 | 8 | [`recsys`](#8-recsys) | MovieLens-1M (descarga, carga, partición temporal con ítems fríos, rangos y métricas con ranking completo); catálogo sintético, SASRec pequeño y rankers por embeddings | parcial | 12 |
 | 9 | [`evaluation`](#9-evaluation) | perplejidad, exact match, F1/ROUGE-L, recall/nDCG/MRR, intervalos bootstrap, proxy de fidelidad, latencia, clasificación | parcial | 02, 04, 05, 06, 10, 12, 17 |
-| 10 | [`config`](#10-config) | `get_llm`, `get_judge_llm`, `get_embeddings`, `setup`: modelos y servicios de los notebooks 10–16, leídos de `.env` | no | 10–17 |
+| 10 | [`config`](#10-config) | `get_llm`, `get_judge_llm`, `get_embeddings`, `setup`: modelos y servicios de los notebooks 10–16, leídos de `.env` | no | 10–18 |
 
 "Parcial" significa que el módulo importa `torch` de forma opcional (`try/except ImportError`): las métricas puras y los datos sintéticos funcionan sin PyTorch, lo que toca modelos no. `config` no necesita `torch`, pero sí `langchain-ollama` (o `langchain-openai` / `langchain-anthropic`, según el proveedor) y, opcionalmente, `python-dotenv`.
 
@@ -66,7 +66,7 @@ Los notebooks 07, 08 y 09 no importan nada de `llm_edu_suite`: trabajan directam
 |---|---|
 | `notebooks/00_start_here/` | 00 (un mini LLM completo de principio a fin) |
 | `notebooks/01_architecture/` | 01–04, 17 (se lee después del 04) |
-| `notebooks/02_pretraining_and_inference/` | 05, 06, 09 |
+| `notebooks/02_pretraining_and_inference/` | 18 (se lee antes del 05), 05, 19 (se lee después del 05), 06, 09 |
 | `notebooks/03_post_training/` | 07, 08 |
 | `notebooks/04_applications/` | 10, 12, 13 |
 | `notebooks/05_agents_and_mcp/` | 11, 14, 16 |
@@ -164,7 +164,7 @@ with timer("máscara"):
 
 **En producción:** `transformers.set_seed`, `accelerate.Accelerator().device`, `torch.utils.benchmark`.
 
-**Notebooks:** lo importan 01–06, 12 y 17, en la celda de configuración (`seed_everything`, `get_device`, `count_params`, `human`; `show_mask` en 01–06).
+**Notebooks:** lo importan 01–06, 12, 17, 18 y 19, en la celda de configuración (`seed_everything`, `get_device`, `count_params`, `human`; `show_mask` en 01–06).
 
 ---
 
@@ -406,7 +406,7 @@ print(m2.num_params(), m2.num_active_params(), m2.supports_cache)   # swa no tie
 
 **En producción:** `transformers.LlamaForCausalLM` / `AutoModelForCausalLM` + `GenerationConfig`; nanoGPT y `litgpt` como referencias legibles; `torchtitan` para preentrenamiento a escala.
 
-**Notebooks:** 02–06, 12 (el recomendador reutiliza `TransformerLM` sin cambios) y 17 (el mismo modelo con `causal=False`, entrenado con MLM, frente al decoder del mismo tamaño). Los scripts [`train.py`](scripts_cli.md#trainpy) y [`sample.py`](scripts_cli.md#samplepy) también lo usan.
+**Notebooks:** 02–06, 12 (el recomendador reutiliza `TransformerLM` sin cambios), 17 (el mismo modelo con `causal=False`, entrenado con MLM, frente al decoder del mismo tamaño) y 18 (dos modelos de 4 capas y ancho 256, ~16M de parámetros con el vocabulario de 49k de SmolLM2, entrenados con los mismos 12,3M de tokens del crawl en bruto y del corpus limpio) y 19 (un modelo de 29,4M de parámetros, ancho 512 y 8 capas, para medir memoria, bf16, checkpointing, profiling y MFU; uno de 6 capas de ancho 256 para los CUDA graphs, y uno de 2 capas de ancho 64 entrenado con DDP en dos procesos). Los scripts [`train.py`](scripts_cli.md#trainpy) y [`sample.py`](scripts_cli.md#samplepy) también lo usan.
 
 ---
 
@@ -751,12 +751,12 @@ Antes de usar Ollama hay que descargar los modelos: `ollama pull qwen2.5:3b` y `
 
 **En producción:** lo mismo, con un gestor de secretos en lugar de `.env`; `init_chat_model` de LangChain para elegir proveedor por nombre; un *gateway* de modelos (LiteLLM, por ejemplo) cuando hay muchos equipos y proveedores.
 
-**Notebooks:** 10, 11, 13, 14, 15 y 16 (`setup`, `get_llm`, `get_embeddings` en la celda de configuración; el 10 toma el juez de RAGAS de `setup()["judge_model"]`), 12 (`setup`, `get_embeddings` para el texto de las películas y `get_llm` para la capa de peticiones y explicaciones), 15 (`langsmith_enabled`) y 17 (`get_embeddings` para los embeddings de `nomic-embed-text` y `get_llm` para clasificar con `qwen2.5:3b`). El script [`rag_demo.py`](scripts_cli.md#rag_demopy) también lo usa.
+**Notebooks:** 10, 11, 13, 14, 15 y 16 (`setup`, `get_llm`, `get_embeddings` en la celda de configuración; el 10 toma el juez de RAGAS de `setup()["judge_model"]`), 12 (`setup`, `get_embeddings` para el texto de las películas y `get_llm` para la capa de peticiones y explicaciones), 15 (`langsmith_enabled`), 17 (`get_embeddings` para los embeddings de `nomic-embed-text` y `get_llm` para clasificar con `qwen2.5:3b`) y 18 (`get_llm(temperature=0.8, num_predict=220)` para escribir los pasajes sintéticos con `.batch`). El script [`rag_demo.py`](scripts_cli.md#rag_demopy) también lo usa.
 
 ---
 
 ## Ver también
 
 - [Scripts de línea de comandos](scripts_cli.md): `train.py`, `sample.py`, `finetune.py`, `rag_demo.py`, `mini_llm.py`, `mcp_server.py`, `generate_item_keywords.py`.
-- [Guía de notebooks](guia_notebooks.md): el recorrido pedagógico de 00 a 16.
+- [Guía de notebooks](guia_notebooks.md): el recorrido pedagógico de los 20 notebooks (00 a 19).
 - [Glosario](glosario.md): definiciones breves de los términos usados aquí.

@@ -290,7 +290,7 @@ print("reloaded model identical:", torch.allclose(a, b, atol=1e-6))
 nb.md(r'''
 **From here to a real LLM:** the same loop wrapped in FSDP/DDP (`torchtitan` is the reference), a memory-mapped token file instead of a tensor in RAM, far more data than the compute-optimal ~20 tokens per parameter of Chinchilla (modern small models are over-trained on 100–2000 tokens per parameter, because a smaller model is cheaper to serve), all of it deduplicated and filtered, bf16 + `torch.compile`, and checkpoints every few hundred steps. Read the Llama 3 and DeepSeek-V3 reports for the recipes.
 
-**Next:** `06_inference_serving.ipynb`.
+**Next:** `19_systems_memory_and_parallelism.ipynb` (what training costs in memory, kernels and GPUs, and how it scales), then `06_inference_serving.ipynb`.
 ''')
 nb.save(notebook_path("05_pretraining.ipynb"))
 print("05_pretraining.ipynb written")

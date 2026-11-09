@@ -9,14 +9,18 @@ Un curso práctico de ingeniería de LLMs en dos mitades:
 
 El notebook 17 (encoders y encoder-decoders) completa la arquitectura y se lee justo después del 04: un encoder desde cero con MLM, ModernBERT ajustado para clasificar, embeddings + regresión logística frente a un LLM, y Flan-T5 con su cross-attention.
 
-Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-embed-text`) y los modelos de entrenamiento son SmolLM2 de Hugging Face. Con una GPU NVIDIA va rápido (los resultados publicados se midieron en una RTX 3060 de 6 GB); en CPU también funciona. LangSmith es opcional.
+El notebook 18 (ingeniería de datos) se lee justo antes del 05, porque es lo que le pasa al texto antes del pre-entrenamiento: deduplicación exacta y con MinHash + LSH escrito desde cero, filtros de calidad con reglas y con un clasificador, descontaminación de benchmarks y datos sintéticos, sobre una muestra real de FineWeb, y dos modelos entrenados con datos en bruto y limpios para medir qué cambia.
+
+El notebook 19 (sistemas) se lee justo después del 05: mide en la GPU adónde van la memoria y el tiempo de un entrenamiento (pesos, gradientes, Adam y activaciones; bf16 y activation checkpointing; FlashAttention y los kernels de atención; profiling, CUDA graphs y MFU) y cómo se reparte entre varias GPUs, con DDP real en dos procesos y una calculadora de ZeRO / FSDP para 7B y 70B.
+
+Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-embed-text`) y los modelos de entrenamiento son SmolLM2 de Hugging Face. Con una GPU NVIDIA va rápido (los resultados publicados se midieron en una RTX 3060 de 6 GB); en CPU también funciona, salvo el notebook 19, que necesita una GPU CUDA. LangSmith es opcional.
 
 ## Páginas
 
 | Página | Para qué sirve |
 |---|---|
 | [Instalación y entorno](instalacion.md) | `.venv`, PyTorch con CUDA, Ollama y sus modelos, el `.env`, la clave de LangSmith, problemas frecuentes |
-| [Guía de notebooks](guia_notebooks.md) | los 18 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
+| [Guía de notebooks](guia_notebooks.md) | los 20 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
 | [Fundamentos teóricos](fundamentos.md) | la teoría detrás de cada técnica y patrón: el problema que resuelve, la idea, por qué se usa hoy, cómo falla |
 | [Referencia de módulos](referencia_modulos.md) | el paquete `llm_edu_suite/` (el modelo desde cero y `config.py`) y dónde se enseña cada tema con frameworks |
 | [Scripts de línea de comandos](scripts_cli.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP) |
@@ -29,7 +33,7 @@ Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-emb
 |---|---|---|---|
 | Empieza aquí | `notebooks/00_start_here/` | 00 · un mini LLM completo | PyTorch |
 | Arquitectura | `notebooks/01_architecture/` | 01 tokenización · 02 atención, RoPE y normalización · 03 atención eficiente · 04 FFN y MoE · 17 encoders y encoder-decoders | PyTorch desde cero · `transformers` y `scikit-learn` (17) |
-| Pre-entrenamiento e inferencia | `notebooks/02_pretraining_and_inference/` | 05 pre-entrenamiento · 06 inferencia · 09 cuantización | PyTorch · `optimum-quanto` |
+| Pre-entrenamiento e inferencia | `notebooks/02_pretraining_and_inference/` | 18 ingeniería de datos (deduplicación, filtros, descontaminación) · 05 pre-entrenamiento · 19 sistemas (memoria, precisión, kernels, paralelismo) · 06 inferencia · 09 cuantización | PyTorch · `datasets` y `transformers` (18) · `torch.profiler` y `torch.distributed` (19) · `optimum-quanto` |
 | Post-training | `notebooks/03_post_training/` | 07 SFT, LoRA y destilación · 08 DPO y GRPO | `transformers` · `peft` · `trl` |
 | Aplicaciones | `notebooks/04_applications/` | 10 RAG · 12 recomendación · 13 patrones de aplicación | LangChain · RAGAS · PyTorch |
 | Agentes y MCP | `notebooks/05_agents_and_mcp/` | 11 tools y salida estructurada · 14 IA agéntica · 16 MCP | LangChain · LangGraph · SDK `mcp` |
@@ -40,8 +44,10 @@ flowchart LR
     Z[00 · mini LLM] --> B[01 Tokenizador]
     B --> C[02-04 Transformer<br/>RoPE · GQA/MLA · MoE]
     C --> Q["17 Encoders y encoder-decoders<br/>BERT · ModernBERT · T5"]
-    C --> D[05 Pre-training]
-    D --> E[06 Inferencia]
+    C --> P["18 Datos<br/>MinHash · filtros · descontaminación"]
+    P --> D[05 Pre-training]
+    D --> S["19 Sistemas<br/>memoria · kernels · paralelismo"]
+    S --> E[06 Inferencia]
     D --> F["07-08 Post-training<br/>HF · peft · trl"]
     F --> G["09 Cuantización<br/>optimum-quanto"]
     E --> H[Aplicaciones con LangChain]
@@ -58,7 +64,7 @@ flowchart LR
 
 0. **Visión general:** 00, para ver cómo encajan las piezas antes de estudiarlas por separado.
 1. **Arquitectura:** 01 → 02 → 03 → 04 → 17. Al terminar deberías poder escribir un transformer de memoria y saber cuándo conviene un encoder o un encoder-decoder en lugar de un decoder-only.
-2. **Entrenamiento e inferencia:** 05 → 06.
+2. **Datos, entrenamiento e inferencia:** 18 → 05 → 19 → 06. Primero qué texto entra en el modelo y por qué, después cómo se entrena con él y cuánto cuesta ese entrenamiento en memoria y tiempo, en una GPU y en muchas.
 3. **Post-training con Hugging Face:** 07 → 08, después 09 (cuantización).
 4. **Aplicaciones con LangChain:** 10 → 13 → 12. Regla de oro: **construye tu set de evaluación antes que el sistema**.
 5. **Agentes:** 11 → 14 → 16 y, al final, 15 para ver cómo se observa y evalúa todo en producción.

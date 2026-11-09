@@ -11,7 +11,7 @@
 1. [Inside the model](#1-inside-the-model)
    - [1.1 Tokenization](#11-tokenization) · [1.2 The transformer block](#12-the-transformer-block-and-the-residual-stream) · [1.3 Attention, RoPE and normalization](#13-attention-rope-and-normalization) · [1.4 Efficient attention](#14-efficient-attention-for-long-contexts) · [1.5 FFN and Mixture of Experts](#15-ffn-and-mixture-of-experts) · [1.6 Encoders and encoder-decoders](#16-encoders-and-encoder-decoders)
 2. [Pre-training and inference](#2-pre-training-and-inference)
-   - [2.1 The objective](#21-the-objective-next-token-prediction) · [2.2 Optimizer and schedule](#22-optimizer-and-learning-rate-schedule) · [2.3 Scaling laws](#23-scaling-laws) · [2.4 Decoding](#24-decoding-strategies) · [2.5 KV-cache](#25-prefill-decode-and-the-kv-cache) · [2.6 Batching and serving](#26-batching-and-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Quantization](#28-quantization)
+   - [2.0 Pre-training data](#20-pre-training-data) · [2.1 The objective](#21-the-objective-next-token-prediction) · [2.2 Optimizer and schedule](#22-optimizer-and-learning-rate-schedule) · [2.3 Scaling laws](#23-scaling-laws) · [2.3b Systems](#23b-systems-memory-precision-kernels-and-parallelism) · [2.4 Decoding](#24-decoding-strategies) · [2.5 KV-cache](#25-prefill-decode-and-the-kv-cache) · [2.6 Batching and serving](#26-batching-and-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Quantization](#28-quantization)
 3. [Post-training](#3-post-training)
    - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-and-parameter-efficient-fine-tuning) · [3.3 Distillation](#33-distillation) · [3.4 RLHF, DPO and GRPO](#34-from-rlhf-to-dpo-and-grpo)
 4. [Applications](#4-applications)
@@ -291,7 +291,60 @@ It has no causal mask: every output token may read the whole input. The keys and
 
 ## 2. Pre-training and inference
 
-Terms for this part: [glossary, Training and post-training](glossary.md#training-and-post-training) and [Inference and systems](glossary.md#inference-and-systems).
+Terms for this part: [glossary, Pre-training data](glossary.md#pre-training-data), [Training and post-training](glossary.md#training-and-post-training) and [Inference and systems](glossary.md#inference-and-systems).
+
+### 2.0 Pre-training data
+
+**Problem.** A pre-training corpus starts as web crawls (Common Crawl: billions of pages per snapshot), and most of what they contain is not worth learning from: menus, templates, spam, listings, pages copied from other pages. The open models that caught up with closed ones in 2023–2024 did it largely through better data, not new architectures (FineWeb, DCLM, Llama 3's data pipeline). Data work is most of the work.
+
+**The pipeline.** The crawl is reduced by one to two orders of magnitude:
+
+```
+crawl (WARC) -> text extraction -> language ID -> URL / safety filters -> quality filters
+             -> deduplication (exact, near-duplicate) -> decontamination -> mixing -> tokenization
+```
+
+FineWeb (Penedo et al., 2024) documents every step with ablations: a filter was kept only if a small model trained on the filtered data scored better on benchmarks. That is the reference method: filters are chosen by their effect on a trained model, not by eye.
+
+**Why duplicates hurt.** Crawls are highly redundant (mirrored sites, templates, syndicated articles, boilerplate); Lee et al. (2022) found single sequences repeated tens of thousands of times in C4. Duplicates **waste compute** (the model pays again for text it has already seen), **cause memorization** (a sequence seen many times is reproduced verbatim, a privacy and copyright risk; Carlini et al., 2021, 2023) and **leak evaluations** (a benchmark copied onto the web ends up in the training set and inflates scores). Exact deduplication (a hash of the normalized text) is linear and catches mirrors, but a single changed character defeats it; everything else needs near-duplicate detection.
+
+**Jaccard and MinHash.** A document $A$ is represented by its set of **shingles** (for example, word 5-grams), and the overlap of two documents is their Jaccard similarity:
+
+$$J(A, B) = \frac{|A \cap B|}{|A \cup B|}$$
+
+Comparing all pairs is $O(N^2)$, impossible for billions of documents. **MinHash** (Broder, 1997) applies a random hash function $h$ to every shingle and keeps the minimum. For a random permutation,
+
+$$\Pr\big[\min h(A) = \min h(B)\big] = J(A, B)$$
+
+because the minimum over $A \cup B$ is equally likely to be any of its elements, and both minima coincide exactly when that element is in $A \cap B$. With $k$ independent hash functions, the share of matching minima in two **signatures** of length $k$ estimates $J$ with standard error
+
+$$\mathrm{SE}(\hat J) = \sqrt{\frac{J(1-J)}{k}}$$
+
+In practice, permutations are replaced by affine functions $h_i(x) = (a_i x + b_i) \bmod p$ with a large prime $p$ (a Mersenne prime makes the modulo cheap).
+
+**LSH: finding the candidate pairs.** Signatures are small, but comparing all of them is still quadratic. **Locality-sensitive hashing** splits each signature into $b$ bands of $r$ rows and puts documents into buckets by each band; two documents become candidates if they match *exactly* on any band:
+
+$$\Pr[\text{candidate}] = 1 - \big(1 - J^r\big)^b$$
+
+This is an S-shaped curve with a soft threshold near
+
+$$J^* \approx \left(\frac{1}{b}\right)^{1/r}$$
+
+Pairs above it are almost always found and pairs below almost never. With $b = 16$ and $r = 8$ (128 hash functions), $J^* \approx 0.71$. More rows per band sharpen the curve and raise the threshold; more bands lower it at the price of more candidates. Candidates are verified (estimated Jaccard above the threshold) and accepted pairs are grouped with union-find, so one document per cluster survives. Choosing $b$ and $r$ is not a technical detail: the threshold defines what a "duplicate" is. FineWeb uses 5-grams and a threshold near 0.75, which removes templated copies and light rewrites but keeps documents that merely quote each other. `datatrove`, `text-dedup` and Spark implementations do exactly this at the scale of billions of documents.
+
+**Heuristic filters.** They remove what is obviously not prose. The **Gopher** rules (Rae et al., 2021) bound the number of words and the mean word length, limit symbols, bullet lines and ellipses, require common English stop words and penalize repeated lines and n-grams. The **C4** rules (Raffel et al., 2020) keep lines that end in punctuation and drop pages with code-like braces or "lorem ipsum". They are cheap and interpretable, and recording which rule removes each document makes them auditable.
+
+**Model-based filters.** They score each document with a small classifier trained to recognise good text. **FineWeb-Edu** trained a regressor on a BERT encoder with 450,000 documents rated by Llama-3-70B for educational value (0 to 5); keeping documents scored 3 or more gave large gains on knowledge benchmarks at the same token budget. **DCLM** (Li et al., 2024) did the same with a fastText classifier. The trade-off: every filter also removes some good text, and a classifier encodes the taste of whoever labelled its data (it favours textbook prose over conversation or code). Rules and classifiers measure different things: rules remove what is not text; a classifier judges what the text is worth.
+
+**Decontamination.** If test questions are in the training data, benchmark scores measure memory, not ability. The standard check (GPT-3, Llama) indexes long n-grams (8 to 13 tokens) of every benchmark and flags training documents that share them. It is cheap and catches verbatim copies; paraphrased contamination needs embedding similarity or is simply not caught. And nobody has to copy the test set on purpose: the web repeats itself, and the same text exists in both places.
+
+**Synthetic data and model collapse.** LLM-written text already makes up a large part of post-training data and a growing part of pre-training (the Phi models' "textbooks", Cosmopedia). It is controllable and cheap, but a model's samples are less diverse than human text, and training repeatedly on model outputs narrows the distribution: the tails go first and variety drops generation after generation (***model collapse***, Shumailov et al., 2024). Synthetic data needs the same deduplication and filtering as web data, plus explicit diversity measures (lexical, such as distinct bigrams, and embedding-based), and it is evaluated by training on it: a quality classifier that rewards what *looks* educational rewards precisely the text written to look that way.
+
+**Failure modes.** A threshold that silently removes a whole domain (code, other languages or dialects the classifier sees as "low quality"). Over-aggressive dedup that removes legitimate repetition (licences that must be present, common phrases). Benchmark contamination discovered after publication. Synthetic data that inflates the very metrics used to judge it. A site change that floods the corpus with boilerplate without anyone noticing: that is why you monitor the share of each source and filter over time, duplicate rates per source, the classifier's score distribution, and a random sample read by a person at every release.
+
+**Key papers.** Broder (1997), *On the resemblance and containment of documents*; Rae et al. (2021, Gopher); Raffel et al. (2020, T5 / C4); Carlini et al. (2021, 2023); Lee et al. (2022), *Deduplicating Training Data Makes Language Models Better*; Penedo et al. (2024), *The FineWeb Datasets*; Li et al. (2024, DataComp-LM / DCLM); Shumailov et al. (2024), *AI models collapse when trained on recursively generated data*.
+
+> **Notebook:** [18 · Data engineering](../../notebooks/02_pretraining_and_inference/18_data_engineering.ipynb) (read before 05) · **In the course:** on 12,000 FineWeb documents and a simulated crawl of 13,500 with planted duplicates, exact hashing removes the 1,100 planted copies and nothing else (13,500 → 12,400); MinHash + LSH from scratch ($k = 128$, 16 × 8, threshold 0.7) accepts 1,633 pairs (→ 10,767) with 100 % recall on copies in another template and with 1 % of words replaced, 72.2 % at 3 % and 0 % at 10 %, on the theoretical curve and with no false positives; the Gopher and C4 rules remove 12.0 % (1,173 documents by C4's terminal-punctuation rule); the FineWeb-Edu classifier gives FineWeb after the rules a mean of 1.20 and 2.0 % scored ≥ 3, against 3.04 and 47.6 % for FineWeb-Edu; 13-gram decontamination finds 50 of 50 planted leaks plus 29 natural overlaps (syndicated news); two ~16M `TransformerLM`s trained on the same 12.3M tokens tie on held-out text (5.547 raw vs 5.537 clean, noise), but on the 43 documents repeated 10 times the raw model drops to 4.350 against 5.281 (memorization); the 60 synthetic `qwen2.5:3b` passages score 4.15 on the classifier against 3.14 for human text, with 0.60 distinct bigrams against 0.72.
 
 ### 2.1 The objective: next-token prediction
 
@@ -309,7 +362,7 @@ Training can only reduce the KL term; the entropy of the text is irreducible. Wi
 
 **What it replaced.** BERT (masked LM: only ~15 % of positions get a loss, no natural way to generate), T5 (span corruption, two stacks) and UL2 (a mixture of denoisers) lost to the causal LM as the default: every token is a target, training equals inference, and it scales with no special tricks. GPT-3 showed **in-context learning**, which settled it. Code models add *fill-in-the-middle*.
 
-**Data decides most of the quality.** The usual pipeline (text extraction, language ID, heuristic filters, a quality classifier, exact and MinHash deduplication, PII filtering, benchmark decontamination, domain weights and a final *annealing* phase on high-quality data) is where open datasets improved most (RefinedWeb, FineWeb-Edu). Repeating data for a few epochs is nearly as good as fresh data (Muennighoff et al., 2023).
+**Data decides most of the quality.** The usual pipeline (text extraction, language ID, heuristic filters, a quality classifier, exact and MinHash deduplication, PII filtering, benchmark decontamination, domain weights and a final *annealing* phase on high-quality data) is where open datasets improved most (RefinedWeb, FineWeb-Edu); [section 2.0](#20-pre-training-data) covers it in depth. Repeating data for a few epochs is nearly as good as fresh data (Muennighoff et al., 2023).
 
 ### 2.2 Optimizer and learning-rate schedule
 
@@ -340,6 +393,72 @@ and, minimizing at fixed $C$, concluded that parameters and data should grow in 
 **Compute-optimal is not deployment-optimal.** A model served to millions of users is paid for mostly at inference, which scales with $N$. So labs **over-train** small models far beyond 20 tokens per parameter (Llama 3 8B, over 15T tokens, about 1,900 per parameter): the loss keeps improving, only more slowly per FLOP.
 
 > **Notebook:** [05 · Pre-training](../../notebooks/02_pretraining_and_inference/05_pretraining.ipynb) · **In the course:** initial loss $\approx \ln V$ and a causal-mask leak test as sanity checks; the synthetic corpus has an exact floor ($4 \ln 10 = 9.21$ nats per sentence) that the models reach in ~100 steps, the bigger model gets there sooner, and cosine and WSD end up practically identical.
+
+### 2.3b Systems: memory, precision, kernels and parallelism
+
+**Problem.** Scaling laws say how much compute a run needs; they do not say whether it fits on the GPU, how fast it goes or how it is split across many. That is the systems side of LLM engineering, and almost every decision in it trades one resource (memory, compute, communication) for another.
+
+**Compute accounting.** A forward pass costs about $2N$ FLOPs per token (one multiply and one add per weight) and the backward pass twice that, so training costs
+
+$$C \approx 6\,N\,D \quad \text{FLOPs for } D \text{ tokens}$$
+
+plus an attention term of about $12\,L\,d\,T$ FLOPs per token ($L$ layers of width $d$, context $T$), which only matters when $T$ is large compared with $d$ (Kaplan et al., 2020; Chowdhery et al., 2022). **Model FLOPs utilization** measures what share of the GPU's peak is useful work:
+
+$$\mathrm{MFU} = \frac{\text{tokens/s} \times (6N + 12LdT)}{\text{peak FLOP/s}}$$
+
+It counts only the model's FLOPs, not the ones recomputed by checkpointing (that would be *hardware FLOPs utilization*, HFU). Well-tuned large training runs reach 40–60 %.
+
+**Memory accounting.** With Adam and mixed precision, each parameter costs (Rajbhandari et al., 2020):
+
+$$\underbrace{2}_{\text{bf16 weights}} + \underbrace{2}_{\text{bf16 gradients}} + \underbrace{4 + 4 + 4}_{\text{fp32 master weights},\ m,\ v} = 16 \ \text{bytes} \quad\Rightarrow\quad 16\Psi \ \text{bytes for } \Psi \text{ parameters}$$
+
+A 7B model needs about 112 GB before the first activation; in plain fp32 it is also 16 bytes (4 + 4 + 8). The **activations**, each layer's outputs kept for the backward pass, grow with batch × sequence × width × layers, plus a $T^2$ term if attention stores the score matrix (Korthikanti et al., 2022, give about $sbh(34 + 5as/h)$ bytes per layer in 16 bits, for sequence $s$, batch $b$, width $h$ and $a$ heads). For long sequences and large batches, they, not the parameters, decide what fits. An easy part to forget is the logits: batch × $T$ × $V$ numbers kept for the loss.
+
+**Arithmetic intensity and the roofline.** Whether an operation is compute-bound or memory-bound depends on its **arithmetic intensity** $I$, FLOPs per byte moved. The *roofline* model bounds performance:
+
+$$\text{attainable FLOP/s} = \min\big(\text{peak FLOP/s},\ I \times \text{memory bandwidth}\big)$$
+
+An $n \times n$ matmul does $O(n^3)$ work on $O(n^2)$ data and runs near peak; element-wise operations, normalizations and softmax do $O(1)$ work per byte and are memory-bound. It is the same calculation that explains decoding in [section 2.5](#25-prefill-decode-and-the-kv-cache).
+
+**Tricks that trade one resource for another.**
+
+- **Mixed precision** (Micikevicius et al., 2018): compute in bf16 or fp16 on the tensor cores (several times the fp32 throughput) and keep fp32 master weights, so that small updates are not lost to rounding. bf16 has fp32's 8 exponent bits, so it needs no *loss scaling*; fp16, with 5 exponent bits, does, or small gradients underflow to zero. fp8 (Hopper onwards) adds per-tensor or per-block scales.
+- **Activation checkpointing** (Chen et al., 2016): keep only each block's input and recompute its internals during the backward pass. It costs one extra forward pass (~30 % more compute) and leaves one tensor per block in memory plus the internals of a single block at a time; with a checkpoint every $\sqrt{L}$ layers, activation memory drops to $O(\sqrt{L})$. Selective recomputation (Korthikanti et al., 2022) recomputes only the large, cheap parts, such as attention.
+- **FlashAttention** (Dao et al., 2022; Dao, 2023): standard attention writes the $T \times T$ matrix $S = QK^\top$ to HBM, reads it back for the softmax and reads it again to multiply by $V$; its cost is dominated by those bytes, not by the FLOPs. FlashAttention is **IO-aware**: it splits $Q$, $K$ and $V$ into tiles that fit in the chip's SRAM and keeps, for each row, a running maximum $m$ and sum $\ell$ that are corrected with every new tile $j$ (*online softmax*):
+
+  $$m' = \max(m, \tilde m_j), \qquad \ell' = e^{m - m'}\,\ell + e^{\tilde m_j - m'}\,\tilde\ell_j, \qquad O' = \frac{e^{m - m'}\,\ell\,O + e^{\tilde m_j - m'}\,\tilde P_j V_j}{\ell'}$$
+
+  The result is exact, memory is linear in $T$, and the backward pass recomputes $S$ tile by tile instead of storing it. FlashAttention-2 splits the work better across warps and FlashAttention-3 exploits Hopper's asynchrony; the *memory-efficient* kernel (Rabe and Staats, 2021; xformers) and cuDNN's fused attention apply the same idea. None of them reduces the $O(T^2)$ compute: that is [section 1.4](#14-efficient-attention-for-long-contexts).
+- **Kernel fusion and CUDA graphs.** Every PyTorch operation launches a kernel with a fixed CPU cost of a few microseconds, and every element-wise operation reads and writes its whole tensor in HBM. `torch.compile` (TorchDynamo captures the graph; its default backend, `inductor`, generates Triton kernels) fuses chains of operations into one kernel that reads once and writes once. A **CUDA graph** records a sequence of kernels with their memory addresses and replays it with a single launch: it saves neither bytes nor FLOPs, it saves launches, and it needs static shapes. Inference servers use it for the decode step.
+
+**Parallelism.**
+
+| Strategy | What is split | Communication per step | Used for |
+|---|---|---|---|
+| data (DDP) | the batch; every GPU holds the whole model | all-reduce of the gradients | models that fit on one GPU |
+| ZeRO-1 / 2 / 3, FSDP | optimizer states (1), + gradients (2), + weights (3) | reduce-scatter + all-gather | large models without changing their code |
+| tensor (Megatron) | each matmul across GPUs | all-reduce inside every layer | very wide layers, within one node (fast links) |
+| pipeline | the layers, in stages | activations between stages | very deep models, across nodes |
+| sequence / context | the sequence | attention blocks | very long contexts |
+| expert | the experts of a MoE layer | all-to-all token routing | MoE models ([section 1.5](#15-ffn-and-mixture-of-experts)) |
+
+Data parallelism rests on an exact fact: the average of the gradients of $k$ shards of a batch is the gradient of the whole batch, so $k$ GPUs with batch $b$ train like one GPU with batch $kb$. The **ring all-reduce** runs a reduce-scatter and an all-gather of $k-1$ steps each, and in each step every GPU sends a chunk of $P/k$ bytes:
+
+$$\text{bytes sent per GPU} = 2\,\frac{k-1}{k}\,P$$
+
+almost independent of $k$; that is why DDP scales as long as the network keeps up, and it overlaps communication with the backward pass by grouping gradients into *buckets*. **ZeRO** (Rajbhandari et al., 2020) removes DDP's redundancy by sharding the states across the $N_d$ data-parallel GPUs:
+
+$$\text{memory per GPU:}\quad \text{DDP } 16\Psi, \qquad \text{ZeRO-1 } 4\Psi + \frac{12\Psi}{N_d}, \qquad \text{ZeRO-2 } 2\Psi + \frac{14\Psi}{N_d}, \qquad \text{ZeRO-3 } \frac{16\Psi}{N_d}$$
+
+ZeRO-1 and ZeRO-2 communicate as much as DDP (a reduce-scatter plus an all-gather); ZeRO-3 adds an all-gather of the weights before each layer's forward and backward pass, about 1.5 times DDP's volume. FSDP (Zhao et al., 2023) is PyTorch's implementation (*full shard* is ZeRO-3; in FSDP2, `fully_shard`). The largest models combine strategies ("3D/4D parallelism", Narayanan et al., 2021): tensor inside the node, pipeline and FSDP across nodes. A pipeline pays an idle "bubble" of $(p-1)/(m+p-1)$ of the time with $p$ stages and $m$ micro-batches (GPipe; 1F1B reduces its memory).
+
+**What it replaced.** Before ZeRO, a model that did not fit on one GPU needed hand-written model parallelism (Megatron) or pipelines; before FlashAttention, long context was limited by $O(T^2)$ memory, which is why approximate attention variants multiplied. Today the default stack is bf16, fused attention, FSDP or ZeRO-3 and, at large scale, tensor parallelism inside the node (`torchtitan`, Megatron-LM / NeMo, DeepSpeed).
+
+**Failure modes.** Out of memory from activations, not parameters, which shows up when the sequence or the batch grows. Silent fallbacks: a build without FlashAttention, or Windows paging GPU memory into system RAM; both show up as a sudden slowdown, not as an error. fp16 without loss scaling: gradients that underflow to zero. Communication-bound scaling: adding GPUs does not speed up the job because the network cannot keep up with ZeRO-3's all-gathers. Nondeterminism between runs from GPU kernels, which matters when comparing small differences.
+
+**Key papers.** Chen et al. (2016), *Training Deep Nets with Sublinear Memory Cost*; Micikevicius et al. (2018), *Mixed Precision Training*; Shoeybi et al. (2019), *Megatron-LM*; Rajbhandari et al. (2020), *ZeRO*; Kaplan et al. (2020), *Scaling Laws for Neural Language Models*; Rabe and Staats (2021), *Self-attention Does Not Need O(n²) Memory*; Narayanan et al. (2021), *Efficient Large-Scale Language Model Training on GPU Clusters*; Dao et al. (2022), *FlashAttention*, and Dao (2023), *FlashAttention-2*; Korthikanti et al. (2022), *Reducing Activation Recomputation in Large Transformer Models*; Chowdhery et al. (2022, PaLM, MFU); Zhao et al. (2023), *PyTorch FSDP*.
+
+> **Notebook:** [19 · Systems: memory, precision, kernels and parallelism](../../notebooks/02_pretraining_and_inference/19_systems_memory_and_parallelism.ipynb) (read after 05) · **In the course:** on a 6 GB RTX 3060 Laptop, with a 29.4M-parameter `TransformerLM`, the fp32 weights take 0.111 GB (0.110 predicted), the gradients 0.118 and Adam 0.219, but the activations go from 0.43 to 3.39 GB from batch 2 to 16; bf16 makes a step 2.2× faster and lowers the peak from 2.18 to 1.66 GB; checkpointing cuts the peak by 57 % (fp32) and 51 % (bf16) for ~22 % more time; naive attention takes 4.1 GB at 8,192 tokens and runs out of memory at 16,384, while the fused kernels (memory-efficient and cuDNN; FlashAttention-2 is not in the Windows wheels) need 0.22 GB at 16,384 and cuDNN takes 51.9 ms; the unfused *math* backend spills into Windows shared GPU memory (8.1 GB on a 6 GB card, 978 ms); the profiler puts 47 % of GPU time in matmuls, with 1,136 kernels per step; without Triton there is no `inductor`, but `backend="cudagraphs"` gives 4.1× (8.68 → 2.11 ms) with the same output; MFU is 32 % (7.38 TFLOP/s against a measured peak of 23.0, 36,608 tokens/s); real DDP with two processes (`gloo`, `FileStore`, `mp.spawn`) ends with the same weights as one process with the global batch (7.45e-9) and all-reduces 0.53 MB per step; and the calculator gives a 7B model 112 GB per GPU under DDP against 14 GB with FSDP on 8 GPUs (1.8 GB with 64), and a 70B model 140 GB with 8 and 17.5 GB with 64.
 
 ### 2.4 Decoding strategies
 
