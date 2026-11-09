@@ -14,7 +14,8 @@ same machinery as language models:
    has interacted with yet.
 3. LLM re-ranking and explanation: an LLM reads the user's history and the candidate list, then
    re-orders or explains them. That is useful at the top of the funnel (tens of candidates) but far
-   too slow for retrieval.
+   too slow for retrieval. Notebook 12 builds this stage with LangChain (see its section 4); this
+   module only holds the data, the SASRec training and the embedding rankers.
 
 This module also has synthetic interaction data with hidden taste clusters, a popularity baseline
 and the leave-one-out split. The hit@k and nDCG@k metrics live in evaluation.py.
@@ -171,11 +172,27 @@ def item_embeddings_from_model(model) -> np.ndarray:
 
 
 def content_embeddings(catalog: Catalog, embedder=None) -> np.ndarray:
-    """Item vectors built from the descriptions, so they also work for brand-new items (cold start). Row 0 is all zeros for padding."""
-    from .rag import HashedTfidfEmbedder
+    """
+    Item vectors built from the descriptions, so they also work for brand-new items (cold start). Row 0 is all
+    zeros for padding. By default this is a plain TF-IDF over words (enough for our synthetic catalogue); pass any
+    LangChain embeddings object (e.g. llm_edu_suite.config.get_embeddings()) to use a neural embedding model instead.
+    """
     texts = [f"{t}. {d}" for t, d in zip(catalog.titles, catalog.descriptions)]
-    emb = embedder or HashedTfidfEmbedder(dim=256).fit(texts)
-    E = emb.encode(texts)
+    if embedder is not None:
+        E = np.asarray(embedder.embed_documents(texts), dtype=np.float32)
+    else:
+        docs = [re.findall(r"[a-z0-9]+", t.lower()) for t in texts]
+        vocab = {w: i for i, w in enumerate(sorted({w for d in docs for w in d}))}
+        df = np.zeros(len(vocab))
+        for d in docs:
+            for w in set(d):
+                df[vocab[w]] += 1
+        idf = np.log((1 + len(docs)) / (1 + df)) + 1.0          # smoothed inverse document frequency
+        E = np.zeros((len(docs), len(vocab)), dtype=np.float32)
+        for i, d in enumerate(docs):
+            for w in d:
+                E[i, vocab[w]] += idf[vocab[w]]
+    E = E / (np.linalg.norm(E, axis=1, keepdims=True) + 1e-8)  # unit vectors, so a dot product is a cosine
     return np.vstack([np.zeros((1, E.shape[1]), dtype=np.float32), E])
 
 
@@ -188,34 +205,3 @@ def embedding_rank(E: np.ndarray, history: list[int], k: int = 10, recency_decay
     scores[0] = -np.inf
     scores[history] = -np.inf
     return np.argsort(-scores)[:k].tolist()
-
-
-# LLM re-ranking
-
-RERANK_PROMPT = (
-    "You are a recommendation assistant.\n"
-    "The user recently watched:\n{history}\n\n"
-    "Rank the following candidate items from most to least relevant for this user:\n{candidates}\n\n"
-    "Reply with the candidate numbers in order, comma-separated (e.g. 3, 1, 2)."
-)
-
-
-def llm_rerank(llm, catalog: Catalog, history: list[int], candidates: list[int], max_history: int = 5) -> list[int]:
-    """Re-order a short candidate list with an LLM. Candidates the reply does not mention keep their original order at the end."""
-    hist = "\n".join(f"- {catalog.titles[i - 1]}: {catalog.descriptions[i - 1]}" for i in history[-max_history:])
-    cands = "\n".join(f"{n + 1}. {catalog.titles[i - 1]}: {catalog.descriptions[i - 1]}" for n, i in enumerate(candidates))
-    text = llm.complete(RERANK_PROMPT.format(history=hist, candidates=cands))
-    order = [int(x) - 1 for x in re.findall(r"\d+", text) if 0 < int(x) <= len(candidates)]
-    seen, ranked = set(), []
-    for j in order:
-        if j not in seen:
-            seen.add(j)
-            ranked.append(candidates[j])
-    ranked += [c for c in candidates if c not in set(ranked)]
-    return ranked
-
-
-def explain_recommendation(llm, catalog: Catalog, history: list[int], item: int) -> str:
-    hist = ", ".join(catalog.titles[i - 1] for i in history[-3:])
-    return llm.complete(f"The user liked {hist}. In one sentence, explain why they might enjoy "
-                        f"'{catalog.titles[item - 1]}' ({catalog.descriptions[item - 1]}).")

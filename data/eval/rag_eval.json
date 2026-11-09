@@ -1,0 +1,238 @@
+[
+  {
+    "question": "What does Reciprocal Rank Fusion sum to combine several rankings, and what constant does it use?",
+    "answer": "For each document RRF sums 1/(k + rank) over the rankings, with k = 60. It uses only ranks, not scores, so it needs no calibration or tuning.",
+    "source": "glossary.md",
+    "sources": [
+      "glossary.md",
+      "module_reference.md"
+    ],
+    "evidence": [
+      "1/(60 + rank)",
+      "k = 60"
+    ]
+  },
+  {
+    "question": "How does RMSNorm differ from LayerNorm?",
+    "answer": "RMSNorm only divides by the root mean square, without subtracting the mean. It is cheaper than LayerNorm and is the standard in Llama.",
+    "source": "glossary.md",
+    "sources": [
+      "glossary.md",
+      "module_reference.md"
+    ],
+    "evidence": [
+      "no mean subtraction"
+    ]
+  },
+  {
+    "question": "What is the difference between head sampling and tail sampling of traces?",
+    "answer": "Head sampling decides at the start of a trace (at the root span) whether to keep the whole trace; tail sampling decides at the end, for example to keep every error.",
+    "source": "glossary.md",
+    "sources": [
+      "glossary.md",
+      "module_reference.md"
+    ],
+    "evidence": [
+      "tail sampling decides at the end",
+      "tail sampling (decide"
+    ]
+  },
+  {
+    "question": "What is tool poisoning in MCP?",
+    "answer": "An attack where a malicious MCP server hides instructions in a tool's description, which the model reads but the user rarely does, or changes the description after it was approved. Mitigations include allowlists, namespacing, reviewing descriptions and confirmation for risky tools.",
+    "source": "glossary.md",
+    "sources": [
+      "glossary.md",
+      "module_reference.md",
+      "notebooks_guide.md"
+    ],
+    "evidence": [
+      "hides instructions in a tool"
+    ]
+  },
+  {
+    "question": "What is the minimum Python version required by the project?",
+    "answer": "Python 3.10 is the minimum; the project was verified with Python 3.11.4 on Windows 11.",
+    "source": "installation.md",
+    "sources": [
+      "installation.md"
+    ],
+    "evidence": [
+      "| python | 3.10 |"
+    ]
+  },
+  {
+    "question": "What causes the error 'ImportError: numpy.core.multiarray failed to import' and how do you fix it?",
+    "answer": "It happens when a matplotlib built against NumPy 1.x is used with NumPy 2.x installed. The fix is to use the project's isolated .venv, or upgrade matplotlib with pip install -U matplotlib.",
+    "source": "installation.md",
+    "sources": [
+      "installation.md"
+    ],
+    "evidence": [
+      "numpy 1.x"
+    ]
+  },
+  {
+    "question": "What can you do if PowerShell blocks Activate.ps1?",
+    "answer": "Run Set-ExecutionPolicy -Scope CurrentUser RemoteSigned once, or call .venv\\Scripts\\python.exe directly without activating the environment.",
+    "source": "installation.md",
+    "sources": [
+      "installation.md"
+    ],
+    "evidence": [
+      "set-executionpolicy"
+    ]
+  },
+  {
+    "question": "Which PyTorch build does the automatic setup script install?",
+    "answer": "It installs the CUDA build of PyTorch if it detects an NVIDIA GPU with nvidia-smi, and the CPU build otherwise.",
+    "source": "installation.md",
+    "sources": [
+      "installation.md"
+    ],
+    "evidence": [
+      "if it detects an nvidia gpu"
+    ]
+  },
+  {
+    "question": "What are the default chunk size and overlap in rag_demo.py?",
+    "answer": "The default --chunk-size is 120 words and the overlap is chunk_size // 4, that is 30 words.",
+    "source": "cli_scripts.md",
+    "sources": [
+      "cli_scripts.md"
+    ],
+    "evidence": [
+      "chunk_size // 4"
+    ]
+  },
+  {
+    "question": "Why must an MCP server that uses the stdio transport never print to stdout?",
+    "answer": "Because stdout carries the protocol messages: a single stray print corrupts the stream and the client fails to parse the next message. Logs must go to stderr.",
+    "source": "cli_scripts.md",
+    "sources": [
+      "cli_scripts.md",
+      "glossary.md",
+      "module_reference.md"
+    ],
+    "evidence": [
+      "never print to stdout",
+      "stdout is reserved"
+    ]
+  },
+  {
+    "question": "In the train.py log line, what does the grad value show?",
+    "answer": "grad is the gradient norm before clipping; a sudden jump is usually the first sign of instability.",
+    "source": "cli_scripts.md",
+    "sources": [
+      "cli_scripts.md",
+      "module_reference.md"
+    ],
+    "evidence": [
+      "gradient norm before clipping"
+    ]
+  },
+  {
+    "question": "Where does mini_llm.py save its checkpoint?",
+    "answer": "It saves mini_gpt.pt (config, state_dict and tokenizer merges) in the system temporary folder given by tempfile.gettempdir(), not in runs/.",
+    "source": "cli_scripts.md",
+    "sources": [
+      "cli_scripts.md"
+    ],
+    "evidence": [
+      "tempfile.gettempdir()"
+    ]
+  },
+  {
+    "question": "How much KV-cache memory does Llama-3-8B need per token and for an 8k sequence?",
+    "answer": "With 32 layers, 8 KV heads, head dimension 128 and bf16, it needs 128 KiB per token, which is 1 GiB for an 8k-token sequence.",
+    "source": "module_reference.md",
+    "sources": [
+      "module_reference.md"
+    ],
+    "evidence": [
+      "128 kib per token"
+    ]
+  },
+  {
+    "question": "Why does get_device not select Apple MPS by default?",
+    "answer": "Because RoPE uses complex tensors, which MPS only partly supports; MPS is used only with allow_mps=True.",
+    "source": "module_reference.md",
+    "sources": [
+      "module_reference.md"
+    ],
+    "evidence": [
+      "complex tensors"
+    ]
+  },
+  {
+    "question": "How are the 16 NF4 quantization levels chosen?",
+    "answer": "They are placed at quantiles of the standard normal distribution N(0, 1), 8 negative, an exact 0 and 7 positive, normalized to [-1, 1], because weights are roughly Gaussian.",
+    "source": "module_reference.md",
+    "sources": [
+      "module_reference.md",
+      "notebooks_guide.md",
+      "glossary.md"
+    ],
+    "evidence": [
+      "quantiles of n(0, 1)"
+    ]
+  },
+  {
+    "question": "In speculative decoding, with what probability is a draft token accepted?",
+    "answer": "A draft token x_i is accepted with probability min(1, p_i(x_i) / q_i(x_i)), where p is the target model and q the draft; on the first rejection a token is sampled from norm(max(0, p_i - q_i)) and the round stops.",
+    "source": "module_reference.md",
+    "sources": [
+      "module_reference.md"
+    ],
+    "evidence": [
+      "accepted with probability"
+    ]
+  },
+  {
+    "question": "In notebook 03, what copy accuracy do the dense GQA model and the sliding-window model reach?",
+    "answer": "Dense (GQA) attention reaches 99.9% copy accuracy, while sliding-window attention with w=16 reaches only 0.6%.",
+    "source": "notebooks_guide.md",
+    "sources": [
+      "notebooks_guide.md"
+    ],
+    "evidence": [
+      "dense (gqa) | 99.9%"
+    ]
+  },
+  {
+    "question": "According to the notebooks guide, why can LoRA fail in notebook 07 and what is the fix?",
+    "answer": "The new chat role tokens have frozen embeddings that LoRA cannot change. The fix is to train the embeddings too (the equivalent of modules_to_save in peft), which reaches 95.3% exact match.",
+    "source": "notebooks_guide.md",
+    "sources": [
+      "notebooks_guide.md",
+      "glossary.md",
+      "module_reference.md",
+      "cli_scripts.md"
+    ],
+    "evidence": [
+      "frozen embeddings"
+    ]
+  },
+  {
+    "question": "What exact match does DPO + NLL reach in notebook 08, compared with plain DPO?",
+    "answer": "DPO + NLL reaches 80.0% exact match (perplexity 1.46), while plain DPO drops to 46.7%, starting from an SFT model at 70.7%.",
+    "source": "notebooks_guide.md",
+    "sources": [
+      "notebooks_guide.md"
+    ],
+    "evidence": [
+      "+ dpo + nll | 80.0%"
+    ]
+  },
+  {
+    "question": "In notebook 09, what top-1 agreement does NF4 achieve on the full model and at what memory?",
+    "answer": "NF4 keeps 98.6% top-1 agreement at 0.31x the memory.",
+    "source": "notebooks_guide.md",
+    "sources": [
+      "notebooks_guide.md"
+    ],
+    "evidence": [
+      "nf4 98.6%"
+    ]
+  }
+]

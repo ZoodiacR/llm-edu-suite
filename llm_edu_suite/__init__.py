@@ -1,29 +1,27 @@
 """
-llm_edu_suite — a compact, readable LLM engineering toolkit for learning and teaching.
+llm_edu_suite: the small amount of code the course needs that is not a framework.
 
-Every module is self-contained and generously commented. The goal is clarity
-rather than peak performance: each component mirrors what production frameworks
-(PyTorch, Hugging Face transformers/peft/trl, vLLM, FAISS) do under the hood.
+The course has two halves. In the first one (notebooks 00-06) we build a language model ourselves
+in PyTorch, because seeing attention, RoPE, MoE or a KV-cache written out is the best way to
+understand them; the modules below are that model. In the second half (notebooks 07-16) we use
+the tools the industry uses: Hugging Face transformers/peft/trl, LangChain, LangGraph, LangSmith,
+RAGAS and the MCP SDK. For those, this package only provides `config`, the one place where the
+models and services are chosen.
 
 Modules
 -------
+config      get_llm(), get_embeddings(), setup(): models and services for notebooks 07-16, read from .env
 utils       seeding, device selection, parameter counting, timing
 tokenizer   byte-level BPE tokenizer (train / encode / decode / save / load)
-layers      RMSNorm, RoPE, attention variants (MHA, GQA, MLA, sliding window,
-            Longformer, block-sparse, linear), SwiGLU, MoE
-model       TransformerLM: configurable decoder-only LM with KV-cache + sampling
-data        synthetic corpora, text datasets, batching, SFT formatting/collation
-training    LR schedules, optimizer groups, training loop, checkpoints
-finetune    SFT loss masking, LoRA, DPO, GRPO, knowledge distillation
-quant       block-wise INT8/INT4 and NF4 quantization, quantized Linear
-rag         chunking, embeddings, BM25, hybrid retrieval (RRF), prompt building
-evaluation  perplexity, exact match, retrieval metrics, LLM-as-judge, latency
-agents      tool registry, JSON-schema validation, agent loop
-recsys      sequential recommendation with a transformer (SASRec-style),
-            embedding retrieval, LLM re-ranking, leave-one-out split + baselines
-applications extraction, classification, summarization, semantic cache,
-            prompt-injection guard, batch jobs with cost accounting
-llm_client  OpenAI-compatible client (vLLM / any API) with an offline MockLLM
+layers      RMSNorm, RoPE, attention variants (MHA, GQA, MLA, sliding window, Longformer,
+            block-sparse, linear), SwiGLU, Mixture of Experts
+model       TransformerLM: a configurable decoder-only LM with KV-cache and sampling
+data        synthetic corpora, text datasets and batching for pre-training
+training    LR schedules, optimizer groups, the training loop, checkpoints
+inference   speculative decoding, batched generation, KV-cache sizing
+recsys      sequential recommendation with a transformer (SASRec-style), embedding retrieval,
+            leave-one-out split and baselines
+evaluation  perplexity, exact match, text-overlap, retrieval/ranking and latency metrics
 """
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"

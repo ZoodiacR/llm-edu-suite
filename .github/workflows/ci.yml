@@ -22,23 +22,35 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements-dev.txt
-      - name: Unit + behavioural tests
-        run: pytest -q
+      - name: Unit + behavioural tests (fake LLMs; the Ollama integration tests skip themselves)
+        env:
+          LANGSMITH_TRACING: "false"
+        run: pytest -q -m "not ollama"
       - name: Smoke-train a tiny LM
         run: python scripts/train.py --steps 30 --d-model 64 --n-layers 2 --eval-every 15 --out runs/ci
-      - name: RAG demo on the sample docs
-        run: python scripts/rag_demo.py --docs data/sample_docs --eval data/sample_eval.json
       - name: MCP server answers over stdio
         run: |
           python - <<'EOF'
-          import sys
-          sys.path.insert(0, ".")
-          from llm_edu_suite.mcp import MCPClient, StdioTransport, result_text
-          client = MCPClient(StdioTransport([sys.executable, "scripts/mcp_server.py"]))
-          client.initialize()
-          assert result_text(client.call_tool("calculate", {"expression": "6*7"})) == "42"
-          client.close()
+          import asyncio, sys
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+          async def main():
+              params = StdioServerParameters(command=sys.executable, args=["scripts/mcp_server.py"])
+              async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+                  init = await session.initialize()
+                  assert init.serverInfo.name == "llm-edu-docs", init.serverInfo
+                  tools = {t.name for t in (await session.list_tools()).tools}
+                  assert tools == {"search_docs", "calculate", "create_ticket"}, tools
+                  result = await session.call_tool("calculate", {"expression": "6*7"})
+                  assert not result.isError and result.content[0].text == "42", result
+
+          asyncio.run(main())
           print("MCP server OK")
           EOF
-      - name: Execute the PyTorch-free notebooks (10, 11, 13, 14, 15, 16)
-        run: python tools/run_notebooks.py 10 11 13 14 15 16
+      - name: Rebuild every notebook from its generator (catches syntax errors in the generators)
+        run: python tools/build_notebooks.py
+      - name: Execute a from-scratch notebook end to end on CPU
+        run: python tools/run_notebooks.py 01
+      # Notebooks 07-16 call a local LLM through Ollama and train on a GPU, so they are executed on a
+      # developer machine and committed with their outputs; CI checks everything that runs without them.

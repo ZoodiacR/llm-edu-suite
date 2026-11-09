@@ -3,7 +3,7 @@ setup:          ## create .venv and install everything (Linux/macOS; on Windows 
 	bash setup_env.sh
 test:           ## unit + behavioural tests (~15 s)
 	pytest -q
-notebooks:      ## regenerate every .ipynb from tools/build_notebooks_part*.py (clears outputs)
+notebooks:      ## rebuild every .ipynb from tools/notebooks/ (clears outputs)
 	python tools/build_notebooks.py
 run-notebooks:  ## execute every notebook in place (~40 min on CPU)
 	python tools/run_notebooks.py

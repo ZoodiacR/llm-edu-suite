@@ -12,11 +12,11 @@ dependencies = [
 [project.optional-dependencies]
 # The application layer: everything the notebooks 07-16 use.
 apps = [
-    "langchain>=1.0", "langchain-core>=1.0", "langchain-community>=0.4", "langchain-ollama>=1.0",
-    "langchain-text-splitters>=1.0", "langgraph>=1.0", "langsmith>=0.4", "ragas>=0.3",
+    "langchain>=1.4", "langchain-core>=1.7", "langchain-community>=0.4", "langchain-classic>=1.0", "langchain-ollama>=1.1",
+    "langchain-text-splitters>=1.0", "langgraph>=1.2", "langsmith>=0.14", "ragas>=0.4",
     "faiss-cpu>=1.8", "rank-bm25>=0.2", "pydantic>=2.0",
-    "transformers>=4.50", "peft>=0.15", "trl>=0.20", "datasets>=3.0", "accelerate>=1.0", "optimum-quanto>=0.2",
-    "mcp[cli]>=1.10", "langchain-mcp-adapters>=0.1",
+    "transformers>=5.0", "peft>=0.21", "trl>=1.17", "datasets>=4.0", "accelerate>=1.0", "optimum-quanto>=0.2",
+    "mcp[cli]>=1.24,<2", "langchain-mcp-adapters>=0.3.2",
 ]
 dev = ["pytest>=7.0", "jupyterlab>=4.0", "ipykernel>=6.0", "nbclient>=0.8", "nbformat>=5.7"]
 

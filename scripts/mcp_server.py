@@ -1,93 +1,152 @@
 #!/usr/bin/env python
 """
-A real, runnable MCP server (stdio transport) built with llm_edu_suite.mcp — no SDK needed.
+An MCP server for the sample knowledge base, built with the official MCP Python SDK (FastMCP).
 
-It exposes the sample knowledge base in data/sample_docs/ to any MCP client:
-    tools      search_docs(query, k)    hybrid BM25 + dense retrieval over the docs   (read-only)
-               calculate(expression)    safe arithmetic                                (read-only)
-               create_ticket(title, priority)   simulated write action                 (destructive, so clients should confirm)
-    resources  docs://<file>            every .md / .txt file, readable by the host app
-    prompts    answer_with_sources(question)   a RAG prompt template with citation rules
+It exposes the documents in data/sample_docs/ to any MCP client:
+    tools      search_docs(query, k)            BM25 search over the docs, one passage per line   (read-only)
+               calculate(expression)            safe arithmetic (+ - * / ** % and parentheses)    (read-only)
+               create_ticket(title, priority)   simulated write action                            (destructive: hosts should confirm)
+    resources  docs://index                     JSON list of every document with its title
+               docs://{name}                    resource template: the full text of one document, e.g. docs://shipping.md
+    prompts    answer_with_sources(question)    a RAG prompt template with citation rules
 
-Run it (it waits for JSON-RPC messages on stdin; Ctrl+C to stop):
-    python scripts/mcp_server.py
-    python scripts/mcp_server.py --docs path/to/your/docs
+Run it:
+    python scripts/mcp_server.py                         # stdio (the default): waits for JSON-RPC on stdin, Ctrl+C to stop
+    python scripts/mcp_server.py --docs path/to/docs     # serve another folder of .md / .txt files
+    python scripts/mcp_server.py --http --port 8000      # Streamable HTTP on http://127.0.0.1:8000/mcp
 
 Use it from Claude Code:
-    claude mcp add llm_edu_suite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
+    claude mcp add llm-edu-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
 Use it from Claude Desktop (claude_desktop_config.json):
-    {"mcpServers": {"llm_edu_suite-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
+    {"mcpServers": {"llm-edu-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
 Test it with the official inspector:
     npx @modelcontextprotocol/inspector python scripts/mcp_server.py
 
-Keep in mind that stdout carries the protocol itself, so an stdio server must never print() to
-stdout. Logs go to stderr instead.
+In stdio mode, stdout carries the protocol itself, so this server never prints to stdout:
+logs go to stderr.
+
+SDK note: this uses `mcp.server.fastmcp.FastMCP` from the 1.x SDK, which is what langchain-mcp-adapters
+supports today. In the 2.x SDK the same class is called `mcp.server.mcpserver.MCPServer`, and the
+decorators work the same way.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import glob
+import json
+import operator
 import os
+import re
 import sys
 import time
+from typing import Literal
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+from rank_bm25 import BM25Okapi
 
-from llm_edu_suite.mcp import MCPServer, serve_stdio
-from llm_edu_suite.rag import Retriever, chunk_documents
-
-DEFAULT_DOCS = os.path.join(os.path.dirname(__file__), "..", "data", "sample_docs")
+DEFAULT_DOCS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "sample_docs"))
+SERVER_NAME = "llm-edu-docs"
 
 
-def build_server(docs_dir: str = DEFAULT_DOCS) -> MCPServer:
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+# Arithmetic is evaluated by walking the syntax tree, so nothing but numbers and these operators can run.
+_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+        ast.Pow: operator.pow, ast.Mod: operator.mod, ast.USub: operator.neg, ast.UAdd: operator.pos}
+
+
+def _safe_eval(node: ast.AST) -> float:
+    if isinstance(node, ast.Expression):
+        return _safe_eval(node.body)
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+        return _OPS[type(node.op)](_safe_eval(node.left), _safe_eval(node.right))
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
+        return _OPS[type(node.op)](_safe_eval(node.operand))
+    raise ValueError("only numbers and + - * / ** % ( ) are allowed")
+
+
+def build_server(docs_dir: str = DEFAULT_DOCS, log_level: str = "WARNING") -> FastMCP:
+    """Create the FastMCP server for a folder of documents. Tests and notebooks import this function.
+    FastMCP logs every request at INFO to stderr; WARNING keeps the output readable."""
     files = sorted(glob.glob(os.path.join(docs_dir, "*.md")) + glob.glob(os.path.join(docs_dir, "*.txt")))
     docs = {os.path.basename(f): open(f, encoding="utf-8").read() for f in files}
-    retriever = Retriever(chunk_documents(docs, size=80, overlap=20))
+
+    # Every non-empty line of the sample docs is one self-contained sentence, so a line is a good passage.
+    passages = [(name, line.strip()) for name, text in docs.items()
+                for line in text.splitlines() if line.strip() and not line.startswith("#")]
+    bm25 = BM25Okapi([_tokens(f"{name.split('.')[0].replace('_', ' ')} {text}") for name, text in passages])
     tickets: list[dict] = []
 
-    server = MCPServer("llm_edu_suite-docs", "0.1.0",
-                       instructions="Company knowledge base. Use search_docs before answering policy questions and cite the file names.")
+    server = FastMCP(SERVER_NAME,
+                     instructions="Company knowledge base (refunds, shipping, security, support). "
+                                  "Use search_docs before answering policy questions and cite the file names.",
+                     log_level=log_level)
 
-    @server.tool(description="Search the company documentation (refunds, shipping, security, support). Returns the best passages with their source file.",
-                 annotations={"readOnlyHint": True})
+    @server.tool(annotations=ToolAnnotations(title="Search docs", readOnlyHint=True, openWorldHint=False))
     def search_docs(query: str, k: int = 3) -> str:
-        hits = retriever.retrieve(query, k=k)
-        return "\n".join(f"[{c.doc_id}] {c.text}" for c in hits) or "no results"
+        """Search the company documentation (refunds, shipping, security, support).
+        Returns the k best passages, one per line, each prefixed with its source file in brackets."""
+        scores = bm25.get_scores(_tokens(query))
+        best = sorted(range(len(passages)), key=lambda i: -scores[i])[:max(1, min(k, 10))]
+        return "\n".join(f"[{passages[i][0]}] {passages[i][1]}" for i in best if scores[i] > 0) or "no results"
 
-    @server.tool(description="Evaluate an arithmetic expression, e.g. '(17 * 23) + 4'.", annotations={"readOnlyHint": True})
+    @server.tool(annotations=ToolAnnotations(title="Calculator", readOnlyHint=True, openWorldHint=False))
     def calculate(expression: str) -> str:
-        if not all(ch in "0123456789+-*/(). " for ch in expression):
-            raise ValueError("only arithmetic is allowed")
-        return str(eval(expression, {"__builtins__": {}}, {}))
+        """Evaluate an arithmetic expression, e.g. '(17 * 23) + 4'."""
+        try:
+            value = _safe_eval(ast.parse(expression, mode="eval"))
+        except SyntaxError as e:
+            raise ValueError(f"not a valid expression: {expression!r}") from e
+        return str(int(value)) if float(value).is_integer() else str(value)
 
-    @server.tool(description="Create a support ticket (simulated write action).",
-                 input_schema={"type": "object", "properties": {"title": {"type": "string"},
-                                                                "priority": {"type": "string", "enum": ["low", "normal", "high"]}},
-                               "required": ["title"]},
-                 annotations={"readOnlyHint": False, "destructiveHint": True})
-    def create_ticket(title: str, priority: str = "normal") -> dict:
-        ticket = {"id": f"T-{1000 + len(tickets)}", "title": title, "priority": priority, "created": time.strftime("%Y-%m-%d %H:%M")}
+    @server.tool(annotations=ToolAnnotations(title="Create support ticket", readOnlyHint=False,
+                                             destructiveHint=True, idempotentHint=False, openWorldHint=True))
+    def create_ticket(title: str, priority: Literal["low", "normal", "high"] = "normal") -> dict:
+        """Create a support ticket in the helpdesk (a simulated write action)."""
+        ticket = {"id": f"T-{1000 + len(tickets)}", "title": title, "priority": priority,
+                  "created": time.strftime("%Y-%m-%d %H:%M")}
         tickets.append(ticket)
-        print(f"[mcp_server] created {ticket['id']}", file=sys.stderr)          # stdout belongs to the protocol, so log to stderr
+        print(f"[{SERVER_NAME}] created {ticket['id']}", file=sys.stderr)    # stdout belongs to the protocol
         return ticket
 
-    for name, text in docs.items():
-        server.resource(f"docs://{name}", description=text.splitlines()[0].lstrip("# ") if text else name,
-                        mime_type="text/markdown")(lambda t=text: t)
+    @server.resource("docs://index", name="index", mime_type="application/json",
+                     description="Every document in the knowledge base with its title")
+    def index() -> str:
+        return json.dumps([{"uri": f"docs://{n}", "title": t.splitlines()[0].lstrip("# ") if t else n}
+                           for n, t in docs.items()])
 
-    @server.prompt(description="Answer a question using the knowledge base, citing sources.")
+    @server.resource("docs://{name}", mime_type="text/markdown", description="The full text of one document, e.g. docs://shipping.md")
+    def read_doc(name: str) -> str:
+        if name not in docs:
+            raise ValueError(f"unknown document {name!r}; see docs://index")
+        return docs[name]
+
+    @server.prompt(description="Answer a question from the knowledge base, citing sources.")
     def answer_with_sources(question: str) -> str:
-        return (f"Use the search_docs tool to find passages relevant to the question, then answer ONLY from them and cite "
+        return ("Use the search_docs tool to find passages relevant to the question, then answer ONLY from them and cite "
                 f"the file names in brackets. If the docs do not contain the answer, say so.\n\nQuestion: {question}")
 
     return server
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     p.add_argument("--docs", default=DEFAULT_DOCS, help="folder with .md / .txt files to expose")
+    p.add_argument("--http", action="store_true", help="serve Streamable HTTP instead of stdio")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--log-level", default="WARNING", help="stderr log level (INFO shows every request)")
     args = p.parse_args()
-    server = build_server(args.docs)
-    print(f"[mcp_server] {len(server.tools)} tools, {len(server.resources)} resources, {len(server.prompts)} prompts — waiting on stdin",
-          file=sys.stderr)
-    serve_stdio(server)
+    server = build_server(args.docs, args.log_level)
+    if args.http:
+        server.settings.host, server.settings.port = args.host, args.port
+        print(f"[{SERVER_NAME}] Streamable HTTP on http://{args.host}:{args.port}{server.settings.streamable_http_path}", file=sys.stderr)
+        server.run(transport="streamable-http")
+    else:
+        server.run()                     # stdio
