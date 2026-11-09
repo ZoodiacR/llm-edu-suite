@@ -66,6 +66,7 @@ class ModelConfig:
     rope_base: float = 10000.0
     rope_scaling: dict | None = None    # {"factor": 8.0, "orig_len": 8192}
     tie_embeddings: bool = True
+    norm_eps: float = 1e-6              # RMSNorm epsilon (Llama and SmolLM2 use 1e-5)
 
     def __post_init__(self):
         if self.d_ff is None:
@@ -102,14 +103,14 @@ def build_attention(cfg: ModelConfig, layer_idx: int) -> nn.Module:
 class Block(nn.Module):
     def __init__(self, cfg: ModelConfig, layer_idx: int):
         super().__init__()
-        self.attn_norm = RMSNorm(cfg.d_model)
+        self.attn_norm = RMSNorm(cfg.d_model, cfg.norm_eps)
         self.attn = build_attention(cfg, layer_idx)
-        self.ffn_norm = RMSNorm(cfg.d_model)
+        self.ffn_norm = RMSNorm(cfg.d_model, cfg.norm_eps)
         use_moe = cfg.moe and (layer_idx % cfg.moe_every == cfg.moe_every - 1)
         self.ffn = (MoE(cfg.d_model, cfg.d_ff, cfg.n_experts, cfg.top_k, cfg.n_shared_experts, cfg.moe_routing)
                     if use_moe else SwiGLU(cfg.d_model, cfg.d_ff))
-        self.post_attn_norm = RMSNorm(cfg.d_model) if cfg.sandwich_norm else nn.Identity()
-        self.post_ffn_norm = RMSNorm(cfg.d_model) if cfg.sandwich_norm else nn.Identity()
+        self.post_attn_norm = RMSNorm(cfg.d_model, cfg.norm_eps) if cfg.sandwich_norm else nn.Identity()
+        self.post_ffn_norm = RMSNorm(cfg.d_model, cfg.norm_eps) if cfg.sandwich_norm else nn.Identity()
         self.drop = nn.Dropout(cfg.dropout)
 
     def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor, start_pos: int | None = None):
@@ -128,7 +129,7 @@ class TransformerLM(nn.Module):
         self.cfg = cfg
         self.tok_emb = nn.Embedding(cfg.vocab_size, cfg.d_model)
         self.blocks = nn.ModuleList(Block(cfg, i) for i in range(cfg.n_layers))
-        self.norm = RMSNorm(cfg.d_model)
+        self.norm = RMSNorm(cfg.d_model, cfg.norm_eps)
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
         if cfg.tie_embeddings:
             self.lm_head.weight = self.tok_emb.weight
@@ -286,3 +287,83 @@ def apply_repetition_penalty(logits: torch.Tensor, generated: torch.Tensor, pena
         vals = logits[b, ids]
         logits[b, ids] = torch.where(vals > 0, vals / penalty, vals * penalty)
     return logits
+
+
+# From scratch to real weights: Hugging Face Llama-family checkpoints in TransformerLM
+#
+# Llama, Mistral, Qwen2 and SmolLM2 share the block this file builds (pre-norm RMSNorm, RoPE, grouped-query
+# attention, SwiGLU, no biases), so their weights can be copied into TransformerLM tensor by tensor. Two details
+# need care: the names of the tensors, and the order of the q/k rows, because two RoPE conventions exist.
+
+def config_from_hf_llama(hf_config, max_seq_len: int | None = None) -> ModelConfig:
+    """ModelConfig equivalent to a Hugging Face LlamaConfig (or any config with the same fields)."""
+    rope = getattr(hf_config, "rope_parameters", None) or getattr(hf_config, "rope_scaling", None) or {}
+    rope_theta = getattr(hf_config, "rope_theta", None) or rope.get("rope_theta", 10000.0)
+    if rope.get("rope_type", "default") != "default":
+        raise NotImplementedError(f"rope_type {rope.get('rope_type')!r} is not supported by this converter")
+    if getattr(hf_config, "attention_bias", False) or getattr(hf_config, "mlp_bias", False):
+        raise NotImplementedError("biases in attention or MLP are not supported (Llama-family models have none)")
+    return ModelConfig(
+        vocab_size=hf_config.vocab_size,
+        max_seq_len=max_seq_len or hf_config.max_position_embeddings,
+        d_model=hf_config.hidden_size,
+        n_layers=hf_config.num_hidden_layers,
+        n_heads=hf_config.num_attention_heads,
+        n_kv_heads=getattr(hf_config, "num_key_value_heads", None) or hf_config.num_attention_heads,
+        d_ff=hf_config.intermediate_size,
+        dropout=0.0,
+        attn="gqa",
+        rope_base=float(rope_theta),
+        tie_embeddings=bool(getattr(hf_config, "tie_word_embeddings", False)),
+        norm_eps=float(hf_config.rms_norm_eps),
+    )
+
+
+def rope_rotate_half_to_interleaved(w: torch.Tensor, n_heads: int, head_dim: int) -> torch.Tensor:
+    """
+    Reorder the rows of a q or k projection from Hugging Face's RoPE layout to ours.
+
+    Hugging Face rotates dimension i together with i + head_dim/2 ("rotate_half", the GPT-NeoX convention);
+    TransformerLM, like Meta's original Llama code, rotates adjacent pairs (2i, 2i+1). Both compute the same
+    attention scores if the rows of W_q and W_k are permuted consistently: within each head, our row 2i is
+    their row i and our row 2i+1 is their row i + head_dim/2. (Hugging Face's own Llama conversion script
+    applies the inverse permutation.) V and the output projection are not rotated, so they need no change.
+    """
+    d_in = w.shape[1]
+    return w.view(n_heads, 2, head_dim // 2, d_in).transpose(1, 2).reshape(n_heads * head_dim, d_in)
+
+
+def load_hf_llama(model: "TransformerLM", hf_state_dict: dict, permute_rope: bool = True) -> list[str]:
+    """
+    Copy a Hugging Face Llama-family state dict into `model` (built with config_from_hf_llama). Returns the
+    names of our parameters that were filled. Raises if any tensor is missing or has the wrong shape.
+    `permute_rope=False` skips the q/k reordering, which is useful only to see what goes wrong without it.
+    """
+    cfg = model.cfg
+    sd = {k[len("model."):] if k.startswith("model.") else k: v for k, v in hf_state_dict.items()}
+    fix = (lambda w, h: rope_rotate_half_to_interleaved(w, h, cfg.head_dim)) if permute_rope else (lambda w, h: w)
+    mine = {"tok_emb.weight": sd["embed_tokens.weight"], "norm.weight": sd["norm.weight"]}
+    if not cfg.tie_embeddings:
+        mine["lm_head.weight"] = sd["lm_head.weight"]
+    for i in range(cfg.n_layers):
+        p, q = f"layers.{i}.", f"blocks.{i}."
+        mine.update({
+            q + "attn_norm.weight": sd[p + "input_layernorm.weight"],
+            q + "ffn_norm.weight": sd[p + "post_attention_layernorm.weight"],
+            q + "attn.wq.weight": fix(sd[p + "self_attn.q_proj.weight"], cfg.n_heads),
+            q + "attn.wk.weight": fix(sd[p + "self_attn.k_proj.weight"], cfg.n_kv_heads),
+            q + "attn.wv.weight": sd[p + "self_attn.v_proj.weight"],
+            q + "attn.wo.weight": sd[p + "self_attn.o_proj.weight"],
+            q + "ffn.w_gate.weight": sd[p + "mlp.gate_proj.weight"],
+            q + "ffn.w_up.weight": sd[p + "mlp.up_proj.weight"],
+            q + "ffn.w_down.weight": sd[p + "mlp.down_proj.weight"],
+        })
+    own = model.state_dict()
+    for k, v in mine.items():
+        if k not in own or own[k].shape != v.shape:
+            raise ValueError(f"cannot load {k}: ours {tuple(own[k].shape) if k in own else None}, theirs {tuple(v.shape)}")
+    missing, unexpected = model.load_state_dict({k: v.to(own[k].dtype) for k, v in mine.items()}, strict=False)
+    allowed_missing = {"lm_head.weight"} if cfg.tie_embeddings else set()   # tied: same tensor as tok_emb
+    if set(missing) - allowed_missing or unexpected:
+        raise ValueError(f"missing {sorted(set(missing) - allowed_missing)}, unexpected {sorted(unexpected)}")
+    return sorted(mine)

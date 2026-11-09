@@ -19,7 +19,8 @@ Short definitions of the terms used across the suite. In brackets, the module, l
 | **Self-attention** | Each position computes a weighted average of the others: `softmax(QKᵀ/√d)·V`. Cost O(T²) in the sequence length T. | autoatención |
 | **MHA / GQA / MQA** | *Multi-Head*, *Grouped-Query* and *Multi-Query Attention*. GQA shares each K/V head across several Q heads to shrink the KV-cache. (`layers.py`, NB 02) | |
 | **MLA (Multi-head Latent Attention)** | DeepSeek-V2/V3 technique: compresses K and V into a small latent vector, which is the only thing kept in the cache. | |
-| **RoPE (Rotary Position Embedding)** | Encodes position by rotating pairs of dimensions of Q and K, so the QKᵀ product depends only on the relative distance. | |
+| **RoPE (Rotary Position Embedding)** | Encodes position by rotating pairs of dimensions of Q and K, so the QKᵀ product depends only on the relative distance. Two conventions choose the pairs: interleaved (2i, 2i+1), used by Meta's original Llama and by this course, and *rotate_half* (i, i+d/2), used by Hugging Face; they are equivalent once the rows of W_q and W_k are permuted. | |
+| **Checkpoint / safetensors** | A published model is code (the architecture) + `config.json` (hyperparameters) + weights. `safetensors` is the standard weight format: a name → tensor dictionary that loads without running code and can be memory-mapped. | checkpoint / safetensors |
 | **RMSNorm** | Normalization that only divides by the root mean square (no mean subtraction). Cheaper than LayerNorm; standard in Llama. | |
 | **Pre-norm / sandwich norm / QK-norm** | Where the normalizations go: before each sub-block, before and after it, or on Q and K to stabilize training. | |
 | **SwiGLU** | Gated FFN: `W_down(SiLU(W_gate·x) ⊙ W_up·x)`. Standard in modern LLMs. | |

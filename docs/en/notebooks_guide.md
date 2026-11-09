@@ -118,13 +118,15 @@ With only 300 steps even the dense model is at 0.3%: ***induction heads*** appea
 
 <a id="06"></a>
 ## 06 · Inference and serving
-`notebooks/02_pretraining_and_inference/06_inference_serving.ipynb` · modules `inference`, `model`
+`notebooks/02_pretraining_and_inference/06_inference_serving.ipynb` · modules `inference`, `model` · `transformers` (section 6)
 
 **What you build.** Sampling strategies, KV-cache, **speculative decoding from scratch** (with a check that it preserves the distribution), batching and TTFT/throughput measurement.
 
 **Key concepts.** Temperature, top-k and top-p as transformations of the distribution (plot and entropy); diversity (distinct-2); why speculative decoding is exact; decoding is memory-bound; and the *overhead* of launching GPU kernels for small models.
 
 **Results.** At the start of a word, the entropy is 4.25 nats at T=1.0 and drops to 2.89 with T=0.7 + top-k 20. Greedy produces the same continuation 16 times out of 16. Speculative decoding **accepts 98% of the draft's tokens, ~4.6 tokens per pass of the large model**. Batch 16 gives ~16× the tokens/s of batch 1 (2180 versus 137). On the GPU, with a model this small, the KV-cache barely speeds things up (1.2×); the notebook explains why and when that changes.
+
+**Section 6: from our code to real weights.** SmolLM2-135M-Instruct's published weights are loaded into our `TransformerLM`. It takes a mapping of tensor names and a permutation of the rows of `q_proj` and `k_proj`, because Hugging Face uses the *rotate_half* RoPE convention and our code the interleaved one. Result in fp32: 272 tensors copied, the same 134,515,008 parameters, logits equal to within 3e-5, the same token at 100% of positions (KL 2.4e-8) and **the same 76 generated tokens** as `transformers`. Without the permutation the model loads and runs but silently gets worse: it agrees on only 68% of tokens and answers something fluent but unrelated to the question. Lesson: always check a port numerically.
 
 ---
 

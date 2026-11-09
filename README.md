@@ -27,7 +27,7 @@ The number is the suggested study order; the folder is the topic.
 | | [03 · efficient attention](notebooks/01_architecture/03_efficient_attention.ipynb) | sliding window, Longformer, block-sparse, linear attention, induction heads | PyTorch, FlexAttention |
 | | [04 · FFN & MoE](notebooks/01_architecture/04_ffn_moe.ipynb) | SwiGLU, Mixture of Experts, aux-loss vs aux-free balancing | PyTorch (from scratch) |
 | **Pre-training & inference** | [05 · pre-training](notebooks/02_pretraining_and_inference/05_pretraining.ipynb) | the training pipeline, LR schedules, irreducible loss, scaling curves | PyTorch (from scratch) |
-| | [06 · inference & serving](notebooks/02_pretraining_and_inference/06_inference_serving.ipynb) | sampling, KV-cache, speculative decoding, batching, TTFT | PyTorch (from scratch) |
+| | [06 · inference & serving](notebooks/02_pretraining_and_inference/06_inference_serving.ipynb) | sampling, KV-cache, speculative decoding, batching, TTFT; loading SmolLM2's real weights into our model | PyTorch (from scratch), `transformers` |
 | | [09 · quantization](notebooks/02_pretraining_and_inference/09_quantization.ipynb) | int8 / float8 / int4 / int2 on a real model, measured with KL and top-1 agreement | `optimum-quanto` |
 | **Post-training** | [07 · SFT, LoRA, distillation](notebooks/03_post_training/07_finetuning_sft_lora.ipynb) | chat templates and loss masking, full SFT vs LoRA vs QLoRA (4-bit NF4), the new-token trap, rank ablation, teacher → student | `transformers`, `peft`, `trl`, `bitsandbytes` |
 | | [08 · DPO & GRPO](notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb) | preference tuning, likelihood displacement, DPO + NLL, RL with verifiable rewards | `trl` |
@@ -49,7 +49,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 |---|---|
 | 00 · mini LLM | a 1.9M-parameter GPT trains in ~20 s on the GPU and ends **0.6% above its corpus's theoretical minimum loss**; 82% of sampled sentences are grammatical |
 | 03 · efficient attention | long-range copy accuracy: **dense 99.9%, block-sparse 88.7%, hybrid 48.4%, sliding window and linear ~0%**; at 300 steps even dense is at 0.3% (the induction-head phase transition) |
-| 06 · inference | speculative decoding accepts **98% of draft tokens, ~4.6 tokens per target forward pass** |
+| 06 · inference | speculative decoding accepts **98% of draft tokens, ~4.6 tokens per target forward pass**. SmolLM2-135M's published weights run in our from-scratch `TransformerLM` with **identical greedy output** to Hugging Face (logits within 3e-5) |
 | 07 · SFT & LoRA (SmolLM2-135M) | few-shot 17.5% → **full SFT 35%**, LoRA r=16 32.5% training 3.5% of the parameters, r=64 45%. A new special token with frozen embeddings is **never emitted (0%)**; with `modules_to_save` it is emitted **100%** of the time |
 | 07 · QLoRA | the same LoRA on a 4-bit NF4 base: **no loss of quality** (37.5% vs 32.5% exact, same 86.5% of fields), weights 269 → 110 MB; for a 7B model the frozen weights drop from 14 GB to 3.6 GB |
 | 07 · distillation | a 360M teacher (87.5%) labels 600 extra prompts; the 135M student rises from 35% to **55%** |

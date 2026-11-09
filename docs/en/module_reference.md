@@ -366,7 +366,7 @@ Block (pre-norm):
 
 | Signature | What it does |
 |---|---|
-| `ModelConfig(vocab_size=512, max_seq_len=256, d_model=128, n_layers=4, n_heads=8, n_kv_heads=2, d_ff=None, dropout=0.0, attn="gqa", hybrid_pattern=None, window=64, global_idx=(0,), block=16, top_blocks=2, qk_norm=False, sandwich_norm=False, kv_lora_rank=32, qk_nope_dim=16, qk_rope_dim=8, v_dim=16, moe=False, n_experts=4, top_k=2, n_shared_experts=0, moe_routing="softmax", aux_loss_coef=0.01, moe_every=1, rope_base=10000.0, rope_scaling=None, tie_embeddings=True)` | Configuration *dataclass*. `attn` ∈ `gqa \| mla \| swa \| longformer \| blocksparse \| linear`. `d_ff=None` applies Llama's rule (multiple of 8). Property `head_dim` and method `to_dict()`. |
+| `ModelConfig(vocab_size=512, max_seq_len=256, d_model=128, n_layers=4, n_heads=8, n_kv_heads=2, d_ff=None, dropout=0.0, attn="gqa", hybrid_pattern=None, window=64, global_idx=(0,), block=16, top_blocks=2, qk_norm=False, sandwich_norm=False, kv_lora_rank=32, qk_nope_dim=16, qk_rope_dim=8, v_dim=16, moe=False, n_experts=4, top_k=2, n_shared_experts=0, moe_routing="softmax", aux_loss_coef=0.01, moe_every=1, rope_base=10000.0, rope_scaling=None, tie_embeddings=True, norm_eps=1e-6)` | Configuration *dataclass*. `attn` ∈ `gqa \| mla \| swa \| longformer \| blocksparse \| linear`. `d_ff=None` applies Llama's rule (multiple of 8). Property `head_dim` and method `to_dict()`. |
 | `build_attention(cfg, layer_idx) -> nn.Module` | Factory for each layer's attention (honors `hybrid_pattern`). |
 | `Block(cfg, layer_idx)` | Pre-norm block. `forward(x, freqs_cis, start_pos=None) -> (x, aux)`. |
 | `TransformerLM(cfg)` | The model. |
@@ -378,6 +378,9 @@ Block (pre-norm):
 | `next_token_distribution(logits, temperature=1.0, top_k=None, top_p=None) -> Tensor` | `(B, V) -> (B, V)`: probabilities after temperature, top-k and top-p (sum to 1; filtered tokens are exactly 0). |
 | `sample_next_token(logits, temperature=1.0, top_k=None, top_p=None) -> Tensor` | `(B, V) -> (B, 1)`. Greedy if `temperature <= 0`; otherwise samples from `next_token_distribution`. |
 | `apply_repetition_penalty(logits, generated, penalty) -> Tensor` | CTRL penalty. |
+| `config_from_hf_llama(hf_config, max_seq_len=None) -> ModelConfig` | `ModelConfig` equivalent to a Hugging Face `LlamaConfig` (Llama, Mistral, Qwen2, SmolLM2): sizes, KV heads, `rope_theta` (also from transformers 5's `rope_parameters`), `rms_norm_eps`, tied embeddings. Rejects scaled RoPE and models with biases. |
+| `rope_rotate_half_to_interleaved(w, n_heads, head_dim) -> Tensor` | Reorders the rows of a q or k projection from the *rotate_half* convention (Hugging Face, GPT-NeoX) to the interleaved one (ours, and Meta's original Llama). |
+| `load_hf_llama(model, hf_state_dict, permute_rope=True) -> list[str]` | Copies a Hugging Face `state_dict` into `TransformerLM` (name mapping + q/k permutation). Raises if a tensor is missing or a shape differs. `permute_rope=False` only serves to see what breaks without the permutation. Notebook 06, section 6. |
 
 **Example.**
 

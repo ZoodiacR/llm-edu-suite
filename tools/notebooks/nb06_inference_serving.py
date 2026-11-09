@@ -317,10 +317,154 @@ print("\nAggregate throughput grows almost linearly with batch size while per-se
 nb.md(r'''
 **A GPU caveat that is worth understanding.** With a model this small, each generated token launches dozens of tiny GPU kernels, and the fixed launch cost dominates the actual math. That is why, on a GPU, single-sequence decoding of a toy model can be no faster than on a CPU and the KV-cache speed-up looks modest: there is almost no compute to save. Batching amortizes the launch cost over many sequences, and that is exactly what serving engines do (vLLM's continuous batching, plus CUDA graphs to remove launch overhead). With real models (billions of parameters) the picture flips: the work per token is large, and the KV-cache and batching gains are dramatic.
 
+''')
+nb.md(r'''
+## 6. From scratch to real weights: SmolLM2 inside our TransformerLM
+
+Everything so far ran on models we trained ourselves on a toy corpus. The question a skeptic should ask is: *is this code really an LLM, or something that only looks like one?* The strongest answer is to take a real, published model, copy its weights into **our** `TransformerLM`, and check that it computes the same thing. That is what Raschka does with GPT-2 in *Build a Large Language Model (From Scratch)* (chapter 5), and what every framework that runs other people's models (llama.cpp, MLX, vLLM, TensorRT-LLM) does when it adds a new architecture.
+
+### What a checkpoint is
+
+A published model is three things:
+
+| part | file | what it holds |
+|---|---|---|
+| architecture | code (`modeling_llama.py` in `transformers`, `model.py` here) | the computation: which layers, in which order |
+| hyperparameters | `config.json` | sizes and constants: hidden size, layers, heads, KV heads, RoPE base, norm epsilon, tied embeddings |
+| weights | `model.safetensors` | a flat dictionary from a tensor **name** to a tensor, nothing else |
+
+`safetensors` is the current standard format: a header with names, shapes and dtypes followed by raw bytes, so it loads without running any code (unlike Python pickle, which could) and can be memory-mapped. Porting a model is therefore a mapping problem: build the same architecture from the config, then put each named tensor where your code expects it.
+
+SmolLM2 (Hugging Face, 2024; Apache 2.0) is a Llama-family model: pre-norm RMSNorm, RoPE, grouped-query attention, SwiGLU, no biases, tied input and output embeddings. That is exactly the block built in notebooks 02 and 04, so the mapping is one to one:
+
+| Hugging Face (`config.json`) | ours (`ModelConfig`) | SmolLM2-135M |
+|---|---|---|
+| `hidden_size` | `d_model` | 576 |
+| `num_hidden_layers` | `n_layers` | 30 |
+| `num_attention_heads` / `num_key_value_heads` | `n_heads` / `n_kv_heads` | 9 / 3 (GQA, 3 query heads per KV head) |
+| `intermediate_size` | `d_ff` | 1536 |
+| `rope_parameters.rope_theta` | `rope_base` | 100000 |
+| `rms_norm_eps` | `norm_eps` | 1e-5 |
+| `tie_word_embeddings` | `tie_embeddings` | true |
+
+| Hugging Face tensor (`model.layers.{i}.`) | ours (`blocks.{i}.`) |
+|---|---|
+| `input_layernorm` | `attn_norm` |
+| `self_attn.q_proj` / `k_proj` / `v_proj` / `o_proj` | `attn.wq` / `wk` / `wv` / `wo` |
+| `post_attention_layernorm` | `ffn_norm` |
+| `mlp.gate_proj` / `up_proj` / `down_proj` | `ffn.w_gate` / `w_up` / `w_down` |
+| `model.embed_tokens`, `model.norm` | `tok_emb`, `norm` (and `lm_head`, which shares `tok_emb`'s tensor) |
+
+### The one subtle part: two RoPE conventions
+
+RoPE rotates pairs of dimensions of each query and key (notebook 02). There are two ways to choose the pairs:
+
+- **interleaved** (Meta's original Llama code, and ours): dimensions $(2i, 2i+1)$ form plane $i$;
+- **rotate_half** (GPT-NeoX, and Hugging Face's Llama): dimensions $(i, i + d_h/2)$ form plane $i$.
+
+Each convention is self-consistent, and they are equivalent up to a reordering of the dimensions inside each head. Let $P$ be the permutation that sends position $2i \mapsto i$ and $2i+1 \mapsto i + d_h/2$. The attention score is a dot product, and a dot product does not change when you permute both vectors the same way:
+
+$$q^\top k = (Pq)^\top (Pk)$$
+
+So if we permute the **rows** of $W_q$ and $W_k$ inside every head, our interleaved rotation acts on exactly the planes Hugging Face's rotate_half acts on, with the same frequency on each plane, and every attention score comes out identical. $W_v$ and $W_o$ are never rotated and are copied as they are. (Hugging Face's script that converted Meta's checkpoints applied the inverse permutation, which is why this step exists at all.) Forget it and nothing crashes: the model loads and runs, and because the content of each token still flows through attention, much of what it says still looks plausible. Only the position information is scrambled, so the model gets quietly worse. Silent degradation is the dangerous kind of bug, and the reason porting code must always be checked numerically.
+
+### How to check equivalence
+
+Two implementations of the same model never agree bit for bit: the order of floating-point additions differs (another kernel, another fused operation), and rounding errors accumulate over 30 layers. So the test is statistical, done in fp32 where rounding is small:
+
+- the **largest absolute difference** between the two sets of logits (expected around $10^{-4}$ for logits of size ~10);
+- **top-1 agreement**: the share of positions where both models pick the same next token (expected 100 %);
+- the **KL divergence** between the two next-token distributions (expected near 0);
+- the decisive end-to-end test: **greedy generation** from the same prompt must produce the same text.
+
+In bf16 the differences grow by orders of magnitude and greedy outputs can diverge after a few dozen tokens on near-ties, which is normal and is the reason equivalence is tested in fp32.
+''')
+nb.code(r'''
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from llm_edu_suite.model import config_from_hf_llama, load_hf_llama, rope_rotate_half_to_interleaved
+import inspect
+
+HF_ID = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tok = AutoTokenizer.from_pretrained(HF_ID)
+hf = AutoModelForCausalLM.from_pretrained(HF_ID, dtype=torch.float32).to(device).eval()
+
+cfg_real = config_from_hf_llama(hf.config, max_seq_len=2048)   # 2048 positions is plenty here; SmolLM2 allows 8192
+print({k: getattr(cfg_real, k) for k in ["vocab_size", "d_model", "n_layers", "n_heads", "n_kv_heads", "d_ff", "rope_base", "norm_eps", "tie_embeddings"]})
+ours = TransformerLM(cfg_real).to(device).eval()
+copied = load_hf_llama(ours, hf.state_dict())
+n_hf = sum(p.numel() for p in hf.parameters())
+print(f"{len(copied)} tensors copied | parameters: ours {ours.num_params():,} vs Hugging Face {n_hf:,}")
+print("\nThe q/k row permutation, from llm_edu_suite/model.py:\n")
+print(inspect.getsource(rope_rotate_half_to_interleaved))
+''')
+nb.code(r'''
+def compare(model_a, model_b, prompts):
+    # max |logit difference|, top-1 agreement and mean KL(a || b) over every position of every prompt
+    diffs, agree, kls = [], [], []
+    with torch.no_grad():
+        for p in prompts:
+            ids = tok(p, return_tensors="pt").input_ids.to(device)
+            la = model_a(ids).logits if hasattr(model_a, "config") else model_a(ids)[0]
+            lb = model_b(ids).logits if hasattr(model_b, "config") else model_b(ids)[0]
+            diffs.append((la - lb).abs().max().item())
+            agree.append((la.argmax(-1) == lb.argmax(-1)).float().mean().item())
+            kls.append(F.kl_div(lb.log_softmax(-1), la.log_softmax(-1), log_target=True, reduction="none").sum(-1).mean().item())
+    return max(diffs), float(np.mean(agree)), float(np.mean(kls))
+
+PROMPTS = ["The capital of France is", "def fibonacci(n):\n    ", "Large language models are trained to predict",
+           "In 1969, the first humans to walk on the Moon were", "Photosynthesis converts sunlight into"]
+d, a, k = compare(hf, ours, PROMPTS)
+print(f"ours vs Hugging Face, fp32:          max |Δlogit| {d:.2e} | top-1 agreement {a:.1%} | KL {k:.2e}")
+
+wrong = TransformerLM(cfg_real).to(device).eval()
+load_hf_llama(wrong, hf.state_dict(), permute_rope=False)        # the same weights, without the q/k reordering
+d, a, k = compare(hf, wrong, PROMPTS)
+print(f"without the RoPE permutation:        max |Δlogit| {d:.2e} | top-1 agreement {a:.1%} | KL {k:.2e}")
+''')
+nb.code(r'''
+messages = [{"role": "user", "content": "Explain in three sentences what a transformer language model does."}]
+ids = tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)["input_ids"].to(device)
+N_NEW = 80
+with torch.no_grad():
+    out_hf = hf.generate(ids, max_new_tokens=N_NEW, do_sample=False, pad_token_id=tok.eos_token_id)[0, ids.shape[1]:]
+out_ours = ours.generate(ids, max_new_tokens=N_NEW, temperature=0.0, eos_id=tok.eos_token_id)[0, ids.shape[1]:]
+out_wrong = wrong.generate(ids, max_new_tokens=N_NEW, temperature=0.0, eos_id=tok.eos_token_id)[0, ids.shape[1]:]
+n = min(len(out_hf), len(out_ours))
+print("Hugging Face :", tok.decode(out_hf, skip_special_tokens=True))
+print("ours         :", tok.decode(out_ours, skip_special_tokens=True))
+print(f"identical greedy tokens: {torch.equal(out_hf[:n], out_ours[:n])} ({n} tokens compared)")
+print("no permutation:", tok.decode(out_wrong, skip_special_tokens=True))
+''')
+nb.code(r'''
+# Speed: the same weights, our generate() with its KV-cache vs Hugging Face's generate(), greedy, fp32, batch 1
+def tokens_per_s(fn, reps=3):
+    fn()                                                   # warm-up
+    times = []
+    for _ in range(reps):
+        if device == "cuda": torch.cuda.synchronize()
+        t0 = time.time(); fn()
+        if device == "cuda": torch.cuda.synchronize()
+        times.append(time.time() - t0)
+    return 64 / min(times)
+with torch.no_grad():
+    t_hf = tokens_per_s(lambda: hf.generate(ids, max_new_tokens=64, min_new_tokens=64, do_sample=False, pad_token_id=tok.eos_token_id))
+t_ours = tokens_per_s(lambda: ours.generate(ids, max_new_tokens=64, temperature=0.0))
+print(f"Hugging Face generate: {t_hf:5.0f} tokens/s | our TransformerLM.generate: {t_ours:5.0f} tokens/s")
+del hf, ours, wrong
+if device == "cuda": torch.cuda.empty_cache()
+''')
+nb.md(r'''
+**What the numbers say.** All 272 tensors map one to one, and the parameter count is identical (134,515,008). In fp32 the two implementations agree to within $3 \times 10^{-5}$ on logits of size ~10, pick the same next token at 100 % of positions, and their next-token distributions differ by a KL of $2.4 \times 10^{-8}$: what is left is floating-point rounding from different kernels and orders of addition. The end-to-end test passes too. From the same chat prompt, our `generate()` (with the KV-cache of section 2) and Hugging Face's produce the same 76 tokens, word for word. The code of notebooks 02 to 06 is a real LLM.
+
+Without the q/k permutation the model still loads and runs, and that is the instructive part. It still picks the same top token at 68 % of positions, because a lot can be guessed from the content of the tokens alone, but the logits differ by up to 24 and the KL is 0.56. Asked the same question, it answers "You are an AI assistant.": fluent, plausible and unrelated to the question. Nothing raises an error, so only a numerical comparison against the reference catches the bug.
+
+Speed is the same for both, about 17 to 18 tokens per second here. At batch 1, a 30-layer model in fp32 is limited by the cost of launching hundreds of small GPU kernels for every token (the caveat of section 5), not by the arithmetic, so a clean implementation and the reference library end up in the same place. Production engines are faster because they fuse kernels, capture the whole decode step in a CUDA graph, quantize and batch many requests (vLLM, llama.cpp).
+
 **Takeaways**
 - KV-cache is mandatory; GQA/MLA/quantized caches decide how many sequences fit.
 - Speculative decoding gives 2–3× at low batch; its value shrinks as batch grows (the GPU is no longer idle).
 - For production: `vllm serve <model> --enable-prefix-caching --kv-cache-dtype fp8` and measure TTFT/TPOT/throughput on *your* traffic.
+- The architecture built in notebooks 02–06 is a real LLM architecture: with a name mapping and one permutation of the q/k rows (the RoPE convention), SmolLM2's published weights run in our `TransformerLM` and produce the same text as Hugging Face. Port models like this, and always check the port numerically.
 
 **Next:** `07_finetuning_sft_lora.ipynb`.
 ''')

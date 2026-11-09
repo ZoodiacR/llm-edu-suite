@@ -154,6 +154,8 @@ GQA es el estándar de los modelos densos abiertos porque reduce la caché 4-8 v
 
 **Papers clave.** Vaswani et al. (2017); Ba et al. (2016); Zhang y Sennrich (2019); Xiong et al. (2020); Su et al. (2021); Shazeer (2019); Ainslie et al. (2023); DeepSeek-AI (2024, DeepSeek-V2); Dao et al. (2022).
 
+**Dos convenciones de RoPE.** Los pares que se rotan pueden ser dimensiones contiguas $(2i, 2i+1)$ (el Llama original de Meta y este curso) o separadas por media cabeza $(i, i + d_h/2)$ (*rotate_half*, de GPT-NeoX y Hugging Face). Como el producto escalar no cambia si se permutan igual las dimensiones de los dos vectores, $q^\top k = (Pq)^\top (Pk)$, basta con permutar las filas de $W_q$ y $W_k$ dentro de cada cabeza para pasar de una a otra. Olvidarlo no da ningún error: el modelo funciona, pero peor. El notebook 06 lo mide al cargar SmolLM2 en nuestro código.
+
 > **Notebook:** [02 · Atención, RoPE y normalización](../../notebooks/01_architecture/02_attention_rope_norm.ipynb) · **En el curso:** se verifica numéricamente que RoPE depende solo de $n-m$, que la atención a mano coincide con el kernel fusionado y que decode incremental con caché iguala a la pasada completa; con la forma de Llama-2-70B, MHA necesitaría 2.6 MB por token (10 GB por secuencia con 4k de contexto) y GQA con 8 cabezas KV lo divide entre 8.
 
 ### 1.4 Atención eficiente para contextos largos

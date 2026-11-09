@@ -154,6 +154,8 @@ GQA is the standard for dense open models because it cuts the cache 4 to 8 times
 
 **Key papers.** Vaswani et al. (2017); Ba et al. (2016); Zhang and Sennrich (2019); Xiong et al. (2020); Su et al. (2021); Shazeer (2019); Ainslie et al. (2023); DeepSeek-AI (2024, DeepSeek-V2); Dao et al. (2022).
 
+**Two RoPE conventions.** The rotated pairs can be adjacent dimensions $(2i, 2i+1)$ (Meta's original Llama and this course) or dimensions half a head apart $(i, i + d_h/2)$ (*rotate_half*, from GPT-NeoX and Hugging Face). Since a dot product does not change when both vectors' dimensions are permuted the same way, $q^\top k = (Pq)^\top (Pk)$, permuting the rows of $W_q$ and $W_k$ inside each head converts one into the other. Forgetting it raises no error: the model runs, only worse. Notebook 06 measures it while loading SmolLM2 into our code.
+
 > **Notebook:** [02 · Attention, RoPE and normalization](../../notebooks/01_architecture/02_attention_rope_norm.ipynb) · **In the course:** numerical checks that RoPE depends only on $n-m$, that hand-written attention matches the fused kernel, and that incremental decoding with a cache equals the full forward pass; with a Llama-2-70B shape, MHA would need 2.6 MB per token (10 GB per sequence at 4k context), and GQA with 8 KV heads divides that by 8.
 
 ### 1.4 Efficient attention for long contexts

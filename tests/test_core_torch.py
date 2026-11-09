@@ -229,3 +229,33 @@ def test_kv_cache_memory_and_batched_generate():
     outs = batched_generate(model, [[1, 2, 3], [4, 5]], 6, pad_id=0, temperature=0.0)
     assert len(outs) == 2 and all(len(o) <= 6 for o in outs)
 
+
+
+def test_hf_llama_weights_load_into_transformerlm():
+    """A random tiny Hugging Face Llama converted into TransformerLM gives the same logits and the same greedy text."""
+    transformers = pytest.importorskip("transformers")
+    from llm_edu_suite.model import TransformerLM, config_from_hf_llama, load_hf_llama
+    torch.manual_seed(0)
+    hf_cfg = transformers.LlamaConfig(vocab_size=97, hidden_size=64, intermediate_size=160, num_hidden_layers=2,
+                                      num_attention_heads=4, num_key_value_heads=2, max_position_embeddings=64,
+                                      rms_norm_eps=1e-5, tie_word_embeddings=True, rope_theta=100000.0)
+    hf = transformers.LlamaForCausalLM(hf_cfg).eval()
+    ours = TransformerLM(config_from_hf_llama(hf_cfg)).eval()
+    assert ours.cfg.rope_base == 100000.0 and ours.cfg.norm_eps == 1e-5 and ours.cfg.n_kv_heads == 2
+    load_hf_llama(ours, hf.state_dict())
+    ids = torch.randint(0, 97, (2, 20))
+    with torch.no_grad():
+        ref = hf(ids).logits
+        mine, _ = ours(ids)
+    assert torch.allclose(mine, ref, atol=1e-4), (mine - ref).abs().max()
+    # greedy generation with our KV-cache matches Hugging Face's generate
+    out_hf = hf.generate(ids[:1, :5], max_new_tokens=10, do_sample=False, pad_token_id=0)
+    out_ours = ours.generate(ids[:1, :5], max_new_tokens=10, temperature=0.0)
+    assert torch.equal(out_hf, out_ours)
+    # without the q/k row permutation the two RoPE conventions disagree
+    wrong = TransformerLM(config_from_hf_llama(hf_cfg)).eval()
+    load_hf_llama(wrong, hf.state_dict(), permute_rope=False)
+    with torch.no_grad():
+        right_err = (mine - ref).abs().max()
+        wrong_err = (wrong(ids)[0] - ref).abs().max()
+    assert wrong_err > 100 * right_err              # (random tiny models attend almost uniformly, so compare relative errors)

@@ -118,13 +118,15 @@ Con solo 300 pasos incluso la densa está en 0,3%: las ***induction heads*** apa
 
 <a id="06"></a>
 ## 06 · Inferencia y serving
-`notebooks/02_pretraining_and_inference/06_inference_serving.ipynb` · módulos `inference`, `model`
+`notebooks/02_pretraining_and_inference/06_inference_serving.ipynb` · módulos `inference`, `model` · `transformers` (sección 6)
 
 **Qué construyes.** Estrategias de muestreo, KV-cache, **decodificación especulativa desde cero** (con su comprobación de que conserva la distribución), batching y medición de TTFT y throughput.
 
 **Conceptos clave.** Temperatura, top-k y top-p como transformaciones de la distribución (gráfica y entropía); diversidad (distinct-2); por qué la decodificación especulativa es exacta; el decode está limitado por memoria; y el *overhead* de lanzar kernels en GPU con modelos pequeños.
 
 **Resultados.** Al empezar una palabra, la entropía es de 4,25 nats con T=1,0 y baja a 2,89 con T=0,7 + top-k 20. Greedy produce la misma continuación 16 de 16 veces. La especulativa **acepta el 98% de los tokens del draft, ~4,6 tokens por pasada del modelo grande**. Con batch 16 se obtienen ~16× los tokens/s de batch 1 (2180 frente a 137). En GPU, con un modelo tan pequeño, la KV-cache apenas acelera (1,2×); el notebook explica por qué y cuándo cambia.
+
+**Sección 6: de nuestro código a pesos reales.** Se cargan los pesos publicados de SmolLM2-135M-Instruct en nuestro `TransformerLM`. Hace falta mapear los nombres de los tensores y permutar las filas de `q_proj` y `k_proj`, porque Hugging Face usa la convención de RoPE *rotate_half* y nuestro código la intercalada. Resultado en fp32: 272 tensores copiados, los mismos 134.515.008 parámetros, logits iguales hasta 3·10⁻⁵, el mismo token en el 100% de las posiciones (KL 2,4·10⁻⁸) y **los mismos 76 tokens generados** que `transformers`. Sin la permutación, el modelo carga y funciona pero empeora en silencio: coincide solo en el 68% de los tokens y responde algo fluido pero sin relación con la pregunta. Lección: un port siempre se comprueba numéricamente.
 
 ---
 
