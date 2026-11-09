@@ -473,7 +473,9 @@ for a in ax: a.grid(axis="y", alpha=.3)
 plt.tight_layout(); plt.show()
 ''')
     nb.md(r'''
-**Reading the results.** Single-tool lookups (weather, arithmetic, orders, documentation) were reliable. The failures printed above are instructive:
+**Reading the results.** Most single-tool lookups (weather, orders, documentation) were reliable. The failures printed above are instructive (the exact set changes a little between runs, which is itself a lesson about evaluating small models):
+
+- **`Compute (120 - 45.5) / 2` called no tool**: the model did the arithmetic "in its head". It happened to get 37.25 right, but the trajectory is wrong, and on harder expressions this is exactly how wrong numbers reach users. Scoring the trajectory catches it; scoring only the final text would not.
 
 - **`c300` in lower case** broke the `order_id` pattern. The validation error went back to the model, which asked the user for a correctly formatted id instead of upper-casing it. The schema protected the tool, but the friendlier design is to normalise the id inside the tool and keep strict validation for truly malformed input (notebook 14 does this).
 - **The chit-chat request called `search_docs`**: small models over-use tools when tools are available.
