@@ -15,6 +15,7 @@ Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-emb
 |---|---|
 | [Instalación y entorno](instalacion.md) | `.venv`, PyTorch con CUDA, Ollama y sus modelos, el `.env`, la clave de LangSmith, problemas frecuentes |
 | [Guía de notebooks](guia_notebooks.md) | los 17 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
+| [Mapa de estudio](mapa_de_estudio.md) | qué capítulo de cada libro de referencia y qué clase de Stanford se practica en cada notebook, y qué falta |
 | [Fundamentos teóricos](fundamentos.md) | la teoría detrás de cada técnica y patrón: el problema que resuelve, la idea, por qué se usa hoy, cómo falla |
 | [Referencia de módulos](referencia_modulos.md) | el paquete `llm_edu_suite/` (el modelo desde cero y `config.py`) y dónde se enseña cada tema con frameworks |
 | [Scripts de línea de comandos](scripts_cli.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP) |

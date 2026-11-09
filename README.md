@@ -144,6 +144,7 @@ llm-edu-suite/
 | Index | [docs/es/README.md](docs/es/README.md) | [docs/en/README.md](docs/en/README.md) |
 | Installation & environment (Ollama, `.env`, LangSmith, GPU) | [instalacion.md](docs/es/instalacion.md) | [installation.md](docs/en/installation.md) |
 | Notebook guide | [guia_notebooks.md](docs/es/guia_notebooks.md) | [notebooks_guide.md](docs/en/notebooks_guide.md) |
+| Study map: reference books and Stanford courses ↔ notebooks, and what is missing | [mapa_de_estudio.md](docs/es/mapa_de_estudio.md) | [study_map.md](docs/en/study_map.md) |
 | Theory foundations: why each technique exists, how it works, what it replaced | [fundamentos.md](docs/es/fundamentos.md) | [foundations.md](docs/en/foundations.md) |
 | Module reference (`llm_edu_suite`) and where each topic is taught | [referencia_modulos.md](docs/es/referencia_modulos.md) | [module_reference.md](docs/en/module_reference.md) |
 | Command-line scripts | [scripts_cli.md](docs/es/scripts_cli.md) | [cli_scripts.md](docs/en/cli_scripts.md) |
