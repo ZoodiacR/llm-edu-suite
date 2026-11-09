@@ -207,7 +207,7 @@ for ax, (name, p) in zip(axes, preds.items()):
 plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''
-**What the numbers say.** Zero-shot is 20/20 here and few-shot is 19/20: adding examples did not help and cost one ticket. The error sends a shipping ticket ("the box arrived damaged and two items are missing") to technical; in an earlier run a second shipping ticket ("how long does express delivery to Canada take?") went the same way. A plausible reason is that the single shipping example ("Where is my order?") is about a late delivery, so it narrows the model's idea of shipping instead of widening it; small models also copy surface features of examples. The lesson is not "few-shot is bad" but that **examples are a change to the prompt that must be evaluated like any other**: choose them to cover the boundaries the confusion matrix shows, and keep the version that measures best. With 20 tickets, a 1-ticket difference is noise; the point is that examples did not buy anything here.
+**What the numbers say.** Zero-shot is 20/20 here and few-shot is 20/20 too: the examples bought nothing. In earlier runs few-shot was actually slightly *worse* (19/20, once 18/20): it sent shipping tickets such as "the box arrived damaged and two items are missing" to technical. A plausible reason is that the single shipping example ("Where is my order?") is about a late delivery, so it narrows the model's idea of shipping instead of widening it; small models also copy surface features of examples. That the result moves between runs at temperature 0 is itself worth noting: Ollama's GPU kernels are not bit-for-bit deterministic, so evaluate on more than one run before you trust a 1-ticket difference. The lesson is not "few-shot is bad" but that **examples are a change to the prompt that must be evaluated like any other**: choose them to cover the boundaries the confusion matrix shows, and keep the version that measures best. With 20 tickets, a 1-ticket difference is noise; the point is that examples did not buy anything here.
 
 ## 3. Summarization of a long document: map-reduce
 
@@ -257,13 +257,13 @@ for name, (s, secs) in summ.items():
     print("  ", s[:600], "\n")
 ''')
 nb.md(r'''
-**What the numbers say.** The document is about 4,100 tokens, but the single "stuff" call processed only about 2,050 input tokens: Ollama cut the prompt to its context window without any error. The model never saw the beginning of the guide (and part of our instruction), so it covered only 6 of the 13 topics, and instead of a 150-word paragraph it wrote a 787-word list of "takeaways": it had lost the task. Map-reduce kept every chunk within the window, covered 11 of 13 topics in 118 words (21x compression) and followed the format, at the price of 7 calls and about twice the wall time. It still dropped two topics (DPO/GRPO and quantization) in the reduce step: a 150-word limit for 17 notebooks forces choices, and the coverage metric shows which ones. For a fix inside one call you can raise `num_ctx` (`get_llm(num_ctx=8192)`), if the model and your memory allow it.
+**What the numbers say.** The document is about 4,100 tokens, but the single "stuff" call processed only about 2,050 input tokens: Ollama cut the prompt to its context window without any error. The model never saw the beginning of the guide (and part of our instruction), so it missed the first topics of the guide (tokenization, attention, mixture of experts) and covered 9 of the 13, and instead of a 150-word paragraph it wrote a 779-word list of "takeaways": it had lost the task (in other runs coverage fell as low as 6/13; what is lost depends on where the cut lands). Map-reduce kept every chunk within the window, covered 11 of 13 topics in 210 words (12x compression) and stayed close to the requested format, at the price of 7 calls and about twice the wall time. It still dropped two topics (DPO/GRPO and recommenders) in the reduce step: a 150-word limit for 17 notebooks forces choices, and the coverage metric shows which ones. For a fix inside one call you can raise `num_ctx` (`get_llm(num_ctx=8192)`), if the model and your memory allow it.
 
 ## 4. Caching
 
 Identical requests are common (FAQ bots, retries, re-running a notebook or an eval). A cache returns the stored answer without calling the model.
 
-**Exact cache.** `set_llm_cache(InMemoryCache())` installs a process-wide cache for every LangChain chat model. The key is the serialised prompt *plus* the model's parameters (`llm_string`: model name, temperature...), so changing the model or the temperature is a miss, as it should be. In production you would use `SQLiteCache` or `RedisCache` (in `langchain_community.cache`) so the cache survives restarts and is shared between workers.
+**Exact cache.** `set_llm_cache(InMemoryCache())` installs a process-wide cache for every LangChain chat model. The key is the serialised prompt *plus* a description of the model (`llm_string`), which each integration builds itself. That detail matters: we check below what `ChatOllama` puts in it. In production you would use `SQLiteCache` or `RedisCache` (in `langchain_community.cache`) so the cache survives restarts and is shared between workers.
 ''')
 nb.code(r'''
 from langchain_core.globals import set_llm_cache
@@ -276,8 +276,13 @@ for attempt in range(3):
     t0 = time.time(); answer = llm.invoke(question).content; timings_cache.append(time.time() - t0)
 print("answer:", answer)
 print("latency per call (s):", [round(t, 4) for t in timings_cache], "-> first call goes to the model, the next two come from the cache")
-print("a different temperature is a different key:", end=" ")
-t0 = time.time(); get_llm(temperature=0.5).invoke(question); print(f"{time.time() - t0:.2f}s (a miss)")
+# Is the temperature part of the key? Look at what ChatOllama puts in llm_string.
+warm = get_llm(temperature=0.5)
+print("llm_string at T=0.0:", llm._get_llm_string())
+print("llm_string at T=0.5:", warm._get_llm_string())
+t0 = time.time(); warm.invoke(question); dt = time.time() - t0
+print(f"same question at T=0.5: {dt:.4f}s ->", "cache HIT (the temperature is not in the key)" if dt < 0.05 else "miss")
+t0 = time.time(); llm.invoke(question + " Answer for a beginner."); print(f"a different prompt: {time.time() - t0:.2f}s -> miss")
 ''')
 nb.md(r'''
 **Semantic cache.** Users rarely type the same string twice: "what is the refund policy?" and "What's your refund policy" should share an answer. A semantic cache embeds the prompt and returns a stored answer when a previous prompt is similar enough (cosine above a threshold). LangChain's semantic caches (`RedisSemanticCache`, `OpenSearchSemanticCache`, `AzureCosmosDBSemanticCache`...) all need an external database, so here we write the same idea against the `BaseCache` interface in a few lines, with the course's embedding model. `set_llm_cache` then uses it exactly like the built-in ones.
@@ -369,7 +374,7 @@ print(f"paraphrase hit rate at this threshold: {(cos_para >= THRESHOLD).mean():.
 set_llm_cache(None)                                       # switch caching off so the next sections measure real model calls
 ''')
 nb.md(r'''
-**What the numbers say.** The exact cache works as advertised: the second and third identical calls return in about 1-2 ms instead of about a second, and a different temperature is a new key. Note also what it caches: the 3B model's answer about the KV-cache is wrong (it describes a generic key-value store), and the cache will now serve that wrong answer instantly to everyone. Cache only outputs you would be happy to repeat, and give entries a time-to-live.
+**What the numbers say.** The exact cache works as advertised: the second and third identical calls return in about a millisecond instead of about half a second, and a different prompt is a miss. The surprise is the temperature: `ChatOllama`'s `llm_string` only records the class and the stop words, not the model name or the temperature, so the T=0.5 call was served the T=0 answer from the cache. With a process-wide cache, two `ChatOllama` objects with different models or temperatures **share entries**. It is the kind of bug you only find by measuring: check `_get_llm_string()` for your integration, and if it is this thin, use one cache per configuration or put the settings into the prompt key yourself. Note also what it caches: the 3B model's answer about the KV-cache is wrong (it describes a generic key-value store), and the cache will now serve that wrong answer instantly to everyone. Cache only outputs you would be happy to repeat, and give entries a time-to-live.
 
 The semantic cache is the harder trade-off. Paraphrase pairs score between 0.73 and 0.95, near misses between 0.56 and 0.93, and the distributions overlap: "support hours on weekdays" vs "on weekends" scores 0.93, higher than most real paraphrases. To keep false hits at zero on this set the threshold has to be 0.94, and then only 2 of the 10 paraphrase pairs (20%) are close enough to hit; on the 25-request run that meant 3 hits. A lower threshold catches more paraphrases but starts answering the wrong question. In practice, semantic caching is worth it for high-volume, low-stakes, templated traffic, with a threshold tuned on your own logs, and it is often restricted per intent (only FAQ answers, never account-specific ones).
 

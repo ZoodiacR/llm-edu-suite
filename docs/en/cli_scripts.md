@@ -2,24 +2,24 @@
 
 # Command-line scripts
 
-> A guide to the six scripts in `scripts/` (plus `tools/run_notebooks.py` and the `Makefile` targets): every real argument (taken from `argparse`), what each stage does internally, usage examples and results measured on CPU.
+> A guide to the six scripts in `scripts/` (plus `tools/build_notebooks.py`, `tools/run_notebooks.py` and the `Makefile` targets): every real argument (taken from `argparse`), what each script does internally, usage examples and measured results.
 >
 > Related documents: [README](README.md) · [Installation](installation.md) · [Module reference](module_reference.md) · [Notebooks guide](notebooks_guide.md) · [Case study](case_study.md) · [Glossary](glossary.md)
 
-| Script | What it is for | Modules it uses | Needs `torch` |
+| Script | What it is for | Built on | Needs |
 |---|---|---|---|
-| [`train.py`](#trainpy) | Pretrain a `TransformerLM` on a `.txt` file or a synthetic corpus | `data`, `tokenizer`, `model`, `training`, `evaluation`, `utils` | yes |
-| [`sample.py`](#samplepy) | Generate from a checkpoint (normal or speculative sampling) | `model`, `tokenizer`, `inference`, `utils` | yes |
-| [`finetune.py`](#finetunepy) | Post-training demo: SFT (full or LoRA) → DPO and GRPO, with evaluation | `data`, `model`, `training`, `finetune`, `evaluation`, `utils` | yes |
-| [`rag_demo.py`](#rag_demopy) | Index a folder of documents, answer questions and evaluate the RAG | `rag`, `llm_client`, `evaluation` | no |
-| [`mini_llm.py`](#mini_llmpy) | A complete mini GPT in one file: BPE → model → training → evaluation → sampling → checkpoint | none (self-contained) | yes |
-| [`mcp_server.py`](#mcp_serverpy) | A real MCP server over stdio that exposes `data/sample_docs` to Claude Code, Claude Desktop or any MCP client | `mcp`, `rag` | no |
+| [`train.py`](#trainpy) | Pretrain a `TransformerLM` on a `.txt` file or a synthetic corpus | `llm_edu_suite` (`data`, `tokenizer`, `model`, `training`, `evaluation`, `utils`) | PyTorch |
+| [`sample.py`](#samplepy) | Generate from a checkpoint (normal or speculative sampling) | `llm_edu_suite` (`model`, `tokenizer`, `inference`, `utils`) | PyTorch |
+| [`mini_llm.py`](#mini_llmpy) | A complete mini GPT in one file: BPE → model → training → evaluation → sampling → checkpoint | nothing but PyTorch (self-contained) | PyTorch |
+| [`finetune.py`](#finetunepy) | Post-training of SmolLM2-135M-Instruct: `sft`, `dpo` or `grpo` subcommands, each evaluated before and after | Hugging Face `transformers` + `peft` + `trl` | PyTorch, ~260 MB model download on first run; a GPU is strongly recommended |
+| [`rag_demo.py`](#rag_demopy) | Hybrid RAG with citations over a folder of documents, plus retrieval metrics and optional RAGAS evaluation | LangChain (FAISS + BM25 + `EnsembleRetriever`), RAGAS | Ollama (`qwen2.5:3b`, `nomic-embed-text`) |
+| [`mcp_server.py`](#mcp_serverpy) | An MCP server (`llm-edu-docs`) that exposes `data/sample_docs` to Claude Code, Claude Desktop or any MCP client | Official MCP Python SDK (`FastMCP`) + `rank_bm25` | Nothing else (no PyTorch, no Ollama) |
 
 ---
 
 ## Before you start
 
-Run every command from the **repository root** with the project's virtual-environment interpreter (see [installation](installation.md)). Each script adds the repo root to `sys.path`, so there is no need to install the package with `pip install -e .`.
+Run every command from the **repository root** with the project's virtual-environment interpreter (see [installation](installation.md)). The scripts that import `llm_edu_suite` add the repo root to `sys.path` themselves, so there is no need to install the package with `pip install -e .`.
 
 **Windows (PowerShell or cmd):**
 
@@ -35,7 +35,9 @@ Run every command from the **repository root** with the project's virtual-enviro
 
 Throughout this document each example is shown in both forms. When a long command is split across lines, the continuation character is `` ` `` in PowerShell, `^` in cmd and `\` in bash.
 
-Every script with arguments accepts `-h` / `--help` (`mini_llm.py` has none: it is configured through its `CFG` dictionary). `train.py` also shows its docstring with examples in the help output.
+Every script with arguments accepts `-h` / `--help` (`mini_llm.py` has none: it is configured through its `CFG` dictionary). `train.py`, `finetune.py` and `rag_demo.py` also print their docstring with examples in the help output.
+
+Unless noted, the numbers in this document were measured on an RTX 3060 Laptop GPU (6 GB) with Ollama running locally; the `train.py` / `sample.py` numbers are from CPU.
 
 ---
 
@@ -277,218 +279,11 @@ The output looks like `[speculative] acceptance NN%, X.XX tokens/target pass` (n
 
 ---
 
-## `finetune.py`
-
-An end-to-end *post-training* demo on the **"reverse the sequence"** toy task: given `[5, 6, 7]`, the assistant must answer `[7, 6, 5]`. It shows how *exact match* and reply perplexity change after each technique.
-
-### Arguments
-
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `--steps` | int | `900` | SFT steps. 900 leaves the model *partially* trained, with room for DPO and GRPO to improve it. |
-| `--lora` | flag | off | SFT with LoRA (r = 8, α = 16) **+ trainable embeddings** (`train_embeddings=True`) instead of full fine-tuning. |
-| `--dpo-steps` | int | `300` | DPO steps. `0` disables the stage. |
-| `--nll-weight` | float | `1.0` | Weight of the NLL anchor on the chosen answer (DPO + NLL / RPO). `0` = plain DPO, to observe *likelihood displacement*. |
-| `--grpo-iters` | int | `150` | GRPO iterations. `0` disables the stage. |
-| `--device` | str | auto | Same as in `train.py`. |
-
-All other hyperparameters are fixed in the script (see the next table).
-
-### What it does, stage by stage
-
-| Stage | What happens | Fixed hyperparameters |
-|---|---|---|
-| 0. Format | `V = 512`; `ChatFormat.for_vocab(512)` reserves ids 507–511 as `SYS, USER, ASSIST, END, PAD`. | — |
-| 1. Base model | Pretrains a `TransformerLM` (d_model 128, 4 layers, 8 heads, 2 KV, `max_seq_len` 128, ≈ 0.76M parameters) for **200 steps** on a 100,000-token synthetic corpus with vocabulary `V − 5`, so the role ids are never used. No logging. | batch 32, block 64, lr 3e-3, warmup 20 |
-| 2. Data | **8000** SFT training examples (`seed=0`) and 200 test examples (`seed=99`) for the reply perplexity. Separately, 150 evaluation cases generated with another seed (length 2–5, tokens 1–400). | system = `[10]` |
-| 3. `base` evaluation | `exact_match_rate` with `greedy_answer` over the 150 cases + `perplexity_on_examples` on the test set. | — |
-| 4. SFT | The base is copied. *Without `--lora`*: `train_sft` on all parameters. *With `--lora`*: `apply_lora(r=8, alpha=16, train_embeddings=True)` and `train_sft` on `trainable_parameters` (adapters + `tok_emb`/tied `lm_head`: the role tokens never appeared in pretraining, so their embeddings must be learned). Then `merge_lora` and **unfreezes** every weight so DPO and GRPO can update the merged model. Evaluated. Logs every 300 steps. | full: lr 1e-3; LoRA: lr 2e-3; batch 32 |
-| 5. DPO (if `--dpo-steps > 0`) | `train_dpo` from the SFT model (the reference is a frozen copy) with **3000** pairs (`seed=1`) and `nll_weight=--nll-weight`. *Chosen* = correct reversal, *rejected* = correct except for the last token (replaced by a different one). Evaluated as `SFT+DPO+NLL` (or `SFT+DPO` with `--nll-weight 0`). Logs every 100 steps (`loss`, `acc`, `margin`). | lr 5e-5, β 0.1, batch 16 |
-| 6. GRPO (if `--grpo-iters > 0`) | `train_grpo` on **a copy of the SFT model** (not the DPO one). Each iteration: 8 prompts (length 2–5, tokens 1–400) × 8 sampled responses. **Dense, partial-credit** reward: fraction of positions that match the reversal, `− 0.1 ×` the length difference, and `+0.2` if it ends with `END`. Evaluated as `SFT+GRPO`. Logs every 50 iterations (`mean reward`, `pg`, `kl`). | lr 1e-4, β (KL) 0.04, max_new 8 |
-
-```
-base --SFT (full | LoRA)--> sft --DPO(+NLL)--> sft+dpo
-                                +--GRPO-------> sft+grpo     (two independent branches off SFT)
-```
-
-Why a dense reward? With a binary reward (1 only if the reversal is exact), a partially trained model often gets the same reward on all 8 responses of a group, the relative advantage is 0 and GRPO receives no gradient. Per-position partial credit separates "almost right" responses from bad ones and gives signal in nearly every group.
-
-**Sample output** (format only; the numbers depend on the machine and the arguments):
-
-```
-base model 758.91K params on cpu
-base           exact match   0.0%  reply ppl   ...
-sft step    0  loss ...
-SFT (LoRA)     exact match  ...%  reply ppl   ...
-dpo step    0  loss ...  acc 0.00  margin +0.00
-SFT+DPO+NLL    exact match  ...%  reply ppl   ...
-grpo iter   0  mean reward ...  pg ...  kl 0.0000
-SFT+GRPO       exact match  ...%  reply ppl   ...
-```
-
-At the first DPO step, policy and reference are identical, so `margin` is 0 and `acc` is 0. With `--nll-weight 0` the loss is exactly `0.693` (= ln 2), a good sanity check; with the default (`1.0`) it is ln 2 plus the NLL of the chosen answer.
-
-There are no measured numbers for this script with the current defaults yet.
-
-### Examples
-
-**What the README suggests** (LoRA SFT → DPO and GRPO, short version):
-
-```powershell
-.venv\Scripts\python scripts\finetune.py --lora --dpo-steps 200 --grpo-iters 40
-```
-```bash
-.venv/bin/python scripts/finetune.py --lora --dpo-steps 200 --grpo-iters 40
-```
-
-**The full default recipe** (full SFT → DPO+NLL and GRPO; about 5 minutes on CPU according to the docstring):
-
-```powershell
-.venv\Scripts\python scripts\finetune.py
-```
-```bash
-.venv/bin/python scripts/finetune.py
-```
-
-**Full SFT only** (the fastest run):
-
-```bash
-.venv/bin/python scripts/finetune.py --dpo-steps 0 --grpo-iters 0
-```
-
-**Compare LoRA and full fine-tuning** on the same budget:
-
-```powershell
-.venv\Scripts\python scripts\finetune.py --dpo-steps 0 --grpo-iters 0
-.venv\Scripts\python scripts\finetune.py --dpo-steps 0 --grpo-iters 0 --lora
-```
-
-**See *likelihood displacement*** with plain DPO (no NLL anchor) and compare with the default output:
-
-```powershell
-.venv\Scripts\python scripts\finetune.py --nll-weight 0 --grpo-iters 0
-```
-```bash
-.venv/bin/python scripts/finetune.py --nll-weight 0 --grpo-iters 0
-```
-
-### Notes and pitfalls
-
-- **DPO and GRPO are not chained.** They are two independent branches off the SFT model. The output reports `SFT+DPO(+NLL)` and `SFT+GRPO`, not `SFT+DPO+GRPO`. To chain them, pass the model returned by `train_dpo` to `train_grpo` (see [notebook 08](notebooks_guide.md)).
-- **Why DPO + NLL by default?** In this task the chosen and rejected answers differ by a single token. Plain DPO can widen the margin by pushing down the probability of *both* answers (*likelihood displacement*), and *exact match* gets worse even as `acc` rises. The NLL anchor (`--nll-weight 1.0`) keeps the probability of the correct answer high. See [reference §7.3](module_reference.md#7-finetune).
-- **Why `train_embeddings=True` with `--lora`?** Ids 507–511 (role tokens) never appear in the pretraining corpus, so their embeddings remain random. LoRA only modifies the linear projections and cannot fix them; that is why the script also trains `tok_emb` (and the tied `lm_head`), like `modules_to_save` in `peft`.
-- This is the heaviest script on CPU, especially GRPO: each iteration generates 64 responses token by token without a KV-cache. Lower `--grpo-iters` to iterate quickly.
-- In this implementation GRPO takes a single update per sampled batch ($\mu = 1$), so the importance *ratio* is 1 and the *clip* never kicks in (see [reference, §7.4](module_reference.md#7-finetune)).
-- The 150 evaluation cases are drawn at random from the same token range as training. They measure whether the *skill* (reversing) was learned, not whether specific examples were memorized, because the chance of exactly matching a training example is negligible.
-
----
-
-## `rag_demo.py`
-
-Indexes a folder of `.txt` / `.md` documents, answers questions with **hybrid retrieval (dense + BM25 + RRF)** and an LLM, and optionally evaluates retrieval and generation against a set of reference questions. **Does not need PyTorch.** Without `--model` it uses `MockLLM`, which is offline and deterministic.
-
-### Arguments
-
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `--docs` | path | **required** | Folder with `.txt` and/or `.md` files (top level only, not recursive). |
-| `--ask` | str | `None` | Question to answer: shows the sources and the answer. |
-| `--eval` | path | `None` | JSON with a list of `{"question", "doc", "answer"}`. |
-| `--k` | int | `4` | Retrieved chunks placed in the prompt. |
-| `--chunk-size` | int | `120` | Chunk size in words. The overlap is `chunk_size // 4`. |
-| `--model` | str | `None` | Model name on an OpenAI-compatible server. If omitted, `MockLLM` is used. |
-| `--base-url` | str | `http://localhost:8000/v1` | Server URL (vLLM by default; Ollama: `http://localhost:11434/v1`). |
-
-`--ask` and `--eval` can be passed together. If neither is passed, the script only indexes and prints the summary.
-
-### What it does, stage by stage
-
-1. **Load.** Finds `*.txt` and `*.md` in `--docs`. Each document's `doc_id` is its **file name** (without the path).
-2. **Chunking.** `chunk_documents(docs, size=--chunk-size, overlap=--chunk-size // 4)`: overlapping word windows.
-3. **Index.** `Retriever(chunks)` with the default configuration: a `HashedTfidfEmbedder` fitted on the chunks and a `VectorIndex` (exact cosine) for the dense side, plus `BM25` for the lexical side, no *reranker*.
-4. **LLM.** Uses `OpenAICompatibleClient(--model, base_url=--base-url)` if `--model` is given; otherwise `MockLLM()`. Prints `indexed N docs -> M chunks | llm = ...`.
-5. **`--ask`.** `retriever.retrieve(q, k=--k)` (dense top-20 and BM25 top-20, RRF fusion, top-k) → `build_rag_prompt` (numbered context + citation instructions) → `llm.complete`. Shows `SOURCES` (`[n] doc#chunk: first 100 characters...`) and `ANSWER`.
-6. **`--eval`.** For each question:
-   - *Retrieval*: the ordered list of **unique** `doc_id`s in the top-k against the relevant set `{doc}`. Aggregated with `evaluate_ranking(ks=(1, 3))`, which gives `recall@1`, `hit@1`, `ndcg@1`, `recall@3`, `hit@3`, `ndcg@3` and `mrr`.
-   - *Generation*: `token_f1(answer, reference answer)` and `context_support(answer, retrieved context)`, a faithfulness proxy that measures how much of the answer is backed by the context.
-   - Prints the retrieval metrics (rounded to 3 decimals) and the mean token-F1 and *context support*.
-
-### Examples with the sample documents
-
-The repository ships `data/sample_docs/` (four short documents: `refund_policy.md`, `security.md`, `shipping.md`, `support.md`) and `data/sample_eval.json` (six questions with their document and reference answer).
-
-**Ask a question:**
-
-```powershell
-.venv\Scripts\python scripts\rag_demo.py --docs data\sample_docs --ask "What is the refund policy?"
-```
-```bash
-.venv/bin/python scripts/rag_demo.py --docs data/sample_docs --ask "What is the refund policy?"
-```
-
-**Evaluate:**
-
-```powershell
-.venv\Scripts\python scripts\rag_demo.py --docs data\sample_docs --eval data\sample_eval.json
-```
-```bash
-.venv/bin/python scripts/rag_demo.py --docs data/sample_docs --eval data/sample_eval.json
-```
-
-**Measured (with `MockLLM`):** `recall@1 = 1.0`, `MRR = 1.0`, `token-F1 = 0.887`.
-
-How to read these numbers:
-
-- **recall@1 = 1.0 and MRR = 1.0**: for all 6 questions, the right document comes *first*. Each sample document has about 60 words (fewer than `--chunk-size 120`), so it forms a single chunk and the index holds 4. With `--k 4` all four documents are always retrieved, so `recall@3` is trivially 1. The informative metric here is the **rank** (recall@1, MRR, nDCG).
-- **token-F1 = 0.887 (not 1.0)**: `MockLLM` answers with the context sentence that shares the most words with the question, followed by the citation `[n]`. That sentence usually matches the reference almost exactly, but the citation adds a token and some sentences are longer than the expected answer (e.g. "… 8am to 8pm *Central European Time*."). Both effects lower the F1 precision.
-- With a real LLM, F1 usually *drops* because the model paraphrases. That is why it pays to complement it with `context_support` and an LLM judge ([notebook 10](notebooks_guide.md)).
-
-**Using your own documents:**
-
-```bash
-.venv/bin/python scripts/rag_demo.py --docs ./my_docs --ask "What is the return policy?" --k 3 --chunk-size 200
-```
-
-The `--eval` format is:
-
-```json
-[
-  {"question": "How long does express shipping take?", "doc": "shipping.md",
-   "answer": "Express shipping delivers in 1 to 2 business days."}
-]
-```
-
-`doc` must match the file name inside `--docs` exactly. `answer` is optional: if missing, that question's F1 is 0.
-
-**With a real LLM** through an OpenAI-compatible server. Requires `pip install requests`, which is commented out in `requirements.txt` and included in the `rag` extra of `pyproject.toml`.
-
-```powershell
-# vLLM (in another terminal / a GPU machine):  vllm serve Qwen/Qwen2.5-7B-Instruct
-.venv\Scripts\python scripts\rag_demo.py --docs data\sample_docs --eval data\sample_eval.json --model Qwen/Qwen2.5-7B-Instruct --base-url http://localhost:8000/v1
-
-# Ollama:  ollama serve  (and first: ollama pull llama3.1)
-.venv\Scripts\python scripts\rag_demo.py --docs data\sample_docs --ask "Are gift cards refundable?" --model llama3.1 --base-url http://localhost:11434/v1
-```
-```bash
-.venv/bin/python scripts/rag_demo.py --docs data/sample_docs --eval data/sample_eval.json \
-    --model Qwen/Qwen2.5-7B-Instruct --base-url http://localhost:8000/v1
-```
-
-For a remote provider, the key is read from the `OPENAI_API_KEY` environment variable. For example, `$env:OPENAI_API_KEY="sk-..."` in PowerShell or `export OPENAI_API_KEY=sk-...` in bash, with `--base-url https://api.openai.com/v1`.
-
-### Notes and pitfalls
-
-- The folder in the README example (`./my_docs`) **does not exist** in the repository. Use `data/sample_docs` or your own folder.
-- The default embedder (`HashedTfidfEmbedder`) is lexical: it does not understand synonyms or other languages. A question in Spanish over English documents will retrieve poorly. For real embeddings, use `SentenceTransformerEmbedder` from Python (see [reference §10](module_reference.md#10-rag)); the script does not expose it on the CLI.
-- `MockLLM` looks for the sentence with the most lexical overlap; it does not reason. It is there to check that the *pipeline* (retrieve → prompt → cite → evaluate) works end to end, not to measure generation quality.
-
----
-
 ## `mini_llm.py`
 
 A **complete mini LLM in a single file** that depends only on PyTorch (it imports nothing from `llm_edu_suite`): byte-level BPE tokenizer → GPT with RoPE, RMSNorm and SwiGLU → training with AdamW and a cosine schedule → evaluation against the corpus's irreducible loss → sampling → checkpoint save and reload. It is notebook 00 (`notebooks/00_start_here/00_mini_llm_end_to_end.ipynb`) exported as a script: the whole pipeline at a glance, before the notebooks take each piece apart and the package scales it up.
 
-> **Generated file.** `scripts/mini_llm.py` is produced from notebook 00 by `tools/build_notebooks_part3.py`. To change it permanently, **edit the generator**, not the script: the next `make notebooks` overwrites it.
+> **Generated file.** `scripts/mini_llm.py` is produced from notebook 00 by its generator, `tools/notebooks/nb00_mini_llm_end_to_end.py`. To change it permanently, **edit the generator**, not the script: the next `make notebooks` overwrites it.
 
 ### Configuration
 
@@ -541,84 +336,374 @@ Where do the 1.86M parameters come from? Embedding (tied) 455 × 192 = 87,360; p
 
 ---
 
-## `mcp_server.py`
+## `finetune.py`
 
-A real, runnable **MCP server over stdio**, built with [`llm_edu_suite.mcp`](module_reference.md#18-mcp) and no SDK. It exposes the sample knowledge base in `data/sample_docs/` (or any folder of `.md` / `.txt` files) to any MCP client: Claude Code, Claude Desktop, the MCP Inspector, or `MCPClient` + `StdioTransport` from Python. It does not need PyTorch.
+Post-training with the Hugging Face stack (`transformers` + `peft` + `trl`) on the two small synthetic tasks of notebooks 07–08, using **SmolLM2-135M-Instruct** (downloaded from the Hugging Face Hub on first use, ~260 MB). One subcommand per technique:
+
+| Subcommand | Task | What it does |
+|---|---|---|
+| `sft` | Booking → JSON extraction | LoRA (or full) SFT with TRL's `SFTTrainer` |
+| `dpo` | Booking → JSON extraction | LoRA SFT first, then DPO (+ NLL by default) with TRL's `DPOTrainer` and a second LoRA adapter |
+| `grpo` | Two-digit arithmetic | GRPO with TRL's `GRPOTrainer`, a LoRA adapter and a verifiable reward |
+
+Every subcommand evaluates on a **held-out** set before and after training. The task builders, the scoring and the reward functions are the same ones notebooks 07–08 define inline, and `tests/test_finetune_hf.py` tests them.
+
+### Arguments
+
+```
+finetune.py {sft,dpo,grpo} [options]
+```
+
+| Argument | Type | Default | Used by | Description |
+|---|---|---|---|---|
+| `stage` (positional) | choice | **required** | — | `sft`, `dpo` or `grpo`. |
+| `--model` | str | `HuggingFaceTB/SmolLM2-135M-Instruct` | all | Any Hugging Face causal LM with a chat template. |
+| `--full` | flag | off | `sft`, `dpo` | Full fine-tuning instead of LoRA for the SFT stage (needs more VRAM; uses the Adafactor optimizer). |
+| `--rank` | int | `16` | all | LoRA rank `r`; `lora_alpha = 2 * rank`, `target_modules="all-linear"`. |
+| `--n-train` | int | `300` | `sft`, `dpo` | SFT training examples. |
+| `--epochs` | float | `2` | `sft`, `dpo` | SFT epochs. |
+| `--lr` | float | `None` | all | Learning rate. Defaults: SFT `1e-3` (LoRA) or `1e-4` (`--full`); DPO `2e-4`; GRPO `1e-4`. In the `dpo` subcommand, `--lr` applies only to the DPO stage, and the SFT stage keeps its default. |
+| `--nll-weight` | float | `1.0` | `dpo` | Weight of the SFT (NLL) loss on the chosen answer. `0` = plain DPO. |
+| `--beta` | float | `0.1` | `dpo` | DPO β (how strongly the policy is tied to the reference). |
+| `--reward` | choice | `exact` | `grpo` | `exact` (sparse: 1 if the last number in the reply is right) or `partial` (dense: up to 0.8 for being close, +0.2 for replying with only a number). |
+| `--grpo-steps` | int | `40` | `grpo` | GRPO optimizer steps. |
+| `--seed` | int | `0` | all | `transformers.set_seed`. |
+| `--out` | path | `<temp dir>/llm_edu_finetune` | all | Trainer scratch directory. Nothing is saved there (`save_strategy="no"`). |
+
+### What it does internally
+
+**Common to all subcommands.** Loads the tokenizer (left padding, for batched generation) and the model in **bf16 on CUDA** or fp32 on CPU. Every trainer uses a micro-batch of 4 with 4 gradient-accumulation steps (16 sequences per step; GRPO uses 8 × 4), gradient checkpointing, logging every 5 steps, `report_to="none"` and no checkpoints. Evaluation uses greedy decoding with the chat template.
+
+**`sft`**
+
+1. **Data.** `booking_examples(--n-train, seed)` builds sentences such as *"We are six. Could we get a table at Casa Pepe on Friday around 8:30 pm? Booking for Ana."* with the target `{"name", "restaurant", "people" (int), "day" (lowercase), "time" (24-hour HH:MM)}`. Each one becomes a conversational **prompt-completion** row (system + user → assistant JSON). The 40 test examples use names and restaurants that never appear in training.
+2. **Before.** Scores the base model: `valid` (the reply contains parseable JSON), `exact` (every field right) and `fields` (fraction of fields right).
+3. **Training.** `SFTTrainer` with `SFTConfig(lr_scheduler_type="cosine", warmup_steps=5, max_length=256)` and a `LoraConfig` (or none with `--full`). With prompt-completion data, TRL computes the loss **only on the completion** (completion-only loss): the prompt tokens get label `-100`.
+4. **After.** Merges the LoRA weights into the model (`merge_and_unload`) and scores it again.
+
+**`dpo`**
+
+1. Runs the `sft` stage above and prints the `SFT:` scores. With the defaults the SFT model is only partly trained, so DPO has room to help.
+2. Builds 400 **preference pairs**: *chosen* = the right JSON, *rejected* = the same JSON with one realistic mistake (8 pm left as `08:00`, `people` as a string, a capitalized day, or the wrong name).
+3. Trains a **new LoRA adapter on top of the merged SFT model** with `DPOTrainer`. The reference model is the same network with the adapter switched off, so no second copy is kept in memory. `loss_type=["sigmoid", "sft"]` with `loss_weights=[1, --nll-weight]` is DPO + NLL; with `--nll-weight 0` it is plain `["sigmoid"]`. One epoch, cosine schedule, 3 warmup steps.
+4. Prints the log-probabilities of the chosen and rejected answers at the first and last logging step, then the scores after DPO. With `--nll-weight 0` you can see the chosen log-prob fall too (*likelihood displacement*).
+
+**`grpo`** (starts from the base model, not from SFT)
+
+1. **Data.** 2000 training prompts and 100 test prompts like *"What is 47 - 85?"* with the system prompt *"Answer with the number only."*.
+2. **Before.** Exact accuracy of the base model on the test prompts.
+3. **Training.** `GRPOTrainer` with a LoRA adapter: 8 completions per prompt (`num_generations=8`), 32 completions per optimizer step (4 prompts × 8), `max_completion_length=32`, `temperature=1.0`, KL coefficient `beta=0.04`, constant learning rate. The reward is `reward_exact` or `reward_partial`.
+4. **After.** Exact accuracy again.
+
+### Examples
+
+```powershell
+.venv\Scripts\python scripts\finetune.py sft                          # LoRA SFT
+.venv\Scripts\python scripts\finetune.py sft --full                   # full fine-tuning
+.venv\Scripts\python scripts\finetune.py dpo                          # SFT, then DPO + NLL
+.venv\Scripts\python scripts\finetune.py dpo --nll-weight 0           # plain DPO: watch the chosen log-prob fall
+.venv\Scripts\python scripts\finetune.py grpo --reward exact          # sparse, verifiable reward
+.venv\Scripts\python scripts\finetune.py grpo --reward partial        # dense reward with partial credit
+.venv\Scripts\python scripts\finetune.py grpo --grpo-steps 10         # a quick run
+```
+```bash
+.venv/bin/python scripts/finetune.py sft
+.venv/bin/python scripts/finetune.py sft --full
+.venv/bin/python scripts/finetune.py dpo
+.venv/bin/python scripts/finetune.py dpo --nll-weight 0
+.venv/bin/python scripts/finetune.py grpo --reward exact
+.venv/bin/python scripts/finetune.py grpo --reward partial
+.venv/bin/python scripts/finetune.py grpo --grpo-steps 10
+```
+
+**Measured** (RTX 3060 Laptop GPU, 6 GB, Ollama models unloaded):
+
+| Command | Before | After | Time |
+|---|---|---|---|
+| `finetune.py sft` | valid 0.00, exact 0.00, fields 0.00 | valid **1.00**, exact **0.375**, fields **0.855** | 73 s of training, 94 s in total |
+| `finetune.py grpo --grpo-steps 10` | exact accuracy 0.04 | exact accuracy **0.42** | ~5 s per step, 69 s in total |
+
+How to read them:
+
+- **SFT.** The base model never answers with JSON for this prompt. After 38 optimizer steps on 300 examples every reply is valid JSON and 85 % of the fields are right, but only 37.5 % of the replies get *every* field right (time conversion is the hardest). That gap is what `dpo` targets.
+- **GRPO.** Most of the jump in 10 steps comes from the format: the base model often reasons in words and runs out of its 32 tokens (75 % of the completions were cut off in the first five steps), and the reward teaches it to reply with just the number. In those first steps 65–70 % of the groups had the same reward for all 8 samples (`frac_reward_zero_std` in the logs): those groups give no gradient, which is the weakness of a sparse reward that `--reward partial` addresses.
+- The full default runs (`dpo`, and `grpo` with 40 steps) were not timed for this document. Expect a few minutes each on a similar GPU, and much longer on CPU.
+
+### Notes and pitfalls
+
+- **Do not run it while Ollama holds the GPU** on a 6 GB card (see [installation, GPU notes](installation.md#gpu-notes)). Run `ollama stop qwen2.5:3b` first if you used Ollama in the last few minutes.
+- `--full` changes only the SFT stage. DPO and GRPO always train a LoRA adapter.
+- `--epochs` and `--n-train` have no effect on `grpo`; `--grpo-steps` and `--reward` have no effect on `sft` / `dpo`.
+- On Windows, the first download may print a `huggingface_hub` warning about symlinks. It is harmless (see [troubleshooting](installation.md#troubleshooting)).
+- Nothing is saved: the script is a demonstration that prints scores. To keep a model, see notebook 07, which saves the LoRA adapter with `save_pretrained`, reloads it and merges it.
+
+---
+
+## `rag_demo.py`
+
+RAG over a folder of `.md` / `.txt` files with **LangChain**: hybrid retrieval (FAISS dense search + BM25, fused with Reciprocal Rank Fusion by an `EnsembleRetriever`) and an answer with numbered citations. It is the pipeline of notebook 10 packaged as a command-line tool. The models come from `llm_edu_suite.config` (Ollama `qwen2.5:3b` and `nomic-embed-text` by default; edit `.env` to switch).
 
 ### Arguments
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
-| `--docs` | path | `data/sample_docs` | Folder with `.md` / `.txt` files to expose (top level only). |
+| `--docs` | path | `data/knowledge_base` | Folder with `.md` / `.txt` files (top level only, not recursive). |
+| `--ask` | str | `None` | A question to answer with citations. |
+| `--eval` | path (optional value) | `None` | An eval JSON file. Given **without** a value, it uses `data/eval/rag_eval.json`. |
+| `--ragas` | flag | off | With `--eval`: also generate an answer for each question and score them with RAGAS. Slow: the LLM is the judge. |
+| `--retriever` | choice | `hybrid` | `hybrid`, `dense` or `bm25`: the retriever the chain (and RAGAS) uses. |
+| `--k` | int | `4` | Chunks per answer. |
+| `--chunk-size` | int | `800` | Characters per chunk; the overlap is `chunk_size // 8`. |
+
+`--ask` and `--eval` can be combined. With neither, the script only indexes and prints the summary line.
+
+### What it does internally
+
+1. **Setup.** `config.setup(project="llm-edu-suite-rag-demo")` loads `.env` (so with a LangSmith key every run is traced to that project). If the provider is Ollama and the server does not answer, the script exits with a message saying how to start it.
+2. **Loading.** Every top-level `*.md` and `*.txt` in `--docs` becomes a LangChain `Document` with the file name in `metadata["source"]`.
+3. **Splitting.** `RecursiveCharacterTextSplitter(chunk_size, chunk_overlap=chunk_size // 8, add_start_index=True)`.
+4. **Indexing.**
+   - *Dense*: `FAISS` over `get_embeddings()`, embedded in batches of 64 (one huge request can overload a local embedding server).
+   - *Lexical*: `BM25Retriever` with a lower-cased word tokenizer (the default splits on whitespace only, so `Llama-3?` would not match `llama-3`).
+   - *Hybrid*: `EnsembleRetriever([bm25, dense], weights=[0.5, 0.5])` (weighted RRF), cut to the top `k`.
+   It prints `indexed N files -> M chunks in X s | retriever ... | llm ...`.
+5. **The chain** (LCEL): `RunnableParallel(docs=retriever, question=RunnablePassthrough()).assign(answer=prompt | llm | StrOutputParser())`. The documents travel with the answer, so they can be cited. The system prompt asks for one to three sentences, citations like `[1]` or `[2][3]`, and "I don't know" when the context does not contain the answer.
+6. **`--ask`.** Prints `ANSWER` and then `SOURCES` as `[n]* file: first 100 characters`; the `*` marks the passages the answer actually cited.
+7. **`--eval`.** Scores **all three retrievers** (whatever `--retriever` says) on every question:
+   - *File level*: `file_hit@1`, `file_hit@k` and `file_mrr`: is a chunk from a correct source file in the top 1 / top k, and the mean inverse rank of the first one.
+   - *Evidence level* (items with an `evidence` list): `evidence_hit@1`, `evidence_hit@k`, `evidence_mrr`: does a retrieved chunk actually contain one of the evidence strings? This is stricter: the right file is not enough if the chunk is the wrong part of it.
+8. **`--ragas`.** Runs the chain with `--retriever` on every question (`batch`, 4 at a time), strips the `[n]` markers so the judge does not count them as unsupported claims, and scores the answers with four RAGAS metrics: **faithfulness**, **answer relevancy**, **context precision** and **context recall**. The judge is the configured chat model, called through Ollama's OpenAI-compatible endpoint (`OLLAMA_BASE_URL + /v1`). A metric that fails on one item is skipped (NaN) instead of stopping the run. Before importing ragas, the script registers an empty stand-in for `langchain_community.chat_models.vertexai`, a module that ragas 0.4.3 imports and langchain-community 0.4 removed.
+
+### Eval file format
+
+```json
+[
+  {"question": "What does Reciprocal Rank Fusion sum to combine several rankings?",
+   "answer": "For each document RRF sums 1/(k + rank) over the rankings, with k = 60.",
+   "sources": ["glossary.md", "module_reference.md"],
+   "evidence": ["1/(60 + rank)"]}
+]
+```
+
+The source can be given as `sources` (a list), `source` or `doc` (a single file name), and must match the file names in `--docs`. `answer` is the reference answer (needed by context precision and context recall); `evidence` is optional.
+
+The repository includes two corpora:
+
+- `data/knowledge_base/` (the default): five long documents about the course itself, with `data/eval/rag_eval.json` (20 questions with sources and evidence strings).
+- `data/sample_docs/`: four short documents (`refund_policy.md`, `security.md`, `shipping.md`, `support.md`), with `data/sample_eval.json` (6 questions in the `doc` format).
+
+### Examples
+
+**Ask a question** (default corpus, hybrid retrieval):
+
+```powershell
+.venv\Scripts\python scripts\rag_demo.py --ask "Why must an MCP stdio server never print to stdout?"
+```
+```bash
+.venv/bin/python scripts/rag_demo.py --ask "Why must an MCP stdio server never print to stdout?"
+```
+
+Measured output (~16 s, of which ~6 s indexing 358 chunks):
+
+```
+indexed 5 files -> 358 chunks in 6.4s | retriever hybrid | llm qwen2.5:3b
+
+ANSWER: Because stdout is reserved for the protocol and a single stray `print()` corrupts the stream and the client fails to parse the next message [1].
+
+SOURCES:
+  [1]* module_reference.md: '- *stdio framing*. On the stdio transport the host launches the server as a subprocess, and each mes'
+  [2]  cli_scripts.md: '- **Never print to stdout.** In an stdio server, stdout carries the protocol; a single stray `print('
+  ...
+```
+
+**Retrieval evaluation** (fast, no generation):
+
+```powershell
+.venv\Scripts\python scripts\rag_demo.py --eval
+```
+```bash
+.venv/bin/python scripts/rag_demo.py --eval
+```
+
+Measured (20 questions, `k = 4`, ~17 s in total):
+
+| Retriever | file hit@1 | file hit@4 | file MRR | evidence hit@1 | evidence hit@4 | evidence MRR |
+|---|---|---|---|---|---|---|
+| dense | 0.95 | 1.00 | 0.97 | 0.65 | 0.85 | 0.73 |
+| bm25 | 0.90 | 1.00 | 0.94 | 0.70 | **0.95** | 0.80 |
+| **hybrid** | 0.95 | 1.00 | 0.97 | **0.80** | 0.90 | **0.84** |
+
+At file level all three are near perfect: with five documents, finding the right *file* is easy. The evidence columns are the informative ones: the hybrid retriever puts a chunk that really contains the answer first in 80 % of the questions, against 65 % for dense search alone.
+
+**Retrieval + RAGAS** on the small sample corpus:
+
+```powershell
+.venv\Scripts\python scripts\rag_demo.py --docs data\sample_docs --eval data\sample_eval.json --ragas
+```
+```bash
+.venv/bin/python scripts/rag_demo.py --docs data/sample_docs --eval data/sample_eval.json --ragas
+```
+
+Measured (6 questions, judge `qwen2.5:3b`, RAGAS part 47 s, ~55 s in total): retrieval 1.00 everywhere (each sample document is a single chunk, so with `k = 4` all four are always retrieved), **faithfulness 1.00, answer relevancy 0.75, context precision 1.00, context recall 1.00**. On the 20-question default set `--ragas` takes considerably longer, because every question needs one generation and several judge calls.
+
+**Other options:**
+
+```bash
+.venv/bin/python scripts/rag_demo.py --docs data/sample_docs --ask "What is the refund policy?" --retriever dense
+.venv/bin/python scripts/rag_demo.py --docs ./my_docs --ask "..." --k 6 --chunk-size 1200
+```
+
+### Notes and pitfalls
+
+- The answers come from a 3B model running locally: they are usually right on this corpus, but they can paraphrase, cite the wrong passage number or over-answer (the dense `--ask` example above on `sample_docs` returned the whole refund document). This is what the RAGAS metrics are for.
+- `--ragas` assumes Ollama for the judge, even if `LLM_PROVIDER` is `openai` or `anthropic`.
+- A 3B judge is noisy. Treat RAGAS scores from it as a relative signal (compare retrievers or chunk sizes with the same judge), not as absolute quality.
+- The FAISS index lives in memory and is rebuilt on every run (a few seconds for this corpus).
+- `langchain-community` prints a sunset warning for `FAISS` / `BM25Retriever`; the script filters it.
+
+---
+
+## `mcp_server.py`
+
+An **MCP server** built with the official MCP Python SDK (`mcp.server.fastmcp.FastMCP`). Its name is **`llm-edu-docs`** and it exposes the small knowledge base in `data/sample_docs/` (or any folder of `.md` / `.txt` files) to any MCP client: Claude Code, Claude Desktop, the MCP Inspector, a Python client from the SDK, or a LangChain agent through `langchain-mcp-adapters`. It needs neither PyTorch nor Ollama.
+
+### Arguments
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `--docs` | path | `data/sample_docs` | Folder with the `.md` / `.txt` files to expose (top level only). |
+| `--http` | flag | off | Serve **Streamable HTTP** instead of stdio. |
+| `--host` | str | `127.0.0.1` | HTTP host (only with `--http`). |
+| `--port` | int | `8000` | HTTP port (only with `--http`). The endpoint is `http://<host>:<port>/mcp`. |
+| `--log-level` | str | `WARNING` | Log level on stderr. `INFO` logs every request. |
 
 ### What it exposes
 
 | Primitive | Name | Description |
 |---|---|---|
-| tool | `search_docs(query, k=3)` | Hybrid BM25 + dense retrieval (`rag.Retriever`, 80-word chunks with 20 of overlap). Returns `[file] passage` lines. `readOnlyHint: true`. |
-| tool | `calculate(expression)` | Safe arithmetic: only digits, `+ - * / ( ) .` and spaces are accepted; anything else is a tool error. `readOnlyHint: true`. |
-| tool | `create_ticket(title, priority="normal")` | Simulated write action (`priority` ∈ `low \| normal \| high`); returns the ticket as JSON (`structuredContent` too). Annotated `destructiveHint: true`, so a well-behaved client should **ask for confirmation**. |
-| resources | `docs://<file>` | One resource per file (`text/markdown`), described by its first line. |
-| prompt | `answer_with_sources(question)` | A RAG template: use `search_docs`, answer only from the passages, cite the file names, say so if the answer is not there. |
+| tool | `search_docs(query, k=3)` | BM25 search over the docs (`rank_bm25`). Each non-heading line of the sample docs is one self-contained sentence, so each line is one passage; the file name is added to the passage for matching. Returns the best `k` (clamped to 1–10) as `[file] passage` lines, or `no results`. Annotated `readOnlyHint: true`. |
+| tool | `calculate(expression)` | Safe arithmetic: the expression is parsed with `ast` and only numbers and `+ - * / ** %` and parentheses are evaluated; anything else is a tool error (`isError: true`). Annotated `readOnlyHint: true`. |
+| tool | `create_ticket(title, priority="normal")` | A simulated write action (`priority` ∈ `low`, `normal`, `high`). Returns the ticket (`id`, `title`, `priority`, `created`) as JSON. Annotated `destructiveHint: true`, so a well-behaved host **asks for confirmation**. |
+| resource | `docs://index` | JSON list of every document with its URI and title. |
+| resource template | `docs://{name}` | The full text of one document, e.g. `docs://shipping.md`. |
+| prompt | `answer_with_sources(question)` | A RAG prompt: use `search_docs`, answer only from the passages, cite file names, say so if the answer is not there. |
 
-The server also sends `instructions` in its `initialize` response ("use `search_docs` before answering policy questions and cite the file names").
+The server also sends `instructions` in its `initialize` response (*"Use search_docs before answering policy questions and cite the file names."*). The SDK derives each tool's JSON Schema from its type hints and its description from the docstring.
 
-### Running and connecting it
+**Measured** with an SDK client over stdio (`ClientSession` + `stdio_client`): the whole session (start the subprocess, initialize, list tools / resources / templates / prompts, call the three tools, read a resource) takes **about 2 s**. `search_docs("express shipping", k=2)` returns the two `shipping.md` lines; `calculate("(17 * 23) + 4")` returns `395`; `calculate("__import__('os')")` returns a tool error (`only numbers and + - * / ** % ( ) are allowed`). The server reports protocol version `2025-11-25` with SDK 1.30.0, and with `--http` it answers `initialize` on `/mcp` as an event stream with an `mcp-session-id` header.
 
-The server waits for JSON-RPC messages on stdin (Ctrl+C to stop). A startup line goes to **stderr**: `[mcp_server] 3 tools, 4 resources, 1 prompts — waiting on stdin`.
+### Running it
+
+In stdio mode (the default) the server waits for JSON-RPC messages on stdin and prints nothing until a client connects; stop it with Ctrl+C.
 
 ```powershell
-.venv\Scripts\python scripts\mcp_server.py
+.venv\Scripts\python scripts\mcp_server.py                                # stdio
 .venv\Scripts\python scripts\mcp_server.py --docs C:\path\to\your\docs
+.venv\Scripts\python scripts\mcp_server.py --http --port 8000             # http://127.0.0.1:8000/mcp
 ```
 ```bash
-.venv/bin/python scripts/mcp_server.py          # or: make mcp-server
+.venv/bin/python scripts/mcp_server.py                                    # or: make mcp-server
 .venv/bin/python scripts/mcp_server.py --docs path/to/your/docs
+.venv/bin/python scripts/mcp_server.py --http --port 8000 --log-level INFO
 ```
 
-**Claude Code:**
+### Connecting it to Claude Code
 
 ```bash
-claude mcp add llm_edu_suite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
+claude mcp add llm-edu-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
 ```
 
-**Claude Desktop** (`claude_desktop_config.json`):
+Everything after `--` is the command Claude Code launches. Use the project's interpreter if the `python` on your `PATH` does not have the `mcp` and `rank_bm25` packages:
+
+```powershell
+claude mcp add llm-edu-docs -- D:\path\to\llm-engineering-suite\.venv\Scripts\python.exe D:\path\to\llm-engineering-suite\scripts\mcp_server.py
+```
+```bash
+claude mcp add llm-edu-docs -- /path/to/llm-engineering-suite/.venv/bin/python /path/to/llm-engineering-suite/scripts/mcp_server.py
+```
+
+Then `claude mcp list` shows the server and its status, and `/mcp` inside a Claude Code session lists its tools. Ask, for example, *"How long does express shipping take? Use the llm-edu-docs server."*
+
+To connect to the HTTP mode instead, start the server with `--http` and run `claude mcp add --transport http llm-edu-docs http://127.0.0.1:8000/mcp`.
+
+### Connecting it to Claude Desktop
+
+Add the server to `claude_desktop_config.json` (*Settings → Developer → Edit Config*), with absolute paths, and restart Claude Desktop:
 
 ```json
-{"mcpServers": {"llm_edu_suite-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
+{
+  "mcpServers": {
+    "llm-edu-docs": {
+      "command": "/ABSOLUTE/PATH/.venv/bin/python",
+      "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]
+    }
+  }
+}
 ```
 
-**MCP Inspector** (official web UI for testing servers; needs Node.js):
+On Windows use `"command": "D:\\path\\to\\llm-engineering-suite\\.venv\\Scripts\\python.exe"` (backslashes doubled in JSON).
+
+### Testing it with the MCP Inspector
+
+The official web UI for trying servers (needs Node.js):
 
 ```bash
 npx @modelcontextprotocol/inspector python scripts/mcp_server.py
 ```
 
-**From Python**, with the package's own client:
+It opens a browser page where you can list and call the tools, read the resources and render the prompt.
+
+### From Python
+
+With the official SDK client:
 
 ```python
-import sys
-from llm_edu_suite.mcp import MCPClient, StdioTransport, result_text
+import asyncio, sys
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
-client = MCPClient(StdioTransport([sys.executable, "scripts/mcp_server.py"]))
-client.initialize()
-print(result_text(client.call_tool("search_docs", {"query": "express shipping", "k": 1})))   # [shipping.md] ...
-print(result_text(client.call_tool("calculate", {"expression": "6*7"})))                     # 42
-client.close()
+async def main():
+    params = StdioServerParameters(command=sys.executable, args=["scripts/mcp_server.py"])
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
+        res = await session.call_tool("search_docs", {"query": "express shipping", "k": 1})
+        print(res.content[0].text)          # [shipping.md] Express shipping delivers in 1 to 2 business days ...
+
+asyncio.run(main())
 ```
+
+As LangChain tools for an agent, with `langchain-mcp-adapters`:
+
+```python
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({"llm-edu-docs": {"transport": "stdio", "command": sys.executable,
+                                                "args": ["scripts/mcp_server.py"]}})
+tools = await client.get_tools()            # search_docs, calculate, create_ticket as LangChain tools
+```
+
+Notebook 16 walks through both, and builds an agent on top of the tools with LangChain's `create_agent`.
 
 ### Notes and pitfalls
 
-- **Never print to stdout.** In an stdio server, stdout carries the protocol; a single stray `print()` corrupts the stream and the client fails to parse the next message. Everything the server logs (startup, created tickets) goes to `sys.stderr`.
-- Use **absolute paths** in the Claude Code and Claude Desktop configuration: the host launches the process from its own working directory. Use the interpreter of the project's virtual environment (e.g. `/ABSOLUTE/PATH/.venv/bin/python` or `.venv\Scripts\python.exe`) if `python` on the `PATH` does not have the dependencies (NumPy).
-- Tickets live in memory and disappear when the process ends. `create_ticket` is a stand-in for a real write.
-- The retriever is lexical (`HashedTfidfEmbedder` + BM25), as in [`rag_demo.py`](#rag_demopy): it does not understand synonyms or other languages.
+- **Never print to stdout.** In an stdio server, stdout carries the protocol; a single stray `print()` corrupts the stream and the client fails to parse the next message. Everything the server logs (the HTTP address, created tickets) goes to `sys.stderr`.
+- Use **absolute paths** in the Claude Code and Claude Desktop configuration: the host launches the process from its own working directory.
+- Tickets live in memory and disappear when the process ends.
+- `FastMCP` here is the 1.x SDK class. The course pins `mcp<2` because `langchain-mcp-adapters` does not support the 2.x SDK yet; in 2.x the same class is `mcp.server.mcpserver.MCPServer` and the decorators work the same way.
+- Inside Jupyter, an stdio client needs a workaround because Jupyter's `sys.stderr` has no OS file handle; notebook 16 already applies it. Plain scripts do not need it.
 
 ---
 
 ## Tools and Makefile targets
 
-**`tools/run_notebooks.py`** runs notebooks headlessly and **in place** (they keep their outputs), each with its own folder as the working directory, as Jupyter does. It searches `notebooks/` **recursively**, so it finds every notebook in the topic folders. Arguments can be file names or number prefixes:
+**`tools/build_notebooks.py`** rebuilds the `.ipynb` files from their generators in `tools/notebooks/nbNN_*.py` (notebook 00's generator also writes `scripts/mini_llm.py`). Building **clears the outputs**.
+
+```bash
+python tools/build_notebooks.py            # every notebook
+python tools/build_notebooks.py 05 14      # only some, by number
+```
+
+**`tools/run_notebooks.py`** executes notebooks headlessly and **in place** (they keep their outputs), each with its own folder as the working directory, as Jupyter does. It searches `notebooks/` **recursively**, so it finds the notebooks in every topic folder. Arguments can be file names or number prefixes:
 
 ```bash
 python tools/run_notebooks.py                       # every notebook, in number order
@@ -626,29 +711,35 @@ python tools/run_notebooks.py 05_pretraining.ipynb  # by file name, wherever it 
 python tools/run_notebooks.py 05 10 14              # by number (prefix)
 ```
 
-It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the end, and exits with code 1 if any fails, so it can be used in CI. An argument that matches zero or several notebooks stops the run with an error.
+It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the end, with a 1-hour timeout per notebook, and exits with code 1 if any fails, so it can be used in CI. An argument that matches zero or several notebooks stops with an error. Notebooks 10–16 need Ollama running; on a 6 GB GPU, avoid running the training notebooks (07–09) while Ollama has a model loaded (see [installation](installation.md#gpu-notes)).
 
-**Makefile targets** (Linux/macOS or Git Bash with `make`):
+**Makefile targets** (Linux/macOS, or Git Bash with `make`):
 
 | Target | Command | What it does |
 |---|---|---|
 | `make setup` | `bash setup_env.sh` | Creates `.venv` and installs everything (on Windows, run `setup_env.ps1`). |
-| `make test` | `pytest -q` | Unit and behavioural tests (~15 s). |
-| `make notebooks` | `build_notebooks_part1.py`, `part2`, `part3` | Regenerates every `.ipynb` (and `scripts/mini_llm.py`) from the generators. **Clears outputs.** |
-| `make run-notebooks` | `python tools/run_notebooks.py` | Runs every notebook in place (~40 min on CPU). |
-| `make smoke` | `train.py --steps 100 --d-model 64 --n-layers 2 ...` | 30-second pretraining smoke test. |
+| `make test` | `pytest -q` | All tests. The 4 `ollama` tests skip themselves if Ollama is not running. Use `pytest -q -m "not ollama"` for the fast set only (82 tests, ~35 s measured). |
+| `make notebooks` | `python tools/build_notebooks.py` | Rebuilds every `.ipynb` (and `scripts/mini_llm.py`) from the generators. **Clears outputs.** |
+| `make run-notebooks` | `python tools/run_notebooks.py` | Executes every notebook in place. |
+| `make smoke` | `train.py --steps 100 --d-model 64 --n-layers 2 ...` | A short pre-training smoke test. |
 | `make mini-llm` | `python scripts/mini_llm.py` | Trains the self-contained mini GPT (notebook 00 as a script). |
-| `make mcp-server` | `python scripts/mcp_server.py` | Starts the demo MCP server on stdio. |
+| `make mcp-server` | `python scripts/mcp_server.py` | Starts the MCP server on stdio. |
 
 ---
 
-## Summary of measured results (CPU unless noted)
+## Summary of measured results
 
-| Command | Result |
-|---|---|
-| `train.py --steps 300 --out runs/smoke` | 3.03M parameters, validation perplexity **2.65**, ≈ 140 s |
-| `sample.py --run runs/smoke --max-new-tokens 50` | ≈ **200 tok/s** (output as ids because the corpus is synthetic) |
-| `rag_demo.py --docs data/sample_docs --eval data/sample_eval.json` | recall@1 **1.0**, MRR **1.0**, token-F1 **0.887** (`MockLLM`) |
-| `mini_llm.py` (default 800 steps, RTX 3060 Laptop GPU; ~3–5 min on CPU) | 1.86M parameters, vocabulary 455 (199 merges), ~22 s of training, validation loss **0.778** vs corpus floor **0.774** (0.6% above) |
+| Command | Hardware | Result |
+|---|---|---|
+| `train.py --steps 300 --out runs/smoke` | CPU | 3.03M parameters, validation perplexity **2.65**, ≈ 140 s |
+| `sample.py --run runs/smoke --max-new-tokens 50` | CPU | ≈ **200 tok/s** (output as ids, because the corpus is synthetic) |
+| `mini_llm.py` (800 default steps) | RTX 3060 Laptop GPU (~3–5 min on CPU) | 1.86M parameters, vocabulary 455 (199 merges), ~22 s of training, validation loss **0.778** vs a corpus floor of **0.774** (0.6 % above) |
+| `finetune.py sft` | RTX 3060 Laptop GPU | exact 0.00 → **0.375**, fields 0.00 → **0.855**, valid JSON 0.00 → **1.00**; 94 s |
+| `finetune.py grpo --grpo-steps 10` | RTX 3060 Laptop GPU | exact accuracy 0.04 → **0.42**; ~5 s per step, 69 s |
+| `rag_demo.py --eval` | RTX 3060 Laptop GPU + Ollama | hybrid: file hit@1 **0.95**, evidence hit@1 **0.80**, evidence MRR **0.84** (dense: 0.65 / 0.73); ~17 s |
+| `rag_demo.py --docs data/sample_docs --eval data/sample_eval.json --ragas` | RTX 3060 Laptop GPU + Ollama | faithfulness **1.00**, answer relevancy **0.75**, context precision **1.00**, context recall **1.00**; ~55 s |
+| `rag_demo.py --ask "..."` | RTX 3060 Laptop GPU + Ollama | ~10–16 s including indexing |
+| `mcp_server.py` via an SDK stdio client | CPU | full session (start, initialize, list everything, 4 tool calls, 1 resource read) ≈ 2 s |
+| `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 82 passed in ~35 s / 4 passed in ~40 s |
 
 For the teaching context of each stage, see the [notebooks guide](notebooks_guide.md). For an end-to-end walkthrough with interpretation of the results, see the [case study](case_study.md).

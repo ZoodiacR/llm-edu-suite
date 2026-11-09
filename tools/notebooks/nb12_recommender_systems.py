@@ -34,7 +34,7 @@ print("a session (item ids):", sessions[0])
 ''')
 nb.md(r'''
 ## 1. Baselines
-Always beat popularity first. Random hit@10 here is 10/200 = 5 %.
+Always beat popularity first. A random ranker is expected to hit 10/200 = 5 % on average; the measured value below (0.032) is one noisy sample of that.
 ''')
 nb.code(r'''
 MAXLEN = 32
