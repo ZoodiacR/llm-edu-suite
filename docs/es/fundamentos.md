@@ -431,9 +431,15 @@ $B = 0$ hace que el modelo arranque exactamente como el base; $\alpha/r$ desacop
 
 LoRA desplazó a los adapters (latencia extra) y al prefix/prompt tuning (secuencia efectiva más larga) porque no añade latencia, iguala al fine-tuning completo en muchas tareas estrechas y lo soporta todo el ecosistema (`peft`, TRL, vLLM con varios adaptadores sobre un mismo base). Variantes: rsLoRA ($\alpha/\sqrt{r}$), DoRA.
 
+**QLoRA: la misma LoRA sobre un base de 4 bits.** LoRA congela los pesos base, pero siguen ocupando memoria en bf16: 2 bytes por parámetro, unos 14 GB para un 7B antes de guardar una sola activación. QLoRA (Dettmers et al., 2023) guarda esos pesos congelados en 4 bits y entrena adaptadores LoRA normales en bf16 encima:
+
+$$h = \operatorname{dequant}(W_0^{\text{NF4}})\,x + \frac{\alpha}{r}\, B A x$$
+
+El peso de 4 bits se descuantiza a bf16 bloque a bloque solo para la multiplicación y se descarta; el gradiente atraviesa la capa congelada hasta $A$ y $B$, que siguen en bf16, así que el optimizador nunca toca un número de 4 bits. Las tres ideas del artículo: **NF4** (16 niveles en los cuantiles de una normal, con una escala absmax por bloque de 64 pesos; los pesos preentrenados son aproximadamente normales, ver el apartado [2.8](#28-cuantización)), **doble cuantización** (las escalas de cada bloque se cuantizan a su vez a 8 bits, y el sobrecoste baja de 0.5 a unos 0.127 bits por parámetro) y **optimizadores paginados** (el estado del optimizador vive en memoria unificada de CUDA y se pagina a la RAM cuando un pico de memoria lo exige, en lugar de morir con un out-of-memory). El precio: cada paso es más lento porque descuantiza en cada forward y backward, y el adaptador es para un base *cuantizado*; para fusionarlo se recarga el base en bf16 y se aplica allí. La regla práctica: si el modelo cabe en bf16 con margen para entrenar, LoRA (más rápida, fusión directa); si no cabe, QLoRA. En `transformers` es `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)`, más `prepare_model_for_kbit_training` y `optim="paged_adamw_8bit"`.
+
 **Reglas prácticas y modos de fallo.** Adaptar todas las capas lineales a $r = 8$-16 suele ganar a un rango grande solo en `q_proj` y `v_proj`; LoRA necesita un LR ~10 veces mayor que el fine-tuning completo (hallazgo empírico); al comparar rangos, comprueba si $\alpha$ escala con $r$. La trampa del **token nuevo**: con embeddings atados y congelados, una fila inicializada en la media de los embeddings nunca puede ganar el argmax, porque $h \cdot \bar e$ es la media de los $h \cdot e_i$ y una media no supera al máximo; hay que entrenar esa fila (`modules_to_save` o `trainable_token_indices`).
 
-> **Notebook:** [07 · SFT, LoRA y destilación](../../notebooks/03_post_training/07_finetuning_sft_lora.ipynb) · **En el curso:** extracción de reservas a JSON con SmolLM2-135M; few-shot llega al 17.5 % de exact match, SFT completo al 35.0 % y LoRA (3.5 % de los parámetros, adaptador de 20 MB) al 32.5 %; el rango sube el exact match de 20 % ($r=2$) a 45 % ($r=64$); con embeddings congelados el token nuevo nunca se emite (queda en torno al puesto 24.000) y entrenando la fila sale primero con p ≈ 0.93.
+> **Notebook:** [07 · SFT, LoRA y destilación](../../notebooks/03_post_training/07_finetuning_sft_lora.ipynb) · **En el curso:** extracción de reservas a JSON con SmolLM2-135M; few-shot llega al 17.5 % de exact match, SFT completo al 35.0 % y LoRA (3.5 % de los parámetros, adaptador de 20 MB) al 32.5 %; el rango sube el exact match de 20 % ($r=2$) a 45 % ($r=64$); con embeddings congelados el token nuevo nunca se emite (queda en torno al puesto 24.000) y entrenando la fila sale primero con p ≈ 0.93; QLoRA r=16 sobre el base en NF4 queda en 37.5 % de exact match y 86.5 % de campos (LoRA r=16: 32.5 % y 86.5 %, dos peticiones de diferencia, ruido), los pesos en memoria bajan de 269 MB a 110 MB pero el pico de entrenamiento apenas se mueve (1.41 → 1.34 GB) porque a 135M dominan las activaciones; para un 7B los pesos congelados pasarían de 14 GB a unos 3.6 GB.
 
 ### 3.3 Destilación
 
@@ -595,7 +601,9 @@ $$\text{faithfulness} = \frac{\left|\lbrace s \in S(a) : s \text{ se infiere de 
 
 **La regla de trabajo:** un juez LLM es un instrumento de medida que hay que **validar**. Etiquetar a mano unas decenas de casos y medir acuerdo con kappa de Cohen, $\kappa = (p_o - p_e)/(1 - p_e)$, que corrige el acuerdo por azar; congelar juez y prompt mientras se comparan versiones; leer diferencias más que valores absolutos; poner el razonamiento *antes* del veredicto en la salida estructurada. Un panel de jueces pequeños de familias distintas puede igualar a uno grande (Verga et al., 2024); ARES corrige jueces pequeños con un set humano mediante prediction-powered inference.
 
-> **Notebook:** [10 · RAG con LangChain y RAGAS](../../notebooks/04_applications/10_rag.ipynb) y [15 · Observabilidad y evaluación](../../notebooks/06_llmops/15_observability_llmops.ipynb) · **En el curso:** con recuperación híbrida, context precision sube de 0.76 a 0.84, context recall de 0.57 a 0.70 y faithfulness de 0.38 a 0.54; el juez local de 3B da relevancy 0 a respuestas correctas y la evaluación tarda ~440 s; en el notebook 15 el juez coincide con un check determinista en 20 de 24 respuestas, y los desacuerdos muestran qué se le escapa a cada uno.
+**La fuerza del juez.** Un juez no puede verificar lo que no entiende, y un juez débil no solo añade ruido: puede *inventar* efectos, diferencias entre sistemas que no existen, porque sus errores no se reparten por igual entre configuraciones (una respuesta más corta, otro formato o un contexto distinto basta para que falle más en una que en otra). Tres consecuencias prácticas. El juez debe ser claramente más fuerte que el sistema evaluado y, mejor, no ser el mismo modelo que genera (que además trae auto-preferencia). Toda comparación lleva un intervalo (bootstrap pareado, apartado [6.5](#65-estadística-de-sets-de-evaluación-pequeños)): con 20 preguntas, una diferencia de 0.1 en una métrica de RAGAS suele caber en el ruido. Y cambiar de juez cambia el instrumento de medida: los números de dos jueces distintos no se comparan entre sí, solo las diferencias medidas con el mismo juez. Un juez más fuerte cuesta tiempo, así que se reserva para un set fijo, pequeño y representativo.
+
+> **Notebook:** [10 · RAG con LangChain y RAGAS](../../notebooks/04_applications/10_rag.ipynb) y [15 · Observabilidad y evaluación](../../notebooks/06_llmops/15_observability_llmops.ipynb) · **En el curso:** con `qwen2.5:7b` como juez (y `qwen2.5:3b` generando), la única diferencia clara entre recuperación densa e híbrida es context precision, 0.79 → 0.92 (+0.13, IC 95 % [+0.03, +0.25]); faithfulness (0.87 → 0.87), answer relevancy (0.78 → 0.75) y context recall (0.95 → 0.95) no cambian dentro de sus intervalos, y la evaluación tarda 1038 s. Cuando el propio 3B se juzgaba a sí mismo, informaba de faithfulness 0.38 → 0.54 y relevancy 0.44 → 0.30: efectos que el juez de 7B no confirma. En el notebook 15 (todavía con el juez de 3B) el juez coincide con un check determinista en 20 de 24 respuestas, y los desacuerdos muestran qué se le escapa a cada uno.
 
 ### 4.4 Patrones de aplicación
 
@@ -642,9 +650,73 @@ El consenso: las tres primeras capas reducen la probabilidad de éxito; solo la 
 
 ### 4.5 Sistemas de recomendación
 
-El apartado de recomendación llegará con el recomendador v3: el notebook se está reconstruyendo con un LLM y un embudo multi-etapa, y la teoría se escribirá cuando el notebook nuevo esté medido.
+**Problema.** Para un usuario $u$ en un contexto $c$, estimar qué ítem $i$ es lo "correcto" a continuación (verlo, escucharlo, comprarlo, disfrutarlo) y enseñar los pocos mejores. Tres hechos condicionan cualquier sistema real. **Escala**: catálogos de millones de ítems y respuestas en decenas de milisegundos, así que no se puede pasar un modelo caro por cada ítem. **Feedback implícito y sesgado**: casi siempre se observa lo que la gente pulsó o vio, no lo que no le gustó, y solo entre lo que el sistema ya le enseñó (sesgo de exposición); lo popular recibe más exposición y, por tanto, más datos (sesgo de popularidad). **El mundo cambia**: llegan ítems nuevos cada día sin historial (*cold start*) y los gustos derivan.
 
-> **Notebook:** [12 · Sistemas de recomendación](../../notebooks/04_applications/12_recommender_systems.ipynb)
+**El embudo.** La respuesta a la escala, popularizada por el artículo de YouTube (Covington, Adams y Sargin, 2016), es partir el problema en etapas con objetivos distintos:
+
+| Etapa | Entrada → salida | Qué se le pide | Métrica propia | Modelos típicos |
+|---|---|---|---|---|
+| generación de candidatos | catálogo → cientos | no perder lo bueno; barata por ítem | recall@K del conjunto de candidatos | two-tower + ANN, modelo secuencial, co-ocurrencia ítem-ítem, contenido, populares |
+| ranking | cientos → decenas | ordenar con precisión; puede usar muchas features | nDCG@10, hit@10 de la lista final | árboles boosted (LambdaMART), modelos profundos (Wide & Deep, DCN, DLRM) |
+| re-ranking | decenas → la página | reglas, diversidad, exploración, explicaciones | lo que intercambia: precisión frente a cobertura o diversidad | MMR, calibración, bandits, reglas de negocio |
+
+Cada fuente de candidatos ve al usuario de otra forma, así que los sistemas toman la **unión** de varias. La consecuencia más útil para depurar: el ranker solo puede ordenar lo que la recuperación trajo, y el recall del conjunto de candidatos es un techo que ningún ranker supera. Mejorar recuperación y mejorar ranking son proyectos distintos, y se miden por separado.
+
+**Recomendación secuencial como modelado de lenguaje.** Si el historial de un usuario es una frase cuyas palabras son ids de ítems, predecir lo siguiente es predecir el siguiente token. SASRec (Kang y McAuley, 2018) es exactamente eso: un transformer decoder-only con atención causal cuyo vocabulario es el catálogo; en el curso, el `TransformerLM` del notebook 02 con `vocab_size = n_items + 1`. Funciona porque el gusto es secuencial (sagas, rachas de un género, estados de ánimo) y la atención pondera el historial como una recencia aprendida y dependiente del contexto. La industria va en esa dirección: HSTU de Meta (Zhai et al., 2024) escala como un LLM, y Netflix describe un modelo fundacional autoregresivo sobre la secuencia de interacciones de cada miembro (2025).
+
+El detalle de entrenamiento que más pesa es la pérdida. El SASRec original usaba una pérdida binaria con un negativo muestreado por positivo. La **softmax completa** sobre el catálogo, la pérdida de un modelo de lenguaje,
+
+$$\mathcal{L} = -\log \frac{\exp(s_{u,i^+})}{\sum_{j \in \mathcal{I}} \exp(s_{u,j})},$$
+
+es mucho más fuerte con la misma arquitectura: Klenitskiy y Vasilev (2023) pasan de hit@10 0.250 a 0.315 en MovieLens-1M. Con unos miles de ítems es barata; con millones, el denominador no cabe y se usa **softmax muestreada**: el denominador se estima con un subconjunto de negativos, a menudo los positivos de los otros usuarios del batch (*in-batch negatives*). Pero esos negativos no salen uniformes: un ítem popular aparece como negativo mucho más a menudo, y el modelo aprende a infravalorarlo. La **corrección logQ** (Yi et al., 2019) resta a cada logit el logaritmo de la probabilidad con que ese ítem se muestrea, $s_{u,j} - \log Q(j)$, y devuelve el estimador hacia la softmax completa.
+
+**Two-tower y búsqueda aproximada.** Dos redes llevan usuario e ítem al mismo espacio y la puntuación es el producto escalar, $s(u, i) = \langle f(u), g(i) \rangle$. Como la torre de ítems no depende del usuario, todos los vectores de ítem se precalculan y se meten en un índice de vecinos aproximados (ANN): servir es calcular un vector de usuario y buscar los más cercanos, milisegundos sobre millones de ítems. Los índices habituales son grafos (**HNSW**), particiones (IVF) y compresión (product quantization), con FAISS o ScaNN; su recall frente a la búsqueda exacta es un parámetro de calidad propio, independiente de lo bueno que sea el modelo. La limitación de diseño: un producto escalar no puede modelar interacciones finas entre features del usuario y del ítem (eso lo hace el ranker). Para *cold start*, la torre de ítems puede usar contenido (texto, género, año); si además se oculta al azar el id durante el entrenamiento (*id dropout*, como DropoutNet, Volkovs et al., 2017), la torre aprende a colocar un ítem solo a partir de su contenido.
+
+**Learning to rank.** El ranker puntúa cada par (usuario, candidato) a partir de features y ordena. Hay tres formas de entrenarlo:
+
+| Enfoque | Pérdida | Ejemplo |
+|---|---|---|
+| pointwise | predecir cada etiqueta por separado (log-loss sobre "¿fue el siguiente?") | regresión logística, GBDT binario |
+| pairwise | preferir el positivo a cada negativo: $\log(1 + e^{-(s_+ - s_-)})$ | RankNet |
+| listwise | optimizar la calidad de la lista ordenada entera | LambdaMART, softmax / XE-NDCG |
+
+**LambdaMART** (Burges, 2010) son árboles con gradient boosting cuyos gradientes son los de RankNet para cada par, multiplicados por cuánto cambiaría el nDCG si se intercambiaran los dos ítems:
+
+$$\lambda_{ij} = \frac{-\sigma}{1 + e^{\sigma (s_i - s_j)}}\,\bigl|\Delta \text{nDCG}_{ij}\bigr|,$$
+
+así que los árboles se concentran en la parte alta de la lista. Lleva más de una década como ranker industrial por defecto (buscadores, comercio electrónico, competiciones de recomendación en Kaggle) porque los árboles aceptan features heterogéneas (puntuaciones, conteos, categorías, ratios) sin escalar, entrenan en minutos y se inspeccionan con facilidad; en LightGBM es `objective="lambdarank"`. Dos condiciones deciden si un ranker de segunda etapa aporta algo sobre una primera etapa fuerte. **Muchos grupos de etiquetas de un periodo posterior** al que vieron los modelos de recuperación: si se entrena con un único positivo por usuario, la mejor feature es la propia puntuación de la primera etapa y los árboles reaprenden "ordena por SASRec" más ruido. La receta de RecTools y de las mejores soluciones de Kaggle OTTO es ajustar la recuperación sobre el historial menos los últimos $R$ eventos y convertir cada uno de esos eventos en una consulta del ranker. Y **features que la primera etapa no ve**: valoraciones explícitas, demografía, co-visitas, tiempo desde el evento anterior, tendencias recientes. Sin eso, el ranker es solo coste.
+
+**Cold start y exploración.** Nada colaborativo recomienda un ítem que nadie ha visto: su fila de embedding nunca se entrenó. Lo resuelven dos cosas distintas. El **contenido** coloca el ítem nuevo (texto y metadatos embebidos, torres con *id dropout*). La **exploración** le da exposición para aprender cuánto vale, que es el dilema exploración/explotación: un sistema que solo explota no aprende nunca de lo nuevo. La herramienta de producción son los **bandits**: $\varepsilon$-greedy (explorar al azar una fracción del tiempo), UCB (puntuar por media más un bonus de incertidumbre, $\hat\mu_i + c\sqrt{\ln t / n_i}$) o Thompson sampling (muestrear de la posterior de cada ítem), y sus versiones contextuales (LinUCB; BaRT en la home de Spotify, McInerney et al., 2018). La versión mínima que se puede medir offline es una **ranura de exploración** fija: los primeros puestos para el ranking y uno reservado para el mejor ítem nuevo según un modelo que entienda contenido. Offline solo se ve su coste en ítems conocidos y su alcance en los nuevos; el beneficio de aprender se ve online.
+
+**Diversidad, MMR y calibración.** Una lista de diez casi iguales es precisa y aburrida. **MMR** (Carbonell y Goldstein, 1998) construye la lista de forma voraz, eligiendo cada vez
+
+$$\arg\max_{i \notin S} \; \lambda\,\text{rel}(i) - (1 - \lambda) \max_{j \in S} \text{sim}(i, j),$$
+
+con $\lambda = 1$ el ranking puro y $\lambda$ más bajo más diversidad. La **diversidad intra-lista** se mide como uno menos la similitud media entre pares de la lista, $\text{ILD} = 1 - \frac{2}{k(k-1)} \sum_{i<j} \text{sim}(i, j)$. La **calibración** (Steck, 2018) pide otra cosa: que la mezcla de géneros de la lista $q$ se parezca a la del historial $p$, penalizando $\mathrm{KL}(p \,\|\, q)$, para que quien ve un 70 % de dramas y un 30 % de comedias no reciba diez dramas. Una advertencia: hit@10 premia acertar *el* siguiente ítem, así que cualquier cambio de la lista solo puede parecer neutro o peor offline; los beneficios (menos fatiga, descubrimiento, retención) se ven en tests A/B de semanas, y por eso esta perilla se ajusta online.
+
+**Protocolo de evaluación offline.** Cuatro decisiones separan una evaluación honesta de una que engaña:
+
+| Decisión | Opción honesta | Qué falla con la otra |
+|---|---|---|
+| partición | temporal: *leave-last-out* por usuario (el último evento es test, el anterior validación) o un corte global en el tiempo | una partición aleatoria filtra el futuro al entrenamiento |
+| candidatos de la métrica | **ranking completo** sobre todo el catálogo | las métricas muestreadas (el objetivo contra 100 negativos aleatorios) inflan los números y pueden invertir qué modelo parece mejor (Krichene y Rendle, 2020) |
+| agregación | por segmentos: ítems conocidos frente a nuevos, usuarios con poco o mucho historial | una media global esconde el *cold start* por completo |
+| comparación | **bootstrap pareado** sobre usuarios, intervalo del 95 % de la diferencia | uno o dos puntos de hit@10 con unos miles de usuarios pueden ser ruido |
+
+Con un único ítem relevante, hit@k es la fracción de usuarios cuyo objetivo está en el top $k$ y nDCG@k vale $1/\log_2(p+1)$ para un acierto en la posición $p$ (1 en la primera, 0.5 en la tercera, 0.29 en la décima). Una regla de trabajo útil: **una etapa solo entra en el sistema si mejora a la anterior en validación**, con un intervalo que excluya el cero; el test se mira una vez, al final. Y lo offline predice lo online solo de forma imperfecta: la decisión final es un test A/B.
+
+**Dónde ayudan los LLMs y dónde no.** La evidencia publicada y la de este curso apuntan en la misma dirección:
+
+| Uso del LLM | Veredicto | Por qué |
+|---|---|---|
+| re-ordenar las recomendaciones de un modelo colaborativo fuerte | no compensa con modelos pequeños | el LLM no ve la señal de co-visionado que codifica el modelo, solo descripciones cortas; cuesta segundos por usuario frente a milisegundos |
+| enriquecer ítems offline (palabras clave, descripciones; KAR, Xi et al., 2023; LLMRec, Wei et al., 2024) | depende; hay que medirlo | funciona como feature aparte en modelos entrenados y con LLMs grandes; mezclado en el texto del ítem puede diluir la señal |
+| entender peticiones en lenguaje natural (salida estructurada → filtros) | ayuda claramente | fechas, negaciones y restricciones duras son justo lo que un embedding no sabe imponer |
+| explicar ("porque viste X e Y") | ayuda si está anclado | con las películas del historial que motivaron la recomendación es verificable; sin ancla inventa atributos |
+
+La división de trabajo resultante: el LLM entiende *qué* se pide y lo cuenta; el historial del usuario y los modelos colaborativos deciden *cuál*. La línea de investigación que intenta fundir ambas cosas es la recuperación generativa con *semantic IDs* (TIGER, Rajput et al., 2023), en la que el modelo genera el identificador del ítem token a token.
+
+> **Notebook:** [12 · Sistemas de recomendación](../../notebooks/04_applications/12_recommender_systems.ipynb) · **En el curso:** en MovieLens-1M con ranking completo, SASRec entrenado con softmax completa llega a hit@10 0.293 (ItemKNN 0.125, popularidad 0.036) y nunca acierta una película nueva; la unión de cinco fuentes recupera el objetivo para el 68.4 % de los usuarios; LambdaMART con la receta de RecTools/OTTO sube a 0.307 (+1.4 puntos, IC 95 % [+0.7, +2.1]) tras pasar la puerta de validación, que el primer intento no pasó; una ranura de exploración lleva el hit@10 en películas nuevas de 0.009 a 0.044 por 0.7 puntos globales; MMR con $\lambda = 0.8$ sube la diversidad de 0.659 a 0.719 por 0.4 puntos; las palabras clave del LLM empeoran el contenido y no aportan como feature, pero el LLM que traduce peticiones a filtros cumple las restricciones en el 87 % del top 5 frente al 60 % de la búsqueda por embeddings.
 
 ---
 
@@ -880,7 +952,7 @@ Con $n = 12$ el intervalo del 95 % abarca aproximadamente ±0.28; con $n = 100$,
 
 **Qué va en el dataset.** Importa tanto como su tamaño: intenciones comunes, casos límite conocidos, entradas adversarias y cada fallo de producción ya corregido (un set de regresión). Versionado, para que cada experimento esté ligado a los ejemplos exactos, y fuera de cualquier ajuste de prompts, o las puntuaciones medirán memorización del test.
 
-> **Notebook:** [15 · Observabilidad y evaluación](../../notebooks/06_llmops/15_observability_llmops.ipynb) y [10 · RAG con LangChain y RAGAS](../../notebooks/04_applications/10_rag.ipynb) · **En el curso:** intervalos bootstrap y diferencia pareada híbrido-denso en RAGAS (notebook 10), el cálculo de ±0.28 para $n = 12$ en el notebook 15, y en todos los notebooks de aplicaciones el recordatorio de cuánto vale un elemento del set antes de leer una diferencia.
+> **Notebook:** [15 · Observabilidad y evaluación](../../notebooks/06_llmops/15_observability_llmops.ipynb) y [10 · RAG con LangChain y RAGAS](../../notebooks/04_applications/10_rag.ipynb) · **En el curso:** intervalos bootstrap y diferencia pareada híbrido-denso en RAGAS (notebook 10), bootstrap pareado sobre 6.040 usuarios en cada comparación entre etapas del recomendador (notebook 12), el cálculo de ±0.28 para $n = 12$ en el notebook 15, y en todos los notebooks de aplicaciones el recordatorio de cuánto vale un elemento del set antes de leer una diferencia.
 
 ---
 

@@ -4,14 +4,14 @@
 
 The 17 notebooks one by one: what you build, which tools you use, which concepts you take away, what gets measured and what results come out.
 
-The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings.
+The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings.
 
-**How to use this guide.** Read the entry before you open the notebook, run it cell by cell, then come back and compare your numbers with the ones here. Every number below comes from the run committed to the repository (a laptop with a 6 GB RTX 3060). Your numbers will move a little: small models are sensitive to each machine's arithmetic, and anything an LLM generates or judges changes between runs. Where a result is fragile, the notebook says so, and so does this guide.
+**How to use this guide.** Read the entry before you open the notebook, run it cell by cell, then come back and compare your numbers with the ones here. Every number below comes from the run committed to the repository (a laptop with a 6 GB RTX 3060). Your numbers will move a little: small models are sensitive to each machine's arithmetic, and anything an LLM generates or judges changes between runs. Where a result is fragile, the notebook says so, and so does this guide. Every notebook also has theory sections ("Background: ...") before the code that uses them; the long version of that theory, with the equations, is in the [theoretical foundations](foundations.md).
 
 **What each block needs**
 - **00–06**: PyTorch and `llm_edu_suite` only. They also run on CPU.
-- **07–09**: `transformers`, `peft`, `trl` and `optimum-quanto`. The first run downloads SmolLM2 from the Hugging Face Hub. Each notebook caps its own VRAM (`VRAM_BUDGET_GB`, 1.5 GB by default), so it fits on the GPU next to Ollama.
-- **10–16**: **Ollama must be running** with `qwen2.5:3b` and `nomic-embed-text` pulled. The first cell (`setup()` from `llm_edu_suite.config`) checks this. In notebook 12 only the LLM re-ranking part needs Ollama; SASRec is plain PyTorch.
+- **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA in 07) and `optimum-quanto`. The first run downloads SmolLM2 from the Hugging Face Hub. Each notebook caps its own VRAM (`VRAM_BUDGET_GB`) so it fits on the GPU next to Ollama: 2 GB by default in 07, which trains nine models and whose 4-bit model leaves ~0.1 GB behind, and 1.5 GB in 08 and 09.
+- **10–16**: **Ollama must be running** with `qwen2.5:3b` and `nomic-embed-text` pulled. The first cell (`setup()` from `llm_edu_suite.config`) checks this. Notebook 10 also uses `qwen2.5:7b` as the RAGAS judge if it is pulled (`ollama pull qwen2.5:7b`, optional; otherwise the 3B model judges). In notebook 12, Ollama is only needed for the content embeddings and the LLM layer (requests and explanations); SASRec, the two-tower model and the LightGBM ranker are plain PyTorch and LightGBM, and MovieLens-1M is downloaded into `data/cache/` on the first run.
 - **LangSmith is optional.** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env`, every LangChain/LangGraph call in 10–16 is traced. Without a key everything still runs, and notebook 15 skips the cells that need the LangSmith server and prints that it skipped them. The committed run had LangSmith on.
 
 | Topic | Notebooks | GPU time of the final run |
@@ -19,12 +19,12 @@ The course has two halves. **Notebooks 00–06** build a language model from scr
 | Start here | [00](#00) | 32 s |
 | Architecture | [01](#01) · [02](#02) · [03](#03) · [04](#04) | 5 s · 31 s · 180 s · 48 s (≈ 4.5 min) |
 | Pre-training and inference | [05](#05) · [06](#06) · [09](#09) | 35 s · 61 s · 53 s (≈ 2.5 min) |
-| Post-training | [07](#07) · [08](#08) | 746 s · 645 s (≈ 23 min) |
-| Applications | [10](#10) · [12](#12) · [13](#13) | 529 s · 100 s · 140 s (≈ 13 min) |
+| Post-training | [07](#07) · [08](#08) | ≈ 14 min · 645 s (≈ 25 min) |
+| Applications | [10](#10) · [12](#12) · [13](#13) | ≈ 19 min · ≈ 25 min · 140 s (≈ 46 min) |
 | Agents and MCP | [11](#11) · [14](#14) · [16](#16) | 56 s · 119 s · 65 s (≈ 4 min) |
 | LLMOps | [15](#15) | 129 s |
 
-About 50 minutes for all 17, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU.
+Notebooks 07, 10 and 12 were re-run for v2.1 and their times are approximate: 07 now also trains QLoRA, 10 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 12 includes ~11 minutes of ranker feature building. In total, about an hour and a half for all 17, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU.
 
 ---
 
@@ -132,14 +132,15 @@ With only 300 steps even the dense model is at 0.3%: ***induction heads*** appea
 ## 07 · Fine-tuning with Hugging Face: SFT, LoRA and distillation
 `notebooks/03_post_training/07_finetuning_sft_lora.ipynb` · `transformers`, `peft`, `trl` · also as a script: `python scripts/finetune.py sft`
 
-**What you build.** You fine-tune `HuggingFaceTB/SmolLM2-135M-Instruct` to turn a booking request into strict JSON (`name`, `restaurant`, `people` as an integer, lowercase `day`, `time` in 24h). 300 labelled examples; 40 test requests with names and restaurants never seen in training. Few-shot baseline → full SFT → LoRA → the "new special token" trap → rank ablation → distillation from a 360M teacher.
+**What you build.** You fine-tune `HuggingFaceTB/SmolLM2-135M-Instruct` to turn a booking request into strict JSON (`name`, `restaurant`, `people` as an integer, lowercase `day`, `time` in 24h). 300 labelled examples; 40 test requests with names and restaurants never seen in training. Few-shot baseline → full SFT → LoRA → QLoRA on a 4-bit base → the "new special token" trap → rank ablation → distillation from a 360M teacher.
 
-**Tools.** `AutoTokenizer.apply_chat_template`, `AutoModelForCausalLM`; `trl.SFTConfig` / `SFTTrainer` with a prompt/completion dataset (loss on the completion only); `peft.LoraConfig(r=16, lora_alpha=32, target_modules="all-linear")`, `get_peft_model`, `PeftModel.from_pretrained`, `merge_and_unload()`; `tokenizer.add_tokens` + `resize_token_embeddings`, and `LoraConfig(modules_to_save=["embed_tokens"], ensure_weight_tying=True)`.
+**Tools.** `AutoTokenizer.apply_chat_template`, `AutoModelForCausalLM`; `trl.SFTConfig` / `SFTTrainer` with a prompt/completion dataset (loss on the completion only); `peft.LoraConfig(r=16, lora_alpha=32, target_modules="all-linear")`, `get_peft_model`, `PeftModel.from_pretrained`, `merge_and_unload()`; `tokenizer.add_tokens` + `resize_token_embeddings`, and `LoraConfig(modules_to_save=["embed_tokens"], ensure_weight_tying=True)`; for QLoRA, `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)`, `peft.prepare_model_for_kbit_training` and `optim="paged_adamw_8bit"`.
 
 **Key concepts**
 - The chat template and loss masking: prompt labels are `-100`, and the loss covers the answer **including `<|im_end|>`** (in the example, 42 of 110 tokens). The notebook checks that TRL builds exactly the same labels.
-- Memory: AdamW costs ~16 bytes per trainable parameter (2.2 GB for 135M, ~112 GB for 7B). Full fine-tuning only fits the 1.5 GB budget with bf16 weights + Adafactor.
+- Memory: AdamW costs ~16 bytes per trainable parameter (2.2 GB for 135M, ~112 GB for 7B). Full fine-tuning only fits the notebook's budget (2 GB) with bf16 weights + Adafactor.
 - LoRA starts identical to the base model (`B = 0`) and merges back for free.
+- **QLoRA**: the frozen weights are stored in NF4 (16 levels at the quantiles of a normal distribution), with double quantization of the scales and a paged optimizer; the adapters stay in bf16 and every matmul dequantizes first. It saves weight memory, not activation memory, and the adapter is merged into a bf16 copy of the base.
 - **The new-token trap**: with tied embeddings and mean initialization, a new token can never be the most likely one if the embeddings are frozen. Fix: train the embedding.
 - Training loss does not tell you task accuracy; per-field metrics tell you where the errors are (here, almost always `time`).
 
@@ -149,16 +150,18 @@ With only 300 steps even the dense model is at 0.3%: ***induction heads*** appea
 |---|---|---|---|---|---|---|---|
 | base, zero-shot | 5% | 0% | 2% | 0% | – | – | – |
 | base, few-shot (4 examples) | 100% | 17.5% | 73% | 25% | – | – | – |
-| full SFT | 100% | 35% | 85.5% | 37.5% | 134.5 M | 44 | 1.19 GB |
-| LoRA r=2 | 100% | 20% | 80.5% | 30% | 0.6 M | 38 | 1.35 GB |
-| LoRA r=16 | 100% | 32.5% | 86.5% | 32.5% | 4.9 M | 39 | 1.41 GB |
-| LoRA r=64 | 100% | 45% | 89% | 45% | 19.5 M | 74 | 1.13 GB |
-| teacher 360M, LoRA r=16 | 100% | **87.5%** | 97.5% | 92.5% | 8.7 M | 161 | 1.16 GB |
-| student 135M, human + teacher labels | 100% | **55%** | 91% | 55% | 4.9 M | 65 | 1.43 GB |
+| full SFT | 100% | 35% | 85.5% | 37.5% | 134.5 M | 52 | 1.19 GB |
+| LoRA r=2 | 100% | 20% | 80.5% | 30% | 0.6 M | 37 | 1.46 GB |
+| LoRA r=16 | 100% | 32.5% | 86.5% | 32.5% | 4.9 M | 41 | 1.41 GB |
+| QLoRA r=16 (NF4 base) | 100% | 37.5% | 86.5% | 45% | 4.9 M | 47 | 1.34 GB |
+| LoRA r=64 | 100% | 45% | 89% | 45% | 19.5 M | 72 | 1.25 GB |
+| teacher 360M, LoRA r=16 | 100% | **87.5%** | 97.5% | 92.5% | 8.7 M | 181 | 1.27 GB |
+| student 135M, human + teacher labels | 100% | **55%** | 91% | 55% | 4.9 M | 71 | 1.54 GB |
 
 - LoRA r=16 trains 3.5% of the parameters and lands within one request of full SFT. The adapter is 19.6 MB (the model in bf16 is 269 MB). Merged in fp32 it changes the logits by at most 1e-4 and keeps the same greedy token at every position.
+- **QLoRA** loses no quality: 37.5% exact match against 32.5% for LoRA, with the same 86.5% of fields. That is two requests out of 40, noise, so the honest reading is "the same", not "better". The weights in memory drop from 269 MB to 110 MB (210 linear layers in 4 bits; the tied 28M-parameter embedding stays in bf16), but the training peak barely moves (1.41 → 1.34 GB): at 135M the activations and the 49k-token output layer dominate. Each step is a little slower (47 s against 41 s) because it dequantizes. The decisive saving comes with large models: the frozen weights of a 7B model go from 14 GB to 3.6 GB, a 13B from 26 to 6.7 GB and a 70B from 140 to 36.1 GB.
 - **New token `<|json|>`**: with frozen embeddings it is never emitted (0% of answers; rank ~24,000 as the first token, probability ≈ 0, training loss 0.30) and the model degenerates. With a trainable embedding (33.2M parameters) it starts 100% of the answers (p ≈ 0.93) and exact match is back to 32.5%. `trainable_token_indices` fails inside `SFTTrainer` on a tied `lm_head` with the versions used (trl 1.17, peft 0.21).
-- **Distillation**: the teacher labels 600 new requests in 72 s, 90% of them exactly right; the student goes from 32.5% to 55%. Honest caveats: the student also took 57 optimizer steps instead of 38, and it learns from labels that are 10% wrong.
+- **Distillation**: the teacher labels 600 new requests in 86 s, 90% of them exactly right; the student goes from 32.5% to 55%. Honest caveats: the student also took 57 optimizer steps instead of 38, and it learns from labels that are 10% wrong.
 - The biggest levers were model size and more data (even machine-labelled); rank came next.
 
 ---
@@ -239,9 +242,9 @@ Arithmetic (100 held-out problems, 40 GRPO steps):
 
 **What you build.** A full RAG system over the course's own documentation (`data/knowledge_base/*.md`, 5 files, ~190 KB): loading, chunking at three sizes, embeddings, a vector index, BM25, hybrid fusion, an LCEL chain with numbered citations, multi-query (RAG-Fusion), and an evaluation that separates retrieval from generation.
 
-**Tools.** `DirectoryLoader` + `TextLoader`; `RecursiveCharacterTextSplitter` (300 / 800 / 1500 characters → 978 / 358 / 174 chunks); `OllamaEmbeddings(nomic-embed-text)` (768 dimensions) and `ChatOllama(qwen2.5:3b)` through `llm_edu_suite.config`; `FAISS` (exact `IndexFlatL2`, embedding in batches of 64); `BM25Retriever` with a tokenizer that lowercases; `EnsembleRetriever` (Reciprocal Rank Fusion, `c = 60`, from `langchain_classic`), checked against a six-line reimplementation; LCEL with `ChatPromptTemplate`, `RunnableParallel`, `.assign`, `StrOutputParser`; RAGAS 0.4 with `llm_factory` over Ollama's OpenAI-compatible API and the metrics `Faithfulness`, `AnswerRelevancy`, `ContextPrecision`, `ContextRecall`.
+**Tools.** `DirectoryLoader` + `TextLoader`; `RecursiveCharacterTextSplitter` (300 / 800 / 1500 characters → 978 / 358 / 174 chunks); `OllamaEmbeddings(nomic-embed-text)` (768 dimensions) and `ChatOllama(qwen2.5:3b)` through `llm_edu_suite.config`; `FAISS` (exact `IndexFlatL2`, embedding in batches of 64); `BM25Retriever` with a tokenizer that lowercases; `EnsembleRetriever` (Reciprocal Rank Fusion, `c = 60`, from `langchain_classic`), checked against a six-line reimplementation; LCEL with `ChatPromptTemplate`, `RunnableParallel`, `.assign`, `StrOutputParser`; RAGAS 0.4 with `llm_factory` over Ollama's OpenAI-compatible API and the metrics `Faithfulness`, `AnswerRelevancy`, `ContextPrecision`, `ContextRecall`; the judge comes from `config.judge_model()` (`qwen2.5:7b` if it is pulled, or whatever `JUDGE_MODEL` says) and the intervals from `evaluation.bootstrap_ci` and `paired_bootstrap_diff`.
 
-**Key concepts.** Dense versus lexical search and why to combine them (technical docs are full of exact strings); chunk size as a hyperparameter; file-level versus evidence-level metrics (does the retrieved *chunk* contain the evidence?); hit@k and MRR; the four RAGAS metrics and which ones need a reference; **validate the judge** before trusting it.
+**Key concepts.** Dense versus lexical search and why to combine them (technical docs are full of exact strings); chunk size as a hyperparameter; file-level versus evidence-level metrics (does the retrieved *chunk* contain the evidence?); hit@k and MRR; the four RAGAS metrics and which ones need a reference; bootstrap intervals and the paired difference, so you do not read noise; **validate the judge** before trusting it, because a weak judge does not only add noise, it invents effects.
 
 **Results** (20 labelled questions in `data/eval/rag_eval.json`, 4 per document; chunk 800, k = 4)
 
@@ -257,15 +260,18 @@ Arithmetic (100 held-out problems, 40 GRPO steps):
 - Chunk size does not push every retriever the same way (evidence MRR at 300 / 800 / 1500): dense 0.77 / 0.73 / 0.67 gets worse, BM25 0.74 / 0.80 / 0.82 and hybrid 0.75 / 0.84 / 0.89 get better.
 - Without retrieval the model makes up what MCP stands for ("Management and Configuration Protocol").
 
-RAGAS, judged by the local `qwen2.5:3b` (440 s for 40 answers × 4 metrics):
+RAGAS, with `qwen2.5:7b` judging the answers that `qwen2.5:3b` generates (1038 s for 40 answers × 4 metrics, most of the notebook's runtime). In brackets, the 95% bootstrap interval over the 20 questions:
 
 | Configuration | Faithfulness | Answer relevancy | Context precision | Context recall |
 |---|---|---|---|---|
-| dense | 0.38 | 0.44 | 0.76 | 0.57 |
-| hybrid | **0.54** | 0.30 | **0.84** | **0.70** |
+| dense | 0.87 [0.74, 0.97] | 0.78 [0.64, 0.89] | 0.79 [0.62, 0.92] | 0.95 [0.85, 1.00] |
+| hybrid | 0.87 [0.74, 0.96] | 0.75 [0.60, 0.86] | **0.92** [0.80, 0.99] | 0.95 [0.85, 1.00] |
+| hybrid − dense (paired) | −0.00 [−0.16, +0.17] | −0.03 [−0.16, +0.10] | **+0.13 [+0.03, +0.25]** | +0.00 [−0.15, +0.15] |
 
-- Hybrid wins on the three context-related metrics, in the same direction as the retrieval metrics.
-- Honest: answer relevancy is *lower* for hybrid, and it is the metric that moved most between runs. The per-question table shows that the 3B judge gives relevancy 0 to correct answers and context recall 0 to answers whose context does contain the fact. With such a small judge, trust the direction of large differences, not the second decimal.
+- There is **one** clear difference: context precision rises from 0.79 to 0.92 and its interval excludes zero. Hybrid puts the useful chunks higher, which is what the label-based MRR said too. The other three metrics show no difference: once the right passage is somewhere in the top 4, the 3B generator answers equally well from either list.
+- **The judge mattered more than the system.** When the 3B model graded its own answers (the previous version of this notebook), it reported faithfulness 0.38 → 0.54 and answer relevancy 0.44 → 0.30 from dense to hybrid, and gave relevancy 0 to correct answers. With the 7B judge those "differences" vanish inside the intervals. A weak judge does not only add noise: it can invent effects.
+- The low rows of the per-question table separate the three failure modes. "Where does `mini_llm.py` save its checkpoint?" is a **retrieval** failure (no evidence in the top 4; precision and recall 0). The question about notebook 03's copy accuracy is a **generation** failure: the evidence was ranked first, both context metrics are 1.00, and the 3B model still answered "I don't know". The DPO + NLL question shows a **label** problem: our evidence-string check does not find the passage, but the judge finds the fact in the context (recall 1.00). Gold labels need checking too.
+- Cost: a stronger judge is slower (about 17 minutes with the 7B against about 7 with the 3B). Evaluation is a budget line: a fixed, small, representative set on every change, not everything.
 
 ---
 
@@ -290,28 +296,55 @@ RAGAS, judged by the local `qwen2.5:3b` (440 s for 40 answers × 4 metrics):
 ---
 
 <a id="12"></a>
-## 12 · Recommender systems in the LLM era
-`notebooks/04_applications/12_recommender_systems.ipynb` · modules `recsys`, `model`, `evaluation` · LangChain for the LLM stage
+## 12 · Recommender systems: the industry funnel, with LLMs where they help
+`notebooks/04_applications/12_recommender_systems.ipynb` · PyTorch, FAISS, LightGBM, LangChain · modules `recsys`, `model`, `evaluation`
 
-**What you build.** Sequential recommendation as "next-item prediction": a SASRec-style model that is the course's `TransformerLM` unchanged (105K parameters), trained in PyTorch over 200 items and 1,500 users (sessions of 16.7 items on average). Then collaborative and content embeddings, and LLM re-ranking of SASRec's top 20 with explanations.
+**What you build.** An industrial recommender funnel, stage by stage, on real data: MovieLens-1M (1,000,209 ratings from 6,040 users on 3,706 movies), downloaded into `data/cache/` on the first run (the GroupLens license does not allow redistribution, so it is not in the repository). Two baselines (popularity and ItemKNN), SASRec as a language model over movies, content embeddings with and without keywords written by an LLM, a two-tower model with a FAISS index, the union of five candidate sources, a LambdaMART ranker, an exploration slot for new releases, MMR for diversity, and an LLM layer that turns requests into filters and writes explanations grounded in the user's history. One rule runs through the notebook: **a stage only enters the system if it beats the previous one on validation**.
 
-**Tools.** `llm_edu_suite.recsys` (data, `train_sasrec`, `sasrec_rank`, embeddings) and `evaluation.evaluate_ranking`; for the LLM: `get_llm(num_predict=200)`, `ChatPromptTemplate`, `with_structured_output` with a Pydantic `Ranking` whose list has `max_length` (without it, a small model kept emitting numbers until the context was full), and `.batch(max_concurrency=4, return_exceptions=True)`.
+**Tools.** `llm_edu_suite.recsys` (`download_movielens_1m`, `load_movielens_1m`, `temporal_split`, `target_ranks`, `rank_metrics`); notebook 02's `TransformerLM` as SASRec (2 layers, 64 dimensions, a 200-movie window, full softmax, early stopping on validation nDCG); `OllamaEmbeddings(nomic-embed-text)` for each movie's text; a PyTorch two-tower model with id dropout; a FAISS HNSW index against exact search; `lightgbm` with `objective="lambdarank"`; `evaluation.paired_bootstrap_diff` for every comparison; LangChain with `with_structured_output(method="function_calling", include_raw=True)` and an unfiltered search as the fallback; `scripts/generate_item_keywords.py` for the keywords (already generated in `data/recsys/ml1m_llm_keywords.json`) and `data/recsys/conversational_eval.json` (20 requests with checkable constraints).
 
-**Key concepts.** *Leave-one-out* evaluation; baselines (random, popularity, content); cold start; the two-stage funnel (retrieval → ranking); a re-ranker can only reorder what the first stage found; an LLM re-ranker is a hypothesis to test offline.
+**Key concepts**
+- The funnel: candidate generation (measured by the recall of the candidate set), ranking (nDCG@10 of the list) and re-ranking (measured by what it trades). The ranker can only order what retrieval brought.
+- An honest protocol: *leave-last-two* in time order (the last event is test, the one before validation), **full ranking** over all 3,706 movies instead of 100 sampled negatives (Krichene and Rendle, 2020), 10% of the movies (370) held out as cold new releases (747 of the 6,040 test targets are cold), and a paired bootstrap for every comparison.
+- Sequential recommendation as next-token prediction, and why the full softmax beats one sampled negative (at the scale of millions: sampled softmax with the logQ correction).
+- Cold start: collaborative models never hit a new movie; content places it and exploration gives it exposure.
+- Learning to rank (pointwise, pairwise, listwise) and the recipe that makes a second-stage ranker work: many queries from a later period and features the first stage cannot see.
+- Use the LLM for the language around the recommender, not for ranking.
 
-**Results.** Leave-one-out hit@10: random 0.032, popularity 0.097, content embeddings 0.069, collaborative embeddings 0.207 and **SASRec 0.210** (nDCG@10 0.114). The learned item neighbours share the hidden taste cluster.
+**Results** (test, 6,040 users, full ranking)
 
-LLM re-ranking on 50 test users:
-
-| | hit@1 | hit@5 | hit@10 | nDCG@10 |
+| System | hit@10 | nDCG@10 | warm hit@10 | cold hit@10 |
 |---|---|---|---|---|
-| SASRec | 0.00 | 0.10 | **0.20** | **0.088** |
-| + genre-match re-rank | 0.00 | 0.06 | 0.20 | 0.079 |
-| + LLM re-rank | 0.02 | 0.08 | 0.16 | 0.077 |
+| popularity | 0.036 | 0.018 | 0.041 | 0 |
+| ItemKNN | 0.125 | 0.067 | 0.143 | 0 |
+| content (metadata text, `nomic-embed-text`) | 0.033 | 0.017 | 0.031 | **0.047** |
+| content + LLM keywords | 0.023 | 0.012 | 0.023 | 0.020 |
+| two-tower (with id dropout) | 0.194 | 0.109 | 0.221 | 0.001 |
+| SASRec | 0.293 | 0.172 | 0.334 | 0 |
+| **LambdaMART ranker** | **0.307** | **0.181** | **0.349** | 0.009 |
+| ranker + 1 exploration slot | 0.300 | 0.179 | 0.336 | 0.044 |
 
-- **The LLM re-ranker makes things worse** (hit@10 0.20 → 0.16), and the genre heuristic does not help either. Cost: 70 s for 50 users (~1.4 s per user), against milliseconds for SASRec.
-- Why: the target is in SASRec's top 20 for only 32% of the users (the ceiling for any re-ranker); SASRec already encodes clusters and popularity; the LLM only sees short descriptions; and 12 of 50 replies did not rank each candidate exactly once. With 50 users, 10 versus 8 hits is not statistically solid, but there is no sign of a gain.
-- What does work with a small model is the explanation of the top pick: fluent and plausible.
+- **SASRec** is the best single model: more than twice ItemKNN and eight times popularity, inside the published range for this dataset with full ranking. Early stopping kept step 5,500. It never hits a new movie, because those output rows were never trained.
+- **The LLM keywords made content worse** (hit@10 0.033 → 0.023), and validation rejected them. Many are generic ("nostalgia", "coming-of-age") and dilute the signal of the title and genres; some are wrong (*The Ref* is described as a high-school sports film). In the two-tower model the two texts tie on validation (nDCG@10 0.1122 against 0.1110), and the simpler one stays.
+- **Candidates.** The union of five sources contains the target for 68.4% of users (SASRec's top 100 alone, 60.8%), and it is the only way new releases get in (cold recall 0.149). For the other 32% no ranker can succeed. The HNSW index returns 98.7% of the exact top 100 at ~0.01 ms per user, with no speed gain at 3,706 items: you see the price of the approximation without its benefit.
+- **The ranker.** A first attempt, trained on a single positive per user, did not beat SASRec and failed the gate. With the RecTools and Kaggle OTTO recipe (retrieval models fit on the history minus the last 8 events: 48,320 events → 35,762 queries and 1.82M rows, 50 sampled negatives, plus features SASRec cannot see: explicit ratings, demographics, co-visitation, days since the previous event, trending) it passes the gate on validation (nDCG +0.0059 [+0.0022, +0.0096]) and on test lifts hit@10 by 1.4 points [+0.7, +2.1] and nDCG by +0.0092 [+0.0055, +0.0128]. The SASRec features carry most of the gain; then come `days_since_prev`, `is_cold`, occupation, co-visitation, year and the item's mean rating.
+- The LLM-keyword feature in the ranker gives +0.0012 [−0.0012, +0.0035]: the interval includes zero, and it is not worth an hour of LLM time per catalog refresh.
+- **Exploration.** The slot is filled by the two-tower model, the best at ranking new releases on validation. One slot lifts cold hit@10 from 0.009 to 0.044 for 0.7 points overall (0.307 → 0.300); two slots, 0.290 / 0.074; three, 0.275 / 0.094. Where to stop is a product decision, and a bandit would make it adaptively.
+- **Diversity (MMR with genre Jaccard).** λ = 0.8 raises intra-list diversity from 0.659 to 0.719 for 0.4 points of hit@10 (0.307 → 0.303); λ = 0.6 gives 0.775 / 0.288 and λ = 0.2 gives 0.852 / 0.222. Offline, diversity can only look neutral or worse; its benefit is measured online.
+
+The LLM layer (`qwen2.5:3b`):
+
+| Measure | Result |
+|---|---|
+| constraint satisfaction@5, 20 checkable requests | embedding search 0.60 [0.46, 0.74] · **LLM → filters 0.87 [0.80, 0.93]** |
+| structured-output failures | 1 of 221 (the fallback kept the system running) |
+| hit@10 inside the filtered set (200 users, request built from the genre and decade of their real next movie) | popularity 0.285 · similarity to the request 0.325 · **SASRec 0.555** |
+| grounded explanations (anchors = the history movies closest in SASRec's embedding space), 30 users | cite an anchor 97% · mention a movie not in the history 7% (2/30), against 13% (4/30) without anchors |
+
+- The LLM wins exactly where embeddings are weak: date ranges and negations ("a 90s crime movie like Pulp Fiction" goes from 0.0 to 0.8). The remaining misses (asking for Animation without Children's, putting the reference title in the wrong field) are fixed with better field descriptions.
+- The division of labour is clear: the LLM understands *what* is asked, and the history decides *which* of the matching movies.
+- Ungrounded explanations invent attributes even when they cite no titles (*The Usual Suspects* gets war elements); grounded ones are true but not always convincing, because SASRec's embeddings encode co-watching, not content. With 30 users, 7% against 13% is a hint, not proof.
+- **The honest conclusion:** small LLMs do not beat collaborative models at ranking, but they are excellent at the language around the recommender.
 
 ---
 
@@ -416,4 +449,4 @@ The judge agrees with `contains_fact` on 20 of 24 answers: once it catches a fal
 - **Consolidate:** every notebook ends with *Takeaways*. The scripts package the same pipelines: `scripts/finetune.py` (SFT, DPO, GRPO), `scripts/rag_demo.py` (RAG and its evaluation) and `scripts/mcp_server.py`.
 - **Change the data:** pass your own documents to `scripts/rag_demo.py --docs` or `scripts/mcp_server.py --docs`, and your own text to notebook 00.
 - **Connect the server to a real host:** `claude mcp add llm-edu-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py`, or start it with `--http`.
-- See the [glossary](glossary.md) for any term and the [module reference](module_reference.md) for the API.
+- See the [glossary](glossary.md) for any term, the [theoretical foundations](foundations.md) for the theory with its equations, and the [module reference](module_reference.md) for the API.

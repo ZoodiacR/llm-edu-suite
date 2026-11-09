@@ -233,7 +233,9 @@ ax.set_title("SASRec: validation curve (early stopping keeps the best point)"); 
 plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''
-{{R_SASREC}}
+**What the numbers say.** Validation nDCG@10 climbs quickly to about 0.175 in the first 1,500 steps and then creeps up; early stopping kept the checkpoint at step 5,500 (0.180). On test, SASRec reaches **hit@10 0.293 and nDCG@10 0.172**, more than twice ItemKNN (0.125) and eight times popularity (0.036). That sits inside the range published for this dataset with full ranking (about 0.29 to 0.32 for SASRec trained with cross-entropy), so our small transformer is a fair baseline, not a straw man.
+
+Two things to notice. First, **cold hit@10 is exactly 0**: SASRec's output layer has a row for every movie, but the rows of movies nobody watched in training were never trained, so a new movie is never ranked high. Second, GPU training is not bit-for-bit reproducible: in other executions of this notebook the curve peaked earlier and the test hit@10 came out at 0.290 or 0.294. Differences of that size between two systems mean nothing, which is why every comparison below comes with an interval.
 ''')
 nb.md(r'''
 ## 3. Item content: metadata, plus keywords written by an LLM
@@ -251,17 +253,19 @@ for t in ["Toy Story (1995)", "Ice Storm, The (1997)", "Battleship Potemkin, The
     print(f"  {t[:45]:45s} {KEYWORDS.get(t, '-')}")
 
 emb = get_embeddings()
-def embed_items(with_keywords):
+def embed_items(mode):
     """nomic-embed-text expects a task prefix: search_document for the things being searched."""
-    docs = [f"search_document: {ml.titles[i]}. Genres: {', '.join(ml.genres[i])}." + (f" Keywords: {KEYWORDS.get(ml.titles[i], '')}" if with_keywords else "")
-            for i in range(1, N + 1)]
+    text = {"meta": lambda i: f"{ml.titles[i]}. Genres: {', '.join(ml.genres[i])}.",
+            "meta+llm": lambda i: f"{ml.titles[i]}. Genres: {', '.join(ml.genres[i])}. Keywords: {KEYWORDS.get(ml.titles[i], '')}",
+            "llm": lambda i: KEYWORDS.get(ml.titles[i], "")}[mode]
+    docs = [f"search_document: {text(i)}" for i in range(1, N + 1)]
     V = np.zeros((N + 1, 768), dtype=np.float32)
     V[1:] = np.array([v for b in range(0, len(docs), 64) for v in emb.embed_documents(docs[b:b + 64])])   # Ollama prefers small batches
     V = torch.tensor(V, device=device); V = F.normalize(V, dim=1); V[0] = 0
     return V
 t0 = time.time()
-E_META, E_LLM = embed_items(False), embed_items(True)
-print(f"embedded {N} movies twice in {time.time() - t0:.0f}s")
+E_META, E_LLM, E_KW = embed_items("meta"), embed_items("meta+llm"), embed_items("llm")
+print(f"embedded {N} movies three ways in {time.time() - t0:.0f}s (metadata, metadata + LLM keywords, LLM keywords alone)")
 
 def content_scorer(E):
     def score(H):
@@ -271,11 +275,20 @@ def content_scorer(E):
                 items, w = recency(h); out[j] = E @ F.normalize((E[items] * w[:, None]).sum(0), dim=0)
         return out
     return score
+def valid_ndcg(score_fn):
+    return rank_metrics(ranks_for(score_fn, valid))["ndcg@10"].mean()
+content_valid = {}
 for name, E in (("content", E_META), ("content+llm", E_LLM)):
     RANKS[name] = ranks_for(content_scorer(E), test); summary(name, RANKS[name])
+    content_valid[name] = valid_ndcg(content_scorer(E))
+BEST_CONTENT = max(content_valid, key=content_valid.get)
+E_CONTENT = {"content": E_META, "content+llm": E_LLM}[BEST_CONTENT]
+print("validation nDCG@10:", {k: round(float(v), 4) for k, v in content_valid.items()}, "-> content source:", BEST_CONTENT)
 ''')
 nb.md(r'''
-{{R_CONTENT}}
+**What the numbers say.** Content alone is a weak recommender (hit@10 0.033), but it is the only source so far that finds **new** movies: cold hit@10 0.047, against 0 for everything collaborative. The LLM keywords did **not** help here: adding them to the item text lowered hit@10 to 0.023 and cold hit@10 to 0.020, and validation picked the metadata-only text (nDCG@10 0.0196 against 0.0132).
+
+The examples above suggest why. Many keywords are generic ("family-friendly", "nostalgia", "coming-of-age", "emotional") and shared by hundreds of unrelated movies, so mixing them into one embedding pulls unrelated movies together and dilutes the sharp signal of the title and genres. Some are simply wrong: *The Ref* is a dark comedy about a burglar taking a family hostage, not a "sports, underdog, high school" film. The papers that report gains from LLM-generated item knowledge (KAR, LLMRec) use larger LLMs and feed that knowledge into *trained* models as separate features, not concatenated into a single text. Section 6 tests that more careful use.
 ''')
 nb.md(r'''
 ## 4. Embedding retrieval: a two-tower model and an ANN index
@@ -337,8 +350,14 @@ def train_twotower(seqs, E, steps=3000, seed=0):
     return score, item_vecs, user_vecs
 
 t0 = time.time()
-twotower_scores, ITEM_VECS, twotower_users = train_twotower(train, E_LLM)
-print(f"two-tower trained in {time.time() - t0:.0f}s")
+tt, tt_valid = {}, {}
+for name, E in (("metadata", E_META), ("metadata + LLM keywords", E_LLM)):
+    tt[name] = train_twotower(train, E) + (E,)
+    tt_valid[name] = valid_ndcg(tt[name][0])
+    print(f"two-tower with {name:24s} text: validation nDCG@10 {tt_valid[name]:.4f}")
+TT_TEXT = max(tt_valid, key=tt_valid.get)
+twotower_scores, ITEM_VECS, twotower_users, E_TT = tt[TT_TEXT]; del tt
+print(f"two-tower: kept the {TT_TEXT} version ({time.time() - t0:.0f}s for both)")
 RANKS["twotower"] = ranks_for(twotower_scores, test); summary("twotower", RANKS["twotower"])
 ''')
 nb.code(r'''
@@ -354,7 +373,9 @@ for name, index in (("exact (flat)", exact), ("HNSW (approximate)", hnsw)):
     print(f"{name:20s} {ms:.3f} ms per user | overlap with exact top-100: {rec:.3f}")
 ''')
 nb.md(r'''
-{{R_TWOTOWER}}
+**What the numbers say.** With the metadata text and with the LLM-enriched text the two-tower model is a tie on validation (nDCG@10 0.1122 against 0.1110), so we keep the simpler one. On test it reaches hit@10 0.194: a good retrieval source, clearly below SASRec, because averaging the last 50 movies throws away their order. Its cold hit@10 is 0.001: id dropout teaches the item tower to place a movie from its content, but in a full ranking against 3,336 movies that do have learned id vectors, a new one rarely reaches the top 10. That is the job of the exploration slot in section 7.
+
+The HNSW index returns 98.7 % of the exact top-100 at about 0.01 ms per user, the same speed as exact search at this size: brute force over 3,706 vectors is already instant. Approximate search pays off at millions of items, where the exact scan would take too long; what you see here is the price (1.3 % of the neighbours lost) without the benefit.
 ''')
 nb.md(r'''
 ## 5. Candidate generation: the union of sources
@@ -363,11 +384,12 @@ Each source sees the user differently: SASRec follows the sequence, the two-towe
 ''')
 nb.code(r'''
 SOURCES = {"sasrec": (sasrec_scores, 100), "twotower": (twotower_scores, 100), "itemknn": (itemknn_scores, 50),
-           "content+llm": (content_scorer(E_LLM), 50), "popularity": (popularity_scores, 20)}
+           "content": (content_scorer(E_CONTENT), 50), "popularity": (popularity_scores, 20)}
 in_union = np.zeros(len(test), dtype=bool)
 recall_by_source = {}
 for name, (fn, k) in SOURCES.items():
-    hit = RANKS[name] < k; recall_by_source[name] = (hit.mean(), hit[IS_COLD].mean()); in_union |= hit
+    hit = RANKS[BEST_CONTENT if name == "content" else name] < k
+    recall_by_source[name] = (hit.mean(), hit[IS_COLD].mean()); in_union |= hit
     print(f"{name:12s} top-{k:<3d} recall {hit.mean():.3f} (cold {hit[IS_COLD].mean():.3f})")
 print(f"{'union':12s} ~{sum(k for _, k in SOURCES.values())} max  recall {in_union.mean():.3f} (cold {in_union[IS_COLD].mean():.3f})")
 
@@ -380,7 +402,9 @@ ax.set_title("candidate generation: each source alone vs the union"); style(ax)
 plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''
-{{R_UNION}}
+**What the numbers say.** SASRec's top 100 already contains the true next movie for 60.8 % of users; the two-tower adds different candidates (52.1 % alone); ItemKNN, content and popularity add a few more. The union of all five reaches **0.684**, 7.6 points more than SASRec alone, and it is the only way new movies enter the candidate set at all (cold recall 0.149, against 0 for SASRec).
+
+The other side of this number is a hard ceiling: for 32 % of users the movie they watched next is not among the ~320 candidates, and no ranker can fix that. When a funnel underperforms, this is the first number to check, because improving retrieval and improving ranking are different projects.
 ''')
 nb.md(r'''
 ## 6. Ranking: gradient-boosted trees trained to rank
@@ -403,6 +427,8 @@ A first version of this section trained the ranker on the validation event, one 
 
 1. **Too few labels.** One positive per user is about 4,000 query groups, and SASRec's own score is already the best feature for exactly this objective, so the trees relearn "sort by SASRec" plus noise. The fix is **more label groups**: fit the retrieval models on each user's history *minus the last R events*, and turn each of those R events into a ranker query (here R = 8, about 48,000 groups), with 50 negatives sampled from the candidates.
 2. **Features the first stage cannot see.** If every feature is a retrieval score, the ranker has nothing new to combine. MovieLens has signals SASRec ignores: the **explicit ratings** (how well a movie is liked, not only watched), the user's rating pattern per genre, **demographics**, **co-visitation** with the last 1, 5 and 20 movies, the time since the previous event and what was **trending** in the week before the request.
+
+One more feature brings the LLM in the way the evidence supports (as an extra signal, not a replacement): `llm_keyword_sim`, the similarity between a candidate's LLM keywords and the keywords of the user's recent movies, embedded on their own. An **ablation** (the same ranker trained without that one feature) tells us whether it earns its place.
 
 Everything a feature uses is computed from the data its retrieval models were fit on, so the ranker is trained on the same kind of inputs it gets at serving time and never sees the future. At serving time the candidates and scores come from the models of sections 2 to 4.
 ''')
@@ -457,7 +483,7 @@ K_CAND = {name: k for name, (_, k) in SOURCES.items()}; SRC = list(K_CAND)
 FEATS = ([f"{n}_{x}" for n in SRC for x in ("score", "rank", "gap", "z")] +
          ["sasrec_prob", "log_pop", "is_cold", "year", "genre_affinity", "history_len", "n_sources", "year_gap", "trend_7d", "trend_30d",
           "item_mean_rating", "user_mean_rating", "user_genre_rating", "covis_last1", "covis_last5", "covis_last20", "days_since_prev",
-          "gender_f", "age", "occupation"])
+          "gender_f", "age", "occupation", "llm_keyword_sim"])
 
 def build_features(events, sources, st, neg=None, seed=0, B=256):
     """events: (user row, history items, history ratings, history times, target, request time) -> per-query feature matrices."""
@@ -497,7 +523,8 @@ def build_features(events, sources, st, neg=None, seed=0, B=256):
                      (YR[c] - YR[hh].mean()).abs()]
             tail = [st.item_mean[c], ones * st.user_mean[ur], (gi @ g_mean) / (gi.sum(1) + 1e-6),
                     st.covis[hh[-1:]][:, c].sum(0), st.covis[hh[-5:]][:, c].sum(0), st.covis[hh][:, c].sum(0),
-                    ones * ((tq - ht[-1]) / 86400 if ht else -1.0), ones * gender, ones * age, ones * occ]
+                    ones * ((tq - ht[-1]) / 86400 if ht else -1.0), ones * gender, ones * age, ones * occ,
+                    E_KW[c] @ F.normalize(E_KW[hh].mean(0), dim=0)]          # LLM keywords: candidate vs the user's recent movies
             Xs.append(np.column_stack([torch.stack(cols, 1).cpu().numpy(), np.array(ts_feat, dtype=np.float32), torch.stack(tail, 1).cpu().numpy()]))
             ys.append((c.cpu().numpy() == t).astype(int)); cands.append(c.cpu().numpy())
     return Xs, ys, cands
@@ -520,9 +547,9 @@ for ur, u in enumerate(users):
         hist = [x for x in e[:p] if x[1] not in cold]
         rank_events.append((ur, [x[1] for x in hist], [x[2] for x in hist], [x[0] for x in hist], e[p][1], e[p][0]))
 sasrec_early, _ = train_sasrec(early_seqs, max_steps=max(st_ for st_, _, _ in curve), eval_split=None, log=False)   # same length as the main model
-tt_early, _, _ = train_twotower(early_seqs, E_LLM)
+tt_early, _, _ = train_twotower(early_seqs, E_TT)
 early_sources = {"sasrec": scorer(sasrec_early), "twotower": tt_early, "itemknn": knn_from(early_seqs),
-                 "content+llm": content_scorer(E_LLM), "popularity": lambda H: torch.log1p(st_early.pop).repeat(len(H), 1)}
+                 "content": content_scorer(E_CONTENT), "popularity": lambda H: torch.log1p(st_early.pop).repeat(len(H), 1)}
 X_tr, y_tr, _ = build_features(rank_events, early_sources, st_early, neg=NEG)
 del sasrec_early, tt_early, early_sources; torch.cuda.empty_cache() if device == "cuda" else None
 print(f"ranker training data: {len(rank_events):,} events -> {len(X_tr):,} queries with the target among the candidates, "
@@ -560,6 +587,17 @@ gate = paired_bootstrap_diff(nd(r_va_sas), nd(r_va_rk))
 print(f"validation nDCG@10: SASRec {nd(r_va_sas).mean():.4f} | ranker {nd(r_va_rk).mean():.4f} | diff {gate[0]:+.4f} [{gate[1]:+.4f}, {gate[2]:+.4f}]")
 USE_RANKER = gate[1] > 0
 print("gate:", "PASS, the ranker goes into the system" if USE_RANKER else "FAIL, the system keeps SASRec's order")
+
+# Ablation: does the LLM-keyword feature earn its place? Retrain without it and compare on validation.
+keep_cols = [k for k, f in enumerate(FEATS) if f != "llm_keyword_sim"]
+abl_train = lgb.Dataset(np.concatenate(X_tr)[:, keep_cols], np.concatenate(y_tr), group=[len(y) for y in y_tr],
+                        feature_name=[FEATS[k] for k in keep_cols], categorical_feature=["occupation"])
+abl_valid = lgb.Dataset(np.concatenate([X_va[i] for i in va_keep])[:, keep_cols], np.concatenate([y_va[i] for i in va_keep]),
+                        group=[len(y_va[i]) for i in va_keep], reference=abl_train)
+ranker_no_llm = lgb.train(params, abl_train, num_boost_round=3000, valid_sets=[abl_valid], callbacks=[lgb.early_stopping(100, verbose=False)])
+r_va_abl = query_ranks([ranker_no_llm.predict(x[:, keep_cols], num_iteration=ranker_no_llm.best_iteration) for x in X_va], y_va)
+d_llm = paired_bootstrap_diff(nd(r_va_abl), nd(r_va_rk))
+print(f"validation nDCG@10 with vs without the LLM-keyword feature: {d_llm[0]:+.4f} [{d_llm[1]:+.4f}, {d_llm[2]:+.4f}]")
 ''')
 nb.code(r'''
 PRED_TE = [ranker.predict(x, num_iteration=ranker.best_iteration) for x in X_te]
@@ -579,7 +617,11 @@ ax.set_xlabel("share of total gain"); ax.set_title("what the ranker uses (top 15
 plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''
-{{R_RANKER}}
+**What the numbers say.** The industry recipe works. With 35,762 training queries (1.8 million rows) instead of one positive per user, LambdaMART passes the gate on validation (nDCG@10 +0.0059, 95 % CI [+0.0022, +0.0096]) and holds up on test: **hit@10 0.293 → 0.307 (+1.4 points, CI [+0.7, +2.1]) and nDCG@10 0.172 → 0.181 (+5 % relative)**. Among the 68 % of users whose next movie was retrieved, the gain is larger (+0.0135 nDCG). Gains of a few percent are what second-stage rankers typically add over a strong first stage, and at a platform's scale they are worth a lot.
+
+The feature importance tells the story of how. The SASRec features (its probability, its gap to the user's best candidate, its rank) carry most of the gain: the ranker starts from SASRec's opinion. What it adds comes from signals SASRec cannot see: the time since the user's previous rating, whether a movie is new, the user's occupation, co-visitation with the last five movies, the release year, the average rating. Each one is small; together they move the needle.
+
+The LLM-keyword feature did not earn its place: the ablation gives +0.0012 nDCG on validation with an interval that includes 0 ([-0.0012, +0.0035]), and it is not among the top 15 features. A production team would drop it, since it costs an hour of LLM time per catalog refresh and buys nothing measurable.
 ''')
 nb.md(r'''
 ## 7. Re-ranking: exploration for new movies, and diversity
@@ -612,12 +654,14 @@ def all_scores(fn, split):
 va_cold = [j for j, (_, t) in enumerate(valid) if t in cold]
 pos = {int(i): k for k, i in enumerate(cold_idx.tolist())}
 choice = {}
-for name, fn in (("twotower", twotower_scores), ("content+llm", content_scorer(E_LLM)), ("content", content_scorer(E_META))):
+for name, fn in (("twotower", twotower_scores), ("content+llm", content_scorer(E_LLM)), ("content", content_scorer(E_META)),
+                 ("llm keywords", content_scorer(E_KW))):
     S_va = all_scores(fn, [valid[j] for j in va_cold])[:, cold_idx]
     r = np.array([int((S_va[k] > S_va[k, pos[valid[j][1]]]).sum()) for k, j in enumerate(va_cold)])
     choice[name] = (r < 1).mean(); print(f"validation, cold targets ranked among {len(cold)} new movies by {name:12s}: hit@1 {(r < 1).mean():.3f} hit@3 {(r < 3).mean():.3f}")
 SLOT_SCORE = max(choice, key=choice.get); print("new-movie slot filled by:", SLOT_SCORE)
-SLOT_FN = {"twotower": twotower_scores, "content+llm": content_scorer(E_LLM), "content": content_scorer(E_META)}[SLOT_SCORE]
+SLOT_FN = {"twotower": twotower_scores, "content+llm": content_scorer(E_LLM), "content": content_scorer(E_META),
+           "llm keywords": content_scorer(E_KW)}[SLOT_SCORE]
 TT_all = all_scores(SLOT_FN, test)
 def with_slots(j, slots):
     order = list(final_lists[j])
@@ -641,7 +685,9 @@ ax.set_xlabel("hit@10 on new (cold) movies"); ax.set_ylabel("hit@10 overall"); a
 plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''
-{{R_EXPLORE}}
+**What the numbers say.** On validation, the two-tower model was the best at ranking a new movie among the 370 new ones (hit@1 0.051, against 0.027 for content and 0.013 for the LLM keywords), so it fills the slot. One reserved slot takes cold hit@10 from 0.009 to **0.044** (five times more) at a cost of 0.7 points of overall hit@10 (0.307 → 0.300). Each further slot costs about 1 to 1.5 points overall and buys about 2 to 3 points on new movies. New movies are 12 % of the test events (747 of 6,040), so this is not a corner case.
+
+Where to stop is a product decision, not a modelling one: how much short-term accuracy is it worth to give new releases an audience and to learn what they are worth? A bandit makes that decision adaptively, per item, from the responses it gets; the curve is what you need to set up the discussion.
 
 ### Diversity with maximal marginal relevance
 
@@ -649,13 +695,16 @@ A list of ten nearly identical movies is accurate and boring, and it narrows wha
 
 $$\lambda \cdot \text{relevance}(i) - (1 - \lambda) \cdot \max_{j \in \text{selected}} \text{sim}(i, j)$$
 
-so a candidate that is very similar to something already chosen is penalised. With $\lambda = 1$ it is the plain ranking; lowering $\lambda$ trades accuracy for **intra-list diversity** (one minus the mean pairwise cosine of the ten movies' content vectors). Spotify and Netflix both describe diversity and "calibration" (matching the genre mix of a user's history, Steck, 2018) as explicit objectives of their final layer.
+so a candidate that is very similar to something already chosen is penalised. With $\lambda = 1$ it is the plain ranking; lowering $\lambda$ trades accuracy for **intra-list diversity**. Here similarity is the overlap of the two movies' genre sets (Jaccard), and diversity is one minus the mean pairwise overlap of the ten movies: easy to interpret, and directly what a user notices (ten comedies, or a mix). Relevance is the position in the ranker's list, scaled from 1 to 0. Spotify and Netflix both describe diversity and "calibration" (matching the genre mix of a user's history, Steck, 2018) as explicit objectives of their final layer.
 ''')
 nb.code(r'''
-E_NP = E_LLM.cpu().numpy()                                              # many tiny operations: numpy on the CPU is faster here
+G_NP = G.cpu().numpy()                                                 # many tiny operations: numpy on the CPU is faster here
+def genre_sim(items):
+    A = G_NP[np.asarray(items)]; inter = A @ A.T; n = A.sum(1)
+    return inter / (n[:, None] + n[None, :] - inter + 1e-9)              # Jaccard similarity of the genre sets
 def mmr(order, lam, k=10, pool=50):
     cand = np.asarray(order[:pool]); rel = np.linspace(1, 0, len(cand))  # relevance from the position in the ranking
-    V = E_NP[cand]; sim = V @ V.T
+    sim = genre_sim(cand)
     chosen = [0]; best_sim = sim[0].copy()
     while len(chosen) < k:
         score = lam * rel - (1 - lam) * best_sim; score[chosen] = -np.inf
@@ -663,10 +712,10 @@ def mmr(order, lam, k=10, pool=50):
     top = [int(cand[i]) for i in chosen]
     return top + [int(i) for i in order if int(i) not in set(top)]
 def diversity(lst):
-    V = E_NP[np.asarray(lst[:10])]; S = V @ V.T
-    return float(1 - (S.sum() - np.trace(S)) / (10 * 9))
+    S = genre_sim(lst[:10])
+    return float(1 - (S.sum() - np.trace(S)) / (10 * 9))                 # 1 - mean pairwise genre overlap
 rows_mmr = []
-for lam in (1.0, 0.9, 0.8, 0.7, 0.5):
+for lam in (1.0, 0.8, 0.6, 0.4, 0.2):
     lists = [mmr(list(final_lists[j]), lam) for j in range(len(test))]
     r = np.array([rank_of(l, t) for l, (_, t) in zip(lists, test)])
     rows_mmr.append((lam, (r < 10).mean(), nd(r).mean(), np.mean([diversity(l) for l in lists])))
@@ -674,11 +723,13 @@ for lam in (1.0, 0.9, 0.8, 0.7, 0.5):
 fig, ax = plt.subplots(figsize=(6.5, 3.4))
 ax.plot([r[3] for r in rows_mmr], [r[2] for r in rows_mmr], "o-", color=COLORS["content+llm"])
 for lam, _, n_, d_ in rows_mmr: ax.annotate(f"λ={lam}", (d_, n_), textcoords="offset points", xytext=(5, 4), fontsize=8)
-ax.set_xlabel("intra-list diversity"); ax.set_ylabel("nDCG@10"); ax.set_title("MMR: accuracy vs diversity"); style(ax)
+ax.set_xlabel("intra-list genre diversity"); ax.set_ylabel("nDCG@10"); ax.set_title("MMR: accuracy vs diversity"); style(ax)
 plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''
-{{R_MMR}}
+**What the numbers say.** The first step is almost free: $\lambda = 0.8$ raises intra-list genre diversity from 0.659 to 0.719 for 0.4 points of hit@10 (0.307 → 0.303). After that the price climbs fast: $\lambda = 0.6$ gives 0.775 for 1.9 points, $\lambda = 0.2$ gives 0.852 for 8.5 points.
+
+Keep in mind what an offline metric can and cannot see. Hit@10 rewards predicting the *one* movie the user watched next, so any change to the list can only look neutral or worse. The benefits of diversity (less fatigue, discovery, users who stay longer) only show in online experiments over weeks. That is why platforms tune this knob with A/B tests rather than with a validation set, and why a cheap first step like $\lambda = 0.8$ is a common default.
 ''')
 nb.md(r'''
 ## 8. The LLM layer: conversational requests and grounded explanations
@@ -707,7 +758,17 @@ class MovieRequest(BaseModel):
     year_max: Optional[int] = Field(None, description="latest release year, e.g. 1999 for 'the 90s' or 1994 for 'before 1995'")
     reference_titles: list[str] = Field(default_factory=list, description="movies the user names as examples of what they like")
     mood: str = Field("", description="the tone, theme or audience the user describes, in a few words")
-parser = llm.with_structured_output(MovieRequest, method="function_calling")      # the most reliable method in notebook 11
+structured = llm.with_structured_output(MovieRequest, method="function_calling", include_raw=True)   # most reliable in notebook 11
+PARSE = {"ok": 0, "failed": 0}
+def parse_request(query):
+    """LLM -> MovieRequest. A small model sometimes writes text where a number belongs ('nothing older than 1960');
+    with include_raw the error comes back as data instead of an exception, and we fall back to an unfiltered search."""
+    out = structured.invoke([("system", SYSTEM), ("user", query)])
+    if out["parsed"] is None:
+        PARSE["failed"] += 1
+        return MovieRequest(mood=query)
+    PARSE["ok"] += 1
+    return out["parsed"]
 SYSTEM = "You turn a movie request into catalog filters. Use only the genres listed in the schema. Leave a field empty when the request does not say it."
 
 def norm_title(t):
@@ -733,7 +794,7 @@ def query_vector(text):
     return F.normalize(torch.tensor(emb.embed_query(f"search_query: {text}"), device=device), dim=0)
 def recommend(query, k=5, history=None):
     """LLM -> filters; similarity to the referenced movies (or to the request text) + a small popularity prior; SASRec if we know the user."""
-    req = parser.invoke([("system", SYSTEM), ("user", query)])
+    req = parse_request(query)
     mask = filter_mask(req.model_dump())
     refs = [i for i in (resolve(t) for t in req.reference_titles) if i]
     if refs: target = F.normalize(E_LLM[refs].mean(0), dim=0); mask[refs] = False
@@ -778,28 +839,40 @@ t0 = time.time()
 for j in sample:
     h, t = test[j]; decade = int(ml.years[t]) // 10 * 10
     query = f"I'm in the mood for a {ml.genres[t][0].lower()} movie from the {decade}s"
-    req = parser.invoke([("system", SYSTEM), ("user", query)]).model_dump()
+    req = parse_request(query).model_dump()
     mask = filter_mask(req); mask[torch.tensor(h, device=device)] = False
     for name, s in (("popularity", popn), ("similarity to the request", E_LLM @ query_vector(req.get("mood") or query) + 0.1 * popn),
                     ("SASRec (personalised)", sasrec_scores([h])[0])):
         hits[name].append(float(t in s.masked_fill(~mask, -1e9).topk(10).indices.tolist()))
 for name, v in hits.items():
     m_, lo, hi = bootstrap_ci(v); print(f"hit@10 inside the filtered set, {name:26s}: {m_:.3f}  [{lo:.3f}, {hi:.3f}]")
-print(f"({time.time() - t0:.0f}s for {len(sample)} parsed requests)")
+print(f"({time.time() - t0:.0f}s for {len(sample)} requests; structured-output failures so far: {PARSE['failed']} of {PARSE['ok'] + PARSE['failed']})")
 ''')
 nb.md(r'''
-{{R_CONVERSATIONAL}}
+**What the numbers say.** The LLM front end satisfies the request's constraints in **87 %** of the top-5 results (95 % CI [0.80, 0.93]) against **60 %** for embedding search over the same texts ([0.46, 0.74]). The gap is exactly where embeddings are weak: date ranges and negations. "A 90s crime movie like Pulp Fiction" goes from 0.0 to 0.8, "a war drama made in the 1990s" from 0.2 to 1.0, "a comedy from the 70s that is not a romance" from 0.2 to 0.8. An embedding knows that two texts are about similar things; it cannot enforce "1990 ≤ year ≤ 1999" or "not Romance". The structured output failed on 1 of 221 requests; the fallback (an unfiltered search) kept the system running.
+
+The misses are instructive too. For "an animated movie for kids made before 1995" the LLM asked for Animation but not Children's, and *Ghost in the Shell* is animated and definitely not for kids. For "like The Matrix" it put the title in `mood` instead of `reference_titles`, so the reference itself was recommended. Both are fixable with better field descriptions or examples, which is how you iterate on a schema.
+
+Personalisation inside the request is where the recommender earns its keep. Among the movies that satisfy a request built from the user's real next movie, ranking by SASRec finds that movie in the top 10 for **55.5 %** of users, against 28.5 % for popularity and 32.5 % for similarity to the request. (The request always contains the target's genre and decade, which makes the setup optimistic in absolute terms; the comparison between the three rankings is what matters.) The division of labour is clear: the LLM understands *what* is asked, the user's history decides *which* of the matching movies.
 
 ### Grounded explanations
 
-For a recommended movie we find the three movies in the user's history that are closest to it in SASRec's own item-embedding space (the "because you watched" anchors) and ask the LLM for one sentence that cites them. As a contrast, an *ungrounded* prompt only gets the user's favourite genres. We then scan both explanations for catalog titles: citing an anchor is grounded; citing a movie that is **not** in the user's history (presenting it as something they watched or liked) is a fabrication.
+For a recommended movie we find the three movies in the user's history that are closest to it in SASRec's own item-embedding space (the "because you watched" anchors) and ask the LLM for one sentence that cites them. As a contrast, an *ungrounded* prompt only gets the user's favourite genres. We then scan both explanations for catalog titles (case-sensitive full titles of six or more characters, so that ordinary words such as "romance" do not count as the 1999 film *Romance*, and a title inside a longer one, *Toy Story* in *Toy Story 2*, counts once): citing an anchor is grounded; citing a movie that is **not** in the user's history (presenting it as something they watched or liked) is a fabrication. A scan like this can still miss titles written differently, so treat the rates as estimates and read the examples.
 ''')
 nb.code(r'''
 ITEM_EMB = F.normalize(sasrec.tok_emb.weight.detach().float(), dim=1)     # SASRec's input embeddings double as item vectors
-TITLE_PATTERNS = [(i, re.compile(r"\b" + re.escape(NORM[i]) + r"\b")) for i in range(1, N + 1) if len(NORM[i]) >= 6]
+def display_title(t):
+    t = re.sub(r"\s*\(\d{4}\)\s*$", "", t); t = re.sub(r"\s*\([^)]*\)\s*$", "", t)
+    m = re.match(r"^(.*), (The|A|An)$", t)
+    return f"{m.group(2)} {m.group(1)}" if m else t
+# Case-sensitive full titles of 6+ characters: "a romance" must not count as the 1999 film "Romance",
+# and "Toy Story" inside "Toy Story 2" is one citation, not two.
+TITLE_PATTERNS = [(i, re.compile(r"(?<!\w)" + re.escape(display_title(ml.titles[i])) + r"(?!\w)"))
+                  for i in range(1, N + 1) if len(display_title(ml.titles[i])) >= 6]
 def titles_in(text):
-    low = text.lower()
-    return {i for i, pat in TITLE_PATTERNS if pat.search(low)}
+    spans = [(m.start(), m.end(), i) for i, pat in TITLE_PATTERNS for m in pat.finditer(text)]
+    return {i for s_, e_, i in spans
+            if not any(s2 <= s_ and e_ <= e2 and (e2 - s2) > (e_ - s_) for s2, e2, _ in spans)}
 
 grounded_ok, grounded_fab, plain_fab, examples = [], [], [], []
 t0 = time.time()
@@ -824,7 +897,12 @@ for rec_t, g_text, p_text in examples:
     print(f"\n{rec_t}\n  grounded  : {g_text}\n  ungrounded: {p_text}")
 ''')
 nb.md(r'''
-{{R_EXPLAIN}}
+**What the numbers say.** With anchors, 97 % of the explanations cite one of them, and 7 % (2 of 30) mention a movie that is not in the user's history; without anchors, 13 % (4 of 30) do. With 30 users that difference is suggestive, not conclusive. The examples say more than the rates.
+
+- The **ungrounded** explanations make up *attributes* even when they cite no titles: *The Usual Suspects* is described as delving into "War and Thriller" because the user likes those genres, and it is not a war film. Fluent, plausible and false, which is the dangerous kind of error.
+- The **grounded** explanations are true but not always convincing: *Erin Brockovich* "shares similarities with *The Shawshank Redemption* and *Galaxy Quest*". SASRec's item embeddings encode *co-watching*, not content, so the anchors explain faithfully why the model chose the movie, but they do not read like reasons a person would give. Production systems usually pick anchors that are both: close in the model's space and similar in content.
+
+The lesson is the same as for RAG in notebook 10: give the model the evidence, ask it to use only that evidence, and check the output automatically.
 ''')
 nb.md(r'''
 ## 9. The whole funnel in one table
@@ -846,7 +924,18 @@ for a, seg, title in ((ax[0], "warm", "movies the system has seen"), (ax[1], "co
 plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''
-{{R_SUMMARY}}
+**Reading the table.** The best system is the full funnel: candidates from five sources and a LambdaMART ranker on top, with **hit@10 0.307 and nDCG@10 0.181**, ahead of the best single model (SASRec, 0.293 / 0.172) with an interval that excludes zero. Adding one slot for new movies trades 0.7 points of overall hit@10 for five times more hits on new releases (0.009 → 0.044). Diversity can be raised almost for free with a light MMR.
+
+Where the LLM helped and where it did not, measured rather than assumed:
+
+| use of the LLM | result |
+|---|---|
+| keywords mixed into the item text | **worse** (content hit@10 0.033 → 0.023), rejected on validation |
+| keywords as a ranker feature | no measurable gain (+0.0012, interval includes 0), not worth its cost |
+| understanding requests (structured filters) | **clearly better** (constraint satisfaction 0.60 → 0.87) |
+| explanations with anchors from the history | grounded and checkable; fewer invented movies than without anchors |
+
+This matches what the field has found: small LLMs do not beat collaborative models at ranking, but they are excellent at the language around the recommender.
 
 ## Takeaways
 

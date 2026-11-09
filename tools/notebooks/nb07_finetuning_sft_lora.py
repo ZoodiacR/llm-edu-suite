@@ -225,6 +225,12 @@ LoRA became the default for three reasons: it adds no latency once merged, it ma
 - Hinton, Vinyals & Dean, 2015. *Distilling the Knowledge in a Neural Network.*
 - Kim & Rush, 2016. *Sequence-Level Knowledge Distillation.*
 ''')
+nb.code(r'''
+import os
+# This notebook trains nine models in one process, and the 4-bit model of section 4.3 leaves ~0.1 GB behind on the GPU.
+# A 2 GB budget fits every run and still leaves room for Ollama (~2.3 GB) on a 6 GB card. Notebooks 08-09 keep 1.5 GB.
+os.environ.setdefault("VRAM_BUDGET_GB", "2")
+''')
 nb.code(SETUP_HF)
 nb.md(r'''
 ## 1. The task and the data
@@ -431,6 +437,64 @@ nb.md(r'''
 **What we see.** Both full SFT and LoRA turn a model that needed four examples in its prompt into one that always produces valid JSON with the right names, restaurants, party sizes and days (field accuracy ≈ 86 % against 73 % few-shot), and both double the few-shot exact match. The remaining errors are almost all in `time`: with 300 examples and 2 epochs the 12-hour → 24-hour conversion ("10 pm" → "22:00") is only partly learned; the models often copy the hour (`10:00`) or guess one. LoRA trains 3.5 % of the parameters and lands within one test request of full fine-tuning (32.5 % vs 35.0 % exact). Its adapter is a 20 MB file.
 
 About memory: full fine-tuning fitted only because we switched to bf16 weights and Adafactor (1.19 GB peak at micro-batch 4). LoRA r=16 peaked at 1.41 GB, but with micro-batch 8; at micro-batch 4 a LoRA run needs about 0.9 GB (see the first run in section 5). In a model this small, activations and the 49k-token output layer weigh as much as the weights, so the gap is modest. It grows with model size: for a 7B model, full fine-tuning with AdamW needs ~112 GB for weights, gradients and optimizer state, while LoRA needs little more than the 14 GB of frozen bf16 weights.
+''')
+nb.md(r'''
+### 4.3 QLoRA: the same LoRA on a 4-bit base model
+
+LoRA freezes the base weights, but they still have to sit in GPU memory in bf16: 2 bytes per parameter, so about 14 GB for a 7B model before a single activation is stored. **QLoRA** (Dettmers, Pagnoni, Holtzman and Zettlemoyer, 2023, *QLoRA: Efficient Finetuning of Quantized LLMs*) keeps the frozen weights in **4 bits** and trains ordinary bf16 LoRA adapters on top. It is what made fine-tuning a 7-8B model possible on one consumer GPU, and it is still the default recipe when the base model does not fit.
+
+**The forward pass.** For each quantized linear layer,
+
+$$h = \operatorname{dequant}(W_0^{\text{NF4}})\,x + \frac{\alpha}{r} B A x$$
+
+The 4-bit weight is turned back into bf16 block by block, just for the matmul, and thrown away. Gradients flow *through* the frozen quantized layer to reach $A$ and $B$, which stay in bf16, so the optimizer never touches a 4-bit number. The adapters can even learn to compensate part of the quantization error, because they are trained against the quantized base they will run with.
+
+**The three ideas of the paper.**
+
+| idea | what it does | why it matters |
+|---|---|---|
+| **NF4** (4-bit NormalFloat) | 16 levels placed at the quantiles of a normal distribution, with one absmax scale per block of 64 weights | pretrained weights are roughly normal, so equal-probability levels waste less precision than the evenly spaced levels of int4 |
+| **double quantization** | the per-block scales (fp32) are themselves quantized to 8 bits | the scale overhead drops from 0.5 to about 0.127 bits per parameter, so the total is about 4.13 bits per weight |
+| **paged optimizers** | optimizer state lives in CUDA unified memory and is paged to CPU RAM when a long sequence makes memory spike | the run survives peaks instead of failing with out-of-memory |
+
+**What it costs.** Dequantizing on every forward and backward pass makes each step slower than plain LoRA, and the result is a LoRA adapter for a *quantized* base: to merge it, reload the base in bf16 and apply the adapter there (merging into the 4-bit weights loses precision). The paper reports that QLoRA matched 16-bit LoRA and full fine-tuning on its benchmarks; in practice the gap is small but worth measuring on your own task, which is what we do next.
+
+**What to expect on a 135M model.** Very little memory saving. `bitsandbytes` quantizes the linear layers only; SmolLM2's 28M-parameter embedding (tied with the output layer) stays in bf16, and at this size activations and the 49k-token output logits weigh as much as the weights. The point of running it here is to see the recipe and check that quality holds; the arithmetic below shows where the savings become decisive.
+''')
+nb.code(r'''
+from transformers import BitsAndBytesConfig
+from peft import prepare_model_for_kbit_training
+
+bnb_cfg = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",    # NormalFloat4 levels
+                             bnb_4bit_use_double_quant=True,                  # quantize the per-block scales too
+                             bnb_4bit_compute_dtype=DTYPE)                    # dequantize to bf16 for the matmuls
+bf16_bytes = from_pretrained(AutoModelForCausalLM, MODEL, dtype=DTYPE).get_memory_footprint()
+q_base = from_pretrained(AutoModelForCausalLM, MODEL, quantization_config=bnb_cfg, device_map={"": 0} if device == "cuda" else None)
+print(f"weights in memory: bf16 {bf16_bytes / 1e6:.0f} MB -> NF4 {q_base.get_memory_footprint() / 1e6:.0f} MB "
+      f"(the tied 28M-parameter embedding stays in bf16)")
+n4 = sum(1 for m in q_base.modules() if type(m).__name__ == "Linear4bit")
+print(f"{n4} linear layers stored in 4 bits")
+
+q_base = prepare_model_for_kbit_training(q_base, use_gradient_checkpointing=True)   # norms in fp32, inputs require grad
+q_model = get_peft_model(q_base, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", task_type="CAUSAL_LM"))
+q_model.print_trainable_parameters()
+trainer = train_sft(q_model, train_rows, "QLoRA r=16 (NF4)", optim="paged_adamw_8bit")   # the full QLoRA recipe
+_ = evaluate(trainer.model, tok, "QLoRA r=16 (NF4)", show=1)
+del trainer, q_model, q_base; free()
+
+for n in ["LoRA r=16", "QLoRA r=16 (NF4)"]:
+    print(f"{n:18s} exact {100 * RESULTS[n]['exact']:5.1f}%  fields {100 * RESULTS[n]['fields']:5.1f}%  "
+          f"time {RUNS[n]['time']:5.0f} s  peak VRAM {RUNS[n]['peak']:.2f} GB")
+
+# Where QLoRA matters: frozen-weight memory for real model sizes (NF4 + double quantization ~ 4.13 bits per weight)
+print(f"\n{'model':>6s} {'bf16 weights':>13s} {'NF4 weights':>12s}")
+for b in (7, 13, 70):
+    print(f"{b:>5d}B {2 * b:>11.0f} GB {b * 4.127 / 8:>10.1f} GB")
+''')
+nb.md(r'''
+**What we see.** The 4-bit base holds its own: QLoRA reaches 37.5 % exact match against 32.5 % for plain LoRA, with the same 86.5 % of fields right. Two requests out of 40 are within the noise, so the honest reading is *no loss of quality*, not *better*. The memory story is the one predicted: the weights shrink from 269 MB to 110 MB (210 linear layers stored in NF4; the 28M-parameter tied embedding stays in bf16), but the training peak barely moves (1.41 → 1.34 GB), because on a 135M model the activations and the 49k-token output layer dominate. Each run is a little slower (47 s against 41 s for the same 38 steps), because every matmul dequantizes its weights first.
+
+The last table is the reason QLoRA exists. For a 7B model the frozen weights go from 14 GB to about 3.6 GB: the difference between *does not fit* and *fits with room for activations* on an 8 GB card, and for a 70B model between a multi-GPU server and a single 48 GB GPU. Rule of thumb: if the base model fits in bf16 with room to train, use LoRA (faster, simpler, merges directly); if it does not, use QLoRA and merge the adapter into a bf16 copy of the base.
 
 ## 5. The "new special token" trap
 
@@ -592,7 +656,7 @@ nb.md(r'''
 Every model on the same 40 held-out requests, plus what each training run cost.
 ''')
 nb.code(r'''
-order = [n for n in ["baseline zero-shot", "baseline few-shot", "full SFT", "LoRA r=2", "LoRA r=16", "LoRA r=64",
+order = [n for n in ["baseline zero-shot", "baseline few-shot", "full SFT", "LoRA r=2", "LoRA r=16", "QLoRA r=16 (NF4)", "LoRA r=64",
                      "teacher 360M LoRA r=16", "student 135M: human + teacher labels"] if n in RESULTS]
 print(f"{'model':38s} {'valid':>6s} {'exact':>6s} {'fields':>7s} {'time':>6s} | {'trainable':>10s} {'train s':>8s} {'peak GB':>8s}")
 for n in order:
@@ -606,7 +670,7 @@ for k, (metric, c) in enumerate([("valid", "tab:gray"), ("fields", "tab:blue"), 
     ax[0].barh(ys + (k - 1) * w, [100 * RESULTS[n][metric] for n in order], height=w, color=c, label=metric)
 ax[0].set_yticks(ys, order); ax[0].invert_yaxis(); ax[0].set_xlim(0, 100); ax[0].set_xlabel("% of the 40 test requests")
 ax[0].legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3); ax[0].grid(alpha=.3, axis="x")
-for n in ["full SFT", "LoRA r=16", "LoRA r=2", "LoRA r=64", "student 135M: human + teacher labels"]:
+for n in ["full SFT", "LoRA r=16", "QLoRA r=16 (NF4)", "LoRA r=2", "LoRA r=64", "student 135M: human + teacher labels"]:
     steps, loss = zip(*RUNS[n]["loss"])
     ax[1].plot(steps, loss, label=n)
 ax[1].set_yscale("log"); ax[1].set_xlabel("optimizer step"); ax[1].set_ylabel("training loss (completion tokens)")
@@ -638,6 +702,7 @@ With 40 test requests, each request is 2.5 points: treat differences of one or t
 - Use the model's **chat template** and mask the prompt: train only on the answer and its end-of-turn token. `trl.SFTTrainer` does it for prompt-completion data; check the labels once, as we did.
 - Measure a **few-shot baseline** first. Fine-tuning has to beat a good prompt, not a bad one.
 - **LoRA** (`target_modules="all-linear"`, a higher LR) trains a few % of the parameters, fits where full fine-tuning does not, merges back for free, and on small data is as good as full fine-tuning.
+- **QLoRA** keeps the frozen base in 4-bit NF4 and trains bf16 adapters on top: the recipe for models whose bf16 weights do not fit (a 7B model drops from ~14 GB to ~3.6 GB of weights), at the price of slower steps. Merge into a bf16 copy of the base, not into the 4-bit weights.
 - **New tokens + frozen embeddings cannot work** with tied embeddings and mean initialization: make the embedding trainable (`modules_to_save` or `trainable_token_indices`).
 - **Rank** helped here (20 → 45 % from r = 2 to r = 64), but much less than more data did. Start at r = 16 and let the held-out metric decide.
 - **Sequence-level distillation**: a stronger teacher turns cheap unlabelled prompts into training data. The student is bounded by the teacher's mistakes, so measure the teacher's labels.

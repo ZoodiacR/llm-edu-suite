@@ -431,9 +431,15 @@ $B = 0$ makes the model start exactly as the base; $\alpha/r$ decouples the upda
 
 LoRA displaced adapters (extra latency) and prefix/prompt tuning (longer effective sequence) because it adds no latency, matches full fine-tuning on many narrow tasks, and the whole ecosystem supports it (`peft`, TRL, vLLM serving several adapters on one base). Variants: rsLoRA ($\alpha/\sqrt{r}$), DoRA.
 
+**QLoRA: the same LoRA on a 4-bit base.** LoRA freezes the base weights, but they still sit in memory in bf16: 2 bytes per parameter, about 14 GB for a 7B model before a single activation is stored. QLoRA (Dettmers et al., 2023) keeps those frozen weights in 4 bits and trains ordinary bf16 LoRA adapters on top:
+
+$$h = \operatorname{dequant}(W_0^{\text{NF4}})\,x + \frac{\alpha}{r}\, B A x$$
+
+The 4-bit weight is dequantized to bf16 block by block just for the matmul and thrown away; the gradient flows through the frozen layer to $A$ and $B$, which stay in bf16, so the optimizer never touches a 4-bit number. The paper's three ideas: **NF4** (16 levels at the quantiles of a normal distribution, with one absmax scale per block of 64 weights; pretrained weights are roughly normal, see section [2.8](#28-quantization)), **double quantization** (the per-block scales are themselves quantized to 8 bits, cutting the overhead from 0.5 to about 0.127 bits per parameter) and **paged optimizers** (optimizer state lives in CUDA unified memory and is paged to CPU RAM when memory spikes, instead of dying with an out-of-memory error). The price: every step is slower because it dequantizes on each forward and backward pass, and the adapter belongs to a *quantized* base; to merge it, reload the base in bf16 and apply it there. The rule of thumb: if the model fits in bf16 with room to train, use LoRA (faster, merges directly); if it does not, QLoRA. In `transformers` it is `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)`, plus `prepare_model_for_kbit_training` and `optim="paged_adamw_8bit"`.
+
 **Practical rules and failure modes.** Adapting all linear layers at $r = 8$-16 usually beats a large rank on `q_proj` and `v_proj` only; LoRA needs a learning rate about 10 times higher than full fine-tuning (an empirical finding); when comparing ranks, check whether $\alpha$ scales with $r$. The **new token** trap: with tied, frozen embeddings, a row initialized at the mean of the embeddings can never win the argmax, because $h \cdot \bar e$ is the average of the $h \cdot e_i$ and an average never exceeds the maximum; that row must be trained (`modules_to_save` or `trainable_token_indices`).
 
-> **Notebook:** [07 · SFT, LoRA and distillation](../../notebooks/03_post_training/07_finetuning_sft_lora.ipynb) · **In the course:** booking extraction to JSON with SmolLM2-135M; few-shot reaches 17.5 % exact match, full SFT 35.0 % and LoRA (3.5 % of the parameters, a 20 MB adapter) 32.5 %; rank lifts exact match from 20 % ($r=2$) to 45 % ($r=64$); with frozen embeddings the new token is never emitted (it ranks around 24,000th), and with a trainable row it comes first at p ≈ 0.93.
+> **Notebook:** [07 · SFT, LoRA and distillation](../../notebooks/03_post_training/07_finetuning_sft_lora.ipynb) · **In the course:** booking extraction to JSON with SmolLM2-135M; few-shot reaches 17.5 % exact match, full SFT 35.0 % and LoRA (3.5 % of the parameters, a 20 MB adapter) 32.5 %; rank lifts exact match from 20 % ($r=2$) to 45 % ($r=64$); with frozen embeddings the new token is never emitted (it ranks around 24,000th), and with a trainable row it comes first at p ≈ 0.93; QLoRA r=16 on the NF4 base reaches 37.5 % exact match and 86.5 % of fields (LoRA r=16: 32.5 % and 86.5 %, two requests apart, which is noise), the weights in memory drop from 269 MB to 110 MB but the training peak barely moves (1.41 → 1.34 GB) because activations dominate at 135M; for a 7B model the frozen weights would go from 14 GB to about 3.6 GB.
 
 ### 3.3 Distillation
 
@@ -595,7 +601,9 @@ Faithfulness measures groundedness, not correctness (faithfully repeating a wron
 
 **The working rule:** an LLM judge is a measurement instrument that must be **validated**. Label a few dozen cases by hand and measure agreement with Cohen's kappa, $\kappa = (p_o - p_e)/(1 - p_e)$, which corrects for chance agreement; freeze judge and prompt while comparing versions; read differences more than absolute values; put the reasoning *before* the verdict in the structured output. A panel of small judges from different families can match one large judge (Verga et al., 2024); ARES corrects small judges with a human-labelled set through prediction-powered inference.
 
-> **Notebook:** [10 · RAG with LangChain and RAGAS](../../notebooks/04_applications/10_rag.ipynb) and [15 · Observability and evaluation](../../notebooks/06_llmops/15_observability_llmops.ipynb) · **In the course:** with hybrid retrieval, context precision rises from 0.76 to 0.84, context recall from 0.57 to 0.70 and faithfulness from 0.38 to 0.54; the local 3B judge gives relevancy 0 to correct answers and the evaluation takes ~440 s; in notebook 15 the judge agrees with a deterministic check on 20 of 24 answers, and the disagreements show what each one misses.
+**Judge strength.** A judge cannot verify what it does not understand, and a weak judge does not only add noise: it can *invent* effects, differences between systems that are not there, because its errors are not spread evenly across configurations (a shorter answer, a different format or a different context is enough to make it fail more on one than on the other). Three practical consequences. The judge should be clearly stronger than the system under test and, ideally, not the same model that generates (which also brings self-preference). Every comparison gets an interval (paired bootstrap, section [6.5](#65-statistics-of-small-evaluation-sets)): with 20 questions, a 0.1 difference on a RAGAS metric often fits inside the noise. And changing the judge changes the measuring instrument: numbers from two different judges are not comparable, only differences measured with the same judge. A stronger judge costs time, so keep it for a fixed, small, representative set.
+
+> **Notebook:** [10 · RAG with LangChain and RAGAS](../../notebooks/04_applications/10_rag.ipynb) and [15 · Observability and evaluation](../../notebooks/06_llmops/15_observability_llmops.ipynb) · **In the course:** with `qwen2.5:7b` as the judge (and `qwen2.5:3b` generating), the only clear difference between dense and hybrid retrieval is context precision, 0.79 → 0.92 (+0.13, 95 % CI [+0.03, +0.25]); faithfulness (0.87 → 0.87), answer relevancy (0.78 → 0.75) and context recall (0.95 → 0.95) do not move beyond their intervals, and scoring takes 1038 s. When the 3B model judged itself it reported faithfulness 0.38 → 0.54 and relevancy 0.44 → 0.30: effects the 7B judge does not confirm. In notebook 15 (still judged by the 3B model) the judge agrees with a deterministic check on 20 of 24 answers, and the disagreements show what each one misses.
 
 ### 4.4 Application patterns
 
@@ -642,9 +650,73 @@ The consensus: the first three layers reduce the probability of success; only th
 
 ### 4.5 Recommender systems
 
-The recommender section is coming with the v3 recommender: the notebook is being rebuilt around an LLM and a multi-stage funnel, and its theory will be written once the new notebook is measured.
+**Problem.** For a user $u$ in a context $c$, estimate which item $i$ is the "right" next thing (watched, played, bought, enjoyed) and show the top few. Three facts shape every real system. **Scale**: catalogs of millions of items and answers within tens of milliseconds, so an expensive model cannot run on every item. **Implicit, biased feedback**: we mostly see what people clicked or watched, not what they disliked, and only among what the system already showed them (exposure bias); popular items get more exposure and therefore more data (popularity bias). **The world changes**: new items arrive every day with no history (*cold start*), and tastes drift.
 
-> **Notebook:** [12 · Recommender systems](../../notebooks/04_applications/12_recommender_systems.ipynb)
+**The funnel.** The answer to scale, popularised by YouTube's paper (Covington, Adams and Sargin, 2016), is to split the problem into stages with different goals:
+
+| Stage | Input → output | What it must do | Its own metric | Typical models |
+|---|---|---|---|---|
+| candidate generation | catalog → hundreds | not miss good items; cheap per item | recall@K of the candidate set | two-tower + ANN, sequential model, item-item co-occurrence, content, popular lists |
+| ranking | hundreds → tens | order precisely; can afford many features | nDCG@10, hit@10 of the final list | boosted trees (LambdaMART), deep models (Wide & Deep, DCN, DLRM) |
+| re-ranking | tens → the page | rules, diversity, exploration, explanations | what it trades: accuracy against coverage or diversity | MMR, calibration, bandits, business rules |
+
+Each candidate source sees the user differently, so systems take the **union** of several. The most useful consequence for debugging: the ranker can only order what retrieval brought, and the recall of the candidate set is a ceiling no ranker can exceed. Improving retrieval and improving ranking are different projects, and they are measured separately.
+
+**Sequential recommendation as language modelling.** If a user's history is a sentence whose words are item ids, predicting the next item is predicting the next token. SASRec (Kang and McAuley, 2018) is exactly that: a decoder-only transformer with causal attention whose vocabulary is the catalog; in the course, notebook 02's `TransformerLM` with `vocab_size = n_items + 1`. It works because taste is sequential (franchises, binges of one genre, moods), and attention weighs the history like a learned, context-dependent recency. The industry is heading this way: Meta's HSTU (Zhai et al., 2024) scales like an LLM, and Netflix describes an autoregressive foundation model over each member's interaction sequence (2025).
+
+The training detail that matters most is the loss. The original SASRec used a binary loss with one sampled negative per positive. The **full softmax** over the catalog, the language-model loss,
+
+$$\mathcal{L} = -\log \frac{\exp(s_{u,i^+})}{\sum_{j \in \mathcal{I}} \exp(s_{u,j})},$$
+
+is much stronger with the same architecture: Klenitskiy and Vasilev (2023) go from hit@10 0.250 to 0.315 on MovieLens-1M. With a few thousand items it is cheap; with millions the denominator does not fit, and you use a **sampled softmax**: the denominator is estimated from a subset of negatives, often the other users' positives in the batch (*in-batch negatives*). But those negatives are not uniform: a popular item shows up as a negative far more often, and the model learns to under-score it. The **logQ correction** (Yi et al., 2019) subtracts from each logit the log of the probability that the item is sampled, $s_{u,j} - \log Q(j)$, which pulls the estimator back towards the full softmax.
+
+**Two-tower and approximate search.** Two networks map the user and the item into the same space, and the score is the dot product, $s(u, i) = \langle f(u), g(i) \rangle$. Because the item tower does not depend on the user, every item vector is precomputed and put in an approximate nearest-neighbour (ANN) index: serving is computing one user vector and looking up the closest items, milliseconds over millions of items. The usual indexes are graphs (**HNSW**), partitions (IVF) and compression (product quantization), with FAISS or ScaNN; their recall against exact search is a quality knob of its own, independent of how good the model is. The design limit: a dot product cannot model fine interactions between user and item features (that is the ranker's job). For *cold start*, the item tower can use content (text, genre, year); if the id is also hidden at random during training (*id dropout*, as in DropoutNet, Volkovs et al., 2017), the tower learns to place an item from its content alone.
+
+**Learning to rank.** The ranker scores each (user, candidate) pair from features and sorts. There are three ways to train it:
+
+| Approach | Loss | Example |
+|---|---|---|
+| pointwise | predict each label independently (log-loss on "was this the next one?") | logistic regression, a binary GBDT |
+| pairwise | prefer the positive to each negative: $\log(1 + e^{-(s_+ - s_-)})$ | RankNet |
+| listwise | optimise the quality of the whole ordered list | LambdaMART, softmax / XE-NDCG |
+
+**LambdaMART** (Burges, 2010) is gradient-boosted trees whose gradients are RankNet's pairwise gradients multiplied by how much nDCG would change if the two items were swapped:
+
+$$\lambda_{ij} = \frac{-\sigma}{1 + e^{\sigma (s_i - s_j)}}\,\bigl|\Delta \text{nDCG}_{ij}\bigr|,$$
+
+so the trees concentrate on the top of the list. It has been the default industrial ranker for over a decade (search engines, e-commerce, Kaggle recommender competitions) because trees take heterogeneous features (scores, counts, categories, ratios) without scaling, train in minutes and are easy to inspect; in LightGBM it is `objective="lambdarank"`. Two conditions decide whether a second-stage ranker adds anything over a strong first stage. **Many label groups from a period after** what the retrieval models saw: trained on a single positive per user, the best feature is the first stage's own score and the trees relearn "sort by SASRec" plus noise. The recipe of RecTools and of the top Kaggle OTTO solutions is to fit retrieval on the history minus the last $R$ events and turn each of those events into a ranker query. And **features the first stage cannot see**: explicit ratings, demographics, co-visitation, time since the previous event, recent trends. Without them the ranker is only cost.
+
+**Cold start and exploration.** Nothing collaborative can recommend an item nobody has seen: its embedding row was never trained. Two different things solve it. **Content** places the new item (embedded text and metadata, towers with id dropout). **Exploration** gives it exposure so the system learns what it is worth, which is the exploration/exploitation dilemma: a system that only exploits never learns about anything new. The production tool is **bandits**: $\varepsilon$-greedy (explore at random a fraction of the time), UCB (score by the mean plus an uncertainty bonus, $\hat\mu_i + c\sqrt{\ln t / n_i}$) or Thompson sampling (sample from each item's posterior), and their contextual versions (LinUCB; BaRT on Spotify's home page, McInerney et al., 2018). The minimal version you can measure offline is a fixed **exploration slot**: the top positions for the ranking and one reserved for the best new item according to a content-aware model. Offline you only see its cost on known items and its reach on new ones; the benefit of learning shows online.
+
+**Diversity, MMR and calibration.** A list of ten near-identical items is accurate and boring. **MMR** (Carbonell and Goldstein, 1998) builds the list greedily, each time choosing
+
+$$\arg\max_{i \notin S} \; \lambda\,\text{rel}(i) - (1 - \lambda) \max_{j \in S} \text{sim}(i, j),$$
+
+with $\lambda = 1$ the plain ranking and lower $\lambda$ more diversity. **Intra-list diversity** is measured as one minus the mean pairwise similarity of the list, $\text{ILD} = 1 - \frac{2}{k(k-1)} \sum_{i<j} \text{sim}(i, j)$. **Calibration** (Steck, 2018) asks for something else: that the genre mix of the list $q$ resembles the history's $p$, penalising $\mathrm{KL}(p \,\|\, q)$, so that someone who watches 70 % drama and 30 % comedy does not get ten dramas. A caveat: hit@10 rewards predicting *the* next item, so any change to the list can only look neutral or worse offline; the benefits (less fatigue, discovery, retention) show up in A/B tests over weeks, which is why this knob is tuned online.
+
+**Offline evaluation protocol.** Four decisions separate an honest evaluation from a misleading one:
+
+| Decision | Honest choice | What goes wrong otherwise |
+|---|---|---|
+| split | temporal: per-user *leave-last-out* (the last event is test, the one before validation) or a global time cut | a random split leaks the future into training |
+| candidates for the metric | **full ranking** over the whole catalog | sampled metrics (the target against 100 random negatives) inflate the numbers and can flip which model looks best (Krichene and Rendle, 2020) |
+| aggregation | by segment: known versus new items, users with short or long histories | a global average hides cold start completely |
+| comparison | **paired bootstrap** over users, 95 % interval of the difference | one or two points of hit@10 with a few thousand users can be noise |
+
+With a single relevant item, hit@k is the fraction of users whose target is in the top $k$, and nDCG@k is $1/\log_2(p+1)$ for a hit at position $p$ (1 at the top, 0.5 third, 0.29 tenth). A useful working rule: **a stage only enters the system if it beats the previous one on validation**, with an interval that excludes zero; test is looked at once, at the end. And offline predicts online only imperfectly: the final decision is an A/B test.
+
+**Where LLMs help and where they do not.** Published evidence and this course point the same way:
+
+| Use of the LLM | Verdict | Why |
+|---|---|---|
+| re-ordering a strong collaborative model's recommendations | not worth it with small models | the LLM does not see the co-watching signal the model encodes, only short descriptions; it costs seconds per user against milliseconds |
+| enriching items offline (keywords, descriptions; KAR, Xi et al., 2023; LLMRec, Wei et al., 2024) | depends; measure it | works as a separate feature in trained models and with large LLMs; mixed into the item text it can dilute the signal |
+| understanding natural-language requests (structured output → filters) | clearly helps | date ranges, negations and hard constraints are exactly what an embedding cannot enforce |
+| explaining ("because you watched X and Y") | helps when grounded | with the history items that drove the recommendation it is checkable; without anchors it invents attributes |
+
+The resulting division of labour: the LLM understands *what* is asked and talks about it; the user's history and the collaborative models decide *which*. The research line that tries to merge the two is generative retrieval with *semantic IDs* (TIGER, Rajput et al., 2023), where the model generates the item's identifier token by token.
+
+> **Notebook:** [12 · Recommender systems](../../notebooks/04_applications/12_recommender_systems.ipynb) · **In the course:** on MovieLens-1M with full ranking, SASRec trained with the full softmax reaches hit@10 0.293 (ItemKNN 0.125, popularity 0.036) and never hits a new movie; the union of five sources retrieves the target for 68.4 % of users; LambdaMART with the RecTools/OTTO recipe lifts it to 0.307 (+1.4 points, 95 % CI [+0.7, +2.1]) after passing the validation gate the first attempt failed; one exploration slot takes hit@10 on new movies from 0.009 to 0.044 for 0.7 points overall; MMR at $\lambda = 0.8$ raises diversity from 0.659 to 0.719 for 0.4 points; the LLM keywords hurt content retrieval and add nothing as a ranker feature, but the LLM that turns requests into filters satisfies the constraints in 87 % of the top 5, against 60 % for embedding search.
 
 ---
 
@@ -880,7 +952,7 @@ With $n = 12$ the 95 % interval spans roughly ±0.28; with $n = 100$, ±0.10. In
 
 **What goes into the dataset** matters as much as its size: common intents, known edge cases, adversarial inputs and every production failure already fixed (a regression set). Version it, so each experiment is tied to the exact examples, and keep it out of prompt tuning, or the scores will measure memorization of the test set.
 
-> **Notebook:** [15 · Observability and evaluation](../../notebooks/06_llmops/15_observability_llmops.ipynb) and [10 · RAG with LangChain and RAGAS](../../notebooks/04_applications/10_rag.ipynb) · **In the course:** bootstrap intervals and the paired hybrid-minus-dense difference on RAGAS (notebook 10), the ±0.28 calculation for $n = 12$ in notebook 15, and in every application notebook a reminder of what one item is worth before reading a difference.
+> **Notebook:** [15 · Observability and evaluation](../../notebooks/06_llmops/15_observability_llmops.ipynb) and [10 · RAG with LangChain and RAGAS](../../notebooks/04_applications/10_rag.ipynb) · **In the course:** bootstrap intervals and the paired hybrid-minus-dense difference on RAGAS (notebook 10), a paired bootstrap over 6,040 users for every comparison between recommender stages (notebook 12), the ±0.28 calculation for $n = 12$ in notebook 15, and in every application notebook a reminder of what one item is worth before reading a difference.
 
 ---
 

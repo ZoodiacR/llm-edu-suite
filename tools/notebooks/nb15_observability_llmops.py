@@ -761,8 +761,7 @@ def rag(inputs: dict) -> dict:
     out = rag_graph.invoke({"question": inputs["question"]})
     return {"answer": out["answer"], "contexts": [d.page_content for d in out["docs"]]}
 
-from llm_edu_suite.config import get_judge_llm
-correctness = make_correctness_judge(get_judge_llm())      # qwen2.5:7b if pulled: a stronger model grades the 3B app
+correctness = make_correctness_judge(get_llm())
 EVALUATORS = [exact_match, contains_fact, correctness]
 
 def run_locally(target, examples, evaluators) -> list:

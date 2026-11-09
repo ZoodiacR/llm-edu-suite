@@ -14,8 +14,8 @@ The examples for modules 1–9 use tiny configurations and run on CPU in seconds
 
 The course has two halves, and the package only holds code for one of them.
 
-- **First half (notebooks 00–06): the model built from scratch in PyTorch.** Seeing attention, RoPE, MoE or a KV-cache written out line by line is the best way to understand them. Modules 1–9 of this reference (`utils`, `tokenizer`, `layers`, `model`, `data`, `training`, `inference`, `recsys` and `evaluation`) are that model and its tooling. Notebook 12 (recommenders) uses them too, because it reuses `TransformerLM` as a sequential recommender.
-- **Second half (notebooks 07–16): the tools the industry uses.** Fine-tuning, quantization, RAG, agents, LLMOps and MCP are taught with real frameworks: Hugging Face `transformers` / `peft` / `trl` / `optimum-quanto`, LangChain, LangGraph, LangSmith, RAGAS and the official MCP SDK with `langchain-mcp-adapters`. For this half the package only provides [`config`](#10-config), the one place where the chat model, the embedding model and tracing are chosen.
+- **First half (notebooks 00–06): the model built from scratch in PyTorch.** Seeing attention, RoPE, MoE or a KV-cache written out line by line is the best way to understand them. Modules 1–9 of this reference (`utils`, `tokenizer`, `layers`, `model`, `data`, `training`, `inference`, `recsys` and `evaluation`) are that model and its tooling. Notebook 12 (recommenders) uses them too: it reuses `TransformerLM` as a sequential recommender and loads MovieLens-1M with `recsys`, and adds FAISS, LightGBM and LangChain on top.
+- **Second half (notebooks 07–16): the tools the industry uses.** Fine-tuning, quantization, RAG, agents, LLMOps and MCP are taught with real frameworks: Hugging Face `transformers` / `peft` / `trl` / `optimum-quanto`, LangChain, LangGraph, LangSmith, RAGAS and the official MCP SDK with `langchain-mcp-adapters`. For this half the package provides [`config`](#10-config), the one place where the chat model, the judge, the embedding model and tracing are chosen, and the bootstrap intervals in [`evaluation`](#9-evaluation) that notebook 10 uses to compare configurations.
 
 ### Where did it go? (modules removed in v2)
 
@@ -34,8 +34,8 @@ Version 1 of the package had its own implementations of these topics. In v2 they
 | Budgets, plan-and-execute, reflection, memory, supervisor, trajectory evaluation (`agentic`) | 14 · `notebooks/05_agents_and_mcp/14_agentic_ai.ipynb` | LangGraph: `StateGraph`, `START`, `END`, `MessagesState`, `InMemorySaver`, `InMemoryStore`, `interrupt`, `Command`, `GraphRecursionError`; `create_agent` with `ModelCallLimitMiddleware`, `ToolCallLimitMiddleware`, `HumanInTheLoopMiddleware`, `dynamic_prompt`, `ToolRuntime` |
 | Traces, PII redaction, percentiles, SLOs, evaluation (`observability`) | 15 · `notebooks/06_llmops/15_observability_llmops.ipynb` | LangSmith: `@traceable`, `tracing_context`, `Client` (`create_feedback`, `create_dataset`, `create_examples`), `evaluate`, `create_anonymizer`; LangChain's `wait_for_all_tracers` |
 | MCP server and client, transports (`mcp`) | 16 · `notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb` | The official `mcp` SDK: `FastMCP`, `ToolAnnotations`, `ClientSession`, `StdioServerParameters`, `stdio_client`, `create_connected_server_and_client_session`, `McpError`, `CallToolResult`; `langchain-mcp-adapters`: `MultiServerMCPClient`, `load_mcp_tools`. Also the [`mcp_server.py`](cli_scripts.md#mcp_serverpy) script |
-| LLM re-ranking and explanation (`recsys.llm_rerank`, `explain_recommendation`) | 12 · `notebooks/04_applications/12_recommender_systems.ipynb`, section 4 | `ChatPromptTemplate` \| `get_llm().with_structured_output(Ranking)`, with a Pydantic `Ranking` model |
-| LLM-as-judge (`evaluation.pairwise_judge`, `rubric_score`) | 10 and 15 | RAGAS metrics (10); LangSmith evaluators with a judge built on `.with_structured_output()` (15) |
+| LLM re-ranking and explanation (`recsys.llm_rerank`, `explain_recommendation`) | 12 · `notebooks/04_applications/12_recommender_systems.ipynb`, section 8 | Since v2.1 the LLM no longer re-orders the list (it made it worse): it turns requests into filters with `get_llm().with_structured_output(..., method="function_calling", include_raw=True)` and writes explanations grounded in the history with `ChatPromptTemplate`. The rest of the funnel uses PyTorch (SASRec, two-tower), FAISS (an HNSW index) and LightGBM (`objective="lambdarank"`) |
+| LLM-as-judge (`evaluation.pairwise_judge`, `rubric_score`) | 10 and 15 | RAGAS metrics with the judge from [`config.judge_model()`](#10-config) and intervals from `evaluation.bootstrap_ci` / `paired_bootstrap_diff` (10); LangSmith evaluators with a judge built on `.with_structured_output()` (15) |
 
 `perplexity_on_examples` was removed as well: in 07 and 08 the Hugging Face models are evaluated with task metrics (valid JSON, exact match, correct fields), not with perplexity.
 
@@ -52,9 +52,9 @@ Version 1 of the package had its own implementations of these topics. In v2 they
 | 5 | [`data`](#5-data) | synthetic and text corpora, batching for pretraining | yes | 01–06 |
 | 6 | [`training`](#6-training) | LR schedules, grouped AdamW, training loop, checkpoints | yes | 02–06 |
 | 7 | [`inference`](#7-inference) | speculative decoding, batched generation, KV-cache sizing | yes | 06 |
-| 8 | [`recsys`](#8-recsys) | SASRec-style sequential recommender, collaborative and content embeddings, leave-one-out, baselines | partial | 12 |
-| 9 | [`evaluation`](#9-evaluation) | perplexity, exact match, F1/ROUGE-L, recall/nDCG/MRR, faithfulness proxy, latency, classification | partial | 02, 04, 05, 06, 12 |
-| 10 | [`config`](#10-config) | `get_llm`, `get_embeddings`, `setup`: models and services for notebooks 07–16, read from `.env` | no | 10–16 |
+| 8 | [`recsys`](#8-recsys) | MovieLens-1M (download, loading, time-ordered split with cold items, full-ranking ranks and metrics); synthetic catalog, small SASRec and embedding rankers | partial | 12 |
+| 9 | [`evaluation`](#9-evaluation) | perplexity, exact match, F1/ROUGE-L, recall/nDCG/MRR, bootstrap intervals, faithfulness proxy, latency, classification | partial | 02, 04, 05, 06, 10, 12 |
+| 10 | [`config`](#10-config) | `get_llm`, `get_judge_llm`, `get_embeddings`, `setup`: models and services for notebooks 10–16, read from `.env` | no | 10–16 |
 
 "Partial" means the module imports `torch` optionally (`try/except ImportError`): the pure metrics and the synthetic data work without PyTorch, anything that touches a model does not. `config` does not need `torch`, but it does need `langchain-ollama` (or `langchain-openai` / `langchain-anthropic`, depending on the provider) and, optionally, `python-dotenv`.
 
@@ -546,59 +546,65 @@ With untrained models the acceptance rate is meaningless. The interesting part i
 
 ## 8. `recsys`
 
-**What it solves.** It shows that modern recommenders use the same machinery as LLMs. The stack has two stages: **retrieval** (from millions of items down to hundreds) and **ranking** (ordering the candidates). The module works with synthetic data that has hidden structure, so there is something to measure. It holds the data, the SASRec training and the embedding rankers; the final LLM stage (re-ranking and explanation) is built with LangChain in section 4 of notebook 12.
+**What it solves.** It shows that modern recommenders run on the same machinery as LLMs, and gives notebook 12 what it needs to evaluate honestly on real data. It has two parts. The **MovieLens-1M** part (v2.1) downloads and loads the dataset, makes the time-ordered split with cold items, and computes ranks and metrics with full ranking; notebook 12 builds the whole funnel on top (SASRec, two-tower, LightGBM, exploration, MMR and the LLM layer). The **synthetic** part (a catalog with hidden taste clusters, a small SASRec, embedding rankers) was notebook 12 in v2; it is kept because the tests use it and it runs on CPU in seconds.
 
 **Key concepts.**
-- *Sequential recommendation = next-token prediction* (SASRec 2018, Meta's HSTU). `TransformerLM` is reused **unchanged**: the vocabulary is the catalog (`vocab_size = n_items + 1`, with 0 = padding) and the "sentence" is the user's history. Padding targets are set to `-100` so the loss ignores them.
-- *Left padding*: the most recent items end up at the end, where the model predicts.
-- *Synthetic data*: every item belongs to a latent taste *cluster*. Every user has 1–2 favourite clusters. With probability `stickiness` the next item comes from a favourite, and within the cluster it is picked with a Zipf popularity skew, so the popularity baseline is not trivial to beat.
-- *Leave-one-out protocol*: train on the whole history except the last item, which becomes the test target (the standard SASRec protocol). The hit@k and nDCG@k metrics live in [`evaluation`](#9-evaluation).
-- *Embeddings*: the rows of the sequential model's `tok_emb` are item vectors that carry the **collaborative** signal. **Content** embeddings (from the descriptions) solve *cold start* for items with no interactions. By default `content_embeddings` computes a word TF-IDF inside the function itself (enough for the synthetic catalog); pass it a LangChain embeddings object (for example `config.get_embeddings()`) and it uses that neural model through `embed_documents`. The user vector is the recency-weighted mean (`recency_decay^(age)`) of their history.
-- *LLM re-ranking* (notebook 12, not in the module): the LLM reads the history and a short list of candidates and re-orders it with structured output. It is useful at the end of the funnel (tens of candidates) and far too slow for retrieval.
+- *Sequential recommendation = next-token prediction* (SASRec 2018, Meta's HSTU). `TransformerLM` is reused **unchanged**: the vocabulary is the catalog (`vocab_size = n_items + 1`, with 0 = padding) and the "sentence" is the user's history. That is why `MovieLens` re-indexes the movies to 1..n_items.
+- *Leave-last-two split in time order* (`temporal_split`): for every user the last event is the test target, the one before it the validation target, and everything earlier is history. A `cold_frac` of the items (among those with at least `min_count` ratings, so they do appear as targets) is removed from every history and training sequence, as if they were new releases nobody has watched; they can still be targets, which is what the cold segment measures.
+- *Full ranking* (`target_ranks`): the target's rank among **all** items, after removing the padding id and what the user has already seen. Ranking against 100 sampled negatives inflates the metrics and can change which model looks best (Krichene and Rendle, 2020).
+- *Per-user metrics* (`rank_metrics`): arrays of hit@k, nDCG@k and reciprocal rank, not averages, so they can be segmented (warm against cold) and fed to `evaluation.paired_bootstrap_diff`. With one relevant item, nDCG@k is $1/\log_2(r+2)$ for the 0-based rank $r$.
+- *Synthetic part*: each item belongs to a latent taste cluster and each user has 1–2 favourites; with probability `stickiness` the next item comes from a favourite, with a Zipf popularity bias. Left padding (recent items at the end), padding targets set to `-100`, leave-one-out protocol. `content_embeddings` uses TF-IDF by default, or any LangChain embeddings object.
 
-**Public API.**
+**Public API: MovieLens-1M (notebook 12).**
 
 | Signature | What it does |
 |---|---|
-| `Catalog(n_items: int, titles: list[str], descriptions: list[str], genres: list[str], item_cluster: np.ndarray)` | Catalog *dataclass* (`item_cluster` is the hidden cluster, which the model never sees). |
+| `ML1M_URL` | URL of the official GroupLens zip. |
+| `download_movielens_1m(cache_dir: str \| None = None) -> str` | Downloads (6 MB) and unzips MovieLens-1M once; returns the folder with `movies.dat`, `ratings.dat` and `users.dat`. Defaults to `data/cache/`, which git ignores: the GroupLens license does not allow redistributing the data. |
+| `MovieLens(titles, genres, years, genre_names, events, demographics)` | Dataclass with item ids re-indexed to 1..n_items (`titles[0] == ""` is the padding). `events`: `{user: [(timestamp, item, rating), ...]}` in time order; `demographics`: `{user: (gender, age code, occupation code)}`; `years`: release year per id. Property `n_items`. |
+| `load_movielens_1m(folder: str) -> MovieLens` | Parses the three `.dat` files. Only movies with at least one rating are kept (3,706); timestamp ties keep the file order, so the sequence is deterministic. |
+| `temporal_split(data: MovieLens, cold_frac: float = 0.1, min_count: int = 20, seed: int = 0) -> dict` | Leave-last-two split with cold items. Returns `users`, `cold` (a set of ids), `train` (sequences), `valid` and `test` (lists of `(history, target)`), `valid_time` and `test_time` (target timestamps). |
+| `target_ranks(scores, histories: list[list[int]], targets: list[int])` | `scores` is a `(users, n_items + 1)` tensor; returns each target's rank (0 = first) among all unseen items. Needs torch. |
+| `rank_metrics(ranks, k: int = 10) -> dict` | `{"hit@k", "ndcg@k", "rr"}`, each a per-user array. Accepts tensors or arrays. |
+
+**Public API: synthetic part (tests and quick examples).**
+
+| Signature | What it does |
+|---|---|
+| `Catalog(n_items: int, titles: list[str], descriptions: list[str], genres: list[str], item_cluster: np.ndarray)` | Catalog dataclass (`item_cluster` is the hidden cluster, never shown to the model). |
 | `make_catalog(n_items: int = 200, n_clusters: int = 8, seed: int = 0) -> Catalog` | Synthetic catalog. |
 | `make_interactions(catalog: Catalog, n_users: int = 500, min_len: int = 8, max_len: int = 25, stickiness: float = 0.75, seed: int = 0) -> list[list[int]]` | Sessions (ids 1..n_items). |
 | `leave_one_out_split(sessions: list[list[int]])` | Returns `(train, test)` with `test = [(history, target), ...]`. |
-| `popularity_ranker(train_sessions: list[list[int]], n_items: int)` | Returns a function `rank(history, k=10) -> list[int]` that skips already-seen items. |
-| `sessions_to_tensor(sessions: list[list[int]], max_len: int, pad: int = 0)` | Left-pads or truncates to `(N, max_len)` (needs torch). |
+| `popularity_ranker(train_sessions: list[list[int]], n_items: int)` | Returns a function `rank(history, k=10) -> list[int]` that excludes seen items. |
+| `sessions_to_tensor(sessions: list[list[int]], max_len: int, pad: int = 0)` | Left-pads and truncates to `(N, max_len)` (needs torch). |
 | `train_sasrec(model, train_sessions: list[list[int]], max_len: int = 32, steps: int = 400, batch_size: int = 64, lr: float = 2e-3, device: str = "cpu", log_every: int = 100, seed: int = 0)` | Next-item training with AdamW; returns the list of losses. |
 | `sasrec_rank(model, history: list[int], k: int = 10, max_len: int = 32, device: str = "cpu", exclude_seen: bool = True) -> list[int]` | Top-k from the logits at the last position. |
 | `item_embeddings_from_model(model) -> np.ndarray` | Normalized collaborative embeddings (rows of `tok_emb`). |
-| `content_embeddings(catalog: Catalog, embedder=None) -> np.ndarray` | Normalized content embeddings (row 0 = padding). TF-IDF by default; `embedder` = any LangChain embeddings. |
-| `embedding_rank(E: np.ndarray, history: list[int], k: int = 10, recency_decay: float = 0.8) -> list[int]` | Ranks by cosine to the user vector, skipping seen items. |
+| `content_embeddings(catalog: Catalog, embedder=None) -> np.ndarray` | Normalized content embeddings (row 0 = padding). TF-IDF by default; `embedder` = any LangChain embeddings object. |
+| `embedding_rank(E: np.ndarray, history: list[int], k: int = 10, recency_decay: float = 0.8) -> list[int]` | Cosine ranking against the user vector (a recency-weighted mean), excluding seen items. |
 
-**Example.**
+**Example** (MovieLens-1M; the first run downloads 6 MB).
 
 ```python
-from llm_edu_suite.recsys import (make_catalog, make_interactions, leave_one_out_split, popularity_ranker,
-                                  train_sasrec, sasrec_rank, item_embeddings_from_model,
-                                  content_embeddings, embedding_rank)
-from llm_edu_suite.evaluation import evaluate_ranking
-from llm_edu_suite.model import ModelConfig, TransformerLM
+import torch
+from llm_edu_suite.recsys import download_movielens_1m, load_movielens_1m, temporal_split, target_ranks, rank_metrics
+from llm_edu_suite.evaluation import bootstrap_ci
 
-cat = make_catalog(n_items=100)
-train, test = leave_one_out_split(make_interactions(cat, n_users=200))
-pop = popularity_ranker(train, cat.n_items)
+ml = load_movielens_1m(download_movielens_1m())
+split = temporal_split(ml, cold_frac=0.1)
+print(ml.n_items, len(split["users"]), len(split["cold"]))       # 3706 6040 370
 
-model = TransformerLM(ModelConfig(vocab_size=cat.n_items + 1, d_model=64, n_layers=2, max_seq_len=32))
-train_sasrec(model, train, max_len=32, steps=100, log_every=50)
-
-E_content = content_embeddings(cat)                  # TF-IDF; or content_embeddings(cat, get_embeddings())
-E_collab = item_embeddings_from_model(model)
-for name, rank in [("popularity", lambda h: pop(h, 10)), ("sasrec", lambda h: sasrec_rank(model, h, 10)),
-                   ("content", lambda h: embedding_rank(E_content, h, 10)),
-                   ("collaborative", lambda h: embedding_rank(E_collab, h, 10))]:
-    print(name, evaluate_ranking([(rank(h), {t}) for h, t in test], ks=(10,)))
+# popularity baseline: the same score for every user
+counts = torch.bincount(torch.tensor([i for s in split["train"] for i in s]), minlength=ml.n_items + 1).float()
+hist, tgt = zip(*split["test"])
+ranks = target_ranks(counts.expand(len(hist), -1), list(hist), list(tgt))
+m = rank_metrics(ranks, k=10)
+print(bootstrap_ci(m["hit@10"]))       # (0.036, 0.031, 0.040): mean and 95 % interval, the notebook's popularity
 ```
 
-**In production:** *two-tower* models (TensorFlow Recommenders, TorchRec) with an ANN index (FAISS, ScaNN); SASRec/BERT4Rec in RecBole; HSTU / *generative recommenders* (Meta); LLM re-ranking only on short lists.
+**In production:** *two-tower* models (TensorFlow Recommenders, TorchRec) with an ANN index (FAISS, ScaNN); SASRec/BERT4Rec in RecBole or RecTools; HSTU / *generative recommenders* (Meta); LambdaMART rankers with LightGBM, XGBoost or CatBoost; NVIDIA Merlin, RecTools and RePlay for two-stage pipelines.
 
-**Notebooks:** 12 (hit@k / nDCG@k vs random, popularity and content; in section 4, re-ranking SASRec's top 20 with `ChatPromptTemplate | get_llm().with_structured_output(...)` against a genre-match re-ranker).
+**Notebooks:** 12 (`download_movielens_1m`, `load_movielens_1m`, `temporal_split`, `target_ranks`, `rank_metrics` throughout; the funnel, SASRec on `TransformerLM`, the two-tower model, the LightGBM ranker, exploration, MMR and the LLM layer live in the notebook itself). The synthetic functions are used by the tests (`tests/`).
 
 ---
 
@@ -614,6 +620,8 @@ for name, rank in [("popularity", lambda h: pop(h, 10)), ("sasrec", lambda h: sa
   - recall@k = |top-k ∩ rel| / |rel|; precision@k = |top-k ∩ rel| / k; hit@k = 1 if at least one relevant item is in the top-k;
   - MRR = 1 / position of the first relevant item;
   - nDCG@k = $\sum_{i \le k,\, d_i \in rel} \frac{1}{\log_2(i+1)} \big/ \text{IDCG}$ (binary relevance).
+- *Bootstrap intervals* (`bootstrap_ci`): resample the per-example scores with replacement (2,000 times by default), recompute the mean, and take the $\alpha/2$ and $1-\alpha/2$ quantiles. With 20 questions the interval is wide, which is the honest answer to "is 0.54 really better than 0.38?". NaNs (a judge call that failed) are dropped first.
+- *Paired bootstrap* (`paired_bootstrap_diff`): the mean of the differences `b - a` over the same examples (same questions or users, two systems), with its interval. If it excludes 0, the difference is unlikely to be noise. Pairing cancels the variation that comes from how hard each example is.
 - *Faithfulness proxy* (`context_support`): the fraction of answer tokens (of length ≥ `min_len`) that appear in the retrieved context. It is cheap and crude; the real thing is an LLM judge with a rubric, such as RAGAS `Faithfulness`.
 - *System benchmarks*: TTFT (time to first token, which measures *prefill*) and decode tokens/s, with CUDA synchronization and peak memory.
 
@@ -626,6 +634,8 @@ for name, rank in [("popularity", lambda h: pop(h, 10)), ("sasrec", lambda h: sa
 | `token_f1(pred: str, ref: str) -> float`, `rouge_l(pred: str, ref: str) -> float` | Text overlap. |
 | `recall_at_k`, `precision_at_k`, `hit_rate_at_k` `(ranked: list, relevant: set, k: int) -> float`; `mrr(ranked: list, relevant: set) -> float`; `ndcg_at_k(ranked: list, relevant: set, k: int) -> float` | Ranking metrics. |
 | `evaluate_ranking(queries: list[tuple[list, set]], ks=(1, 5, 10)) -> dict` | Averages of `recall@k`, `hit@k`, `ndcg@k` and `mrr`. |
+| `bootstrap_ci(values, n_boot: int = 2000, alpha: float = 0.05, seed: int = 0) -> tuple[float, float, float]` | `(mean, low, high)` with a percentile-bootstrap interval at level `1 - alpha`. Drops `None` and NaN; returns NaNs if nothing is left. |
+| `paired_bootstrap_diff(a, b, n_boot: int = 2000, alpha: float = 0.05, seed: int = 0) -> tuple[float, float, float]` | Mean difference `b - a` over aligned pairs, with its interval (pairs with a NaN are dropped). |
 | `context_support(answer: str, context: str, min_len: int = 4) -> float` | Faithfulness proxy. |
 | `benchmark_generation(model, prompt_ids, max_new_tokens: int = 64, n_runs: int = 3, **gen_kwargs) -> dict` | `ttft_ms`, `tokens_per_s`, `batch` (+ `peak_mem_mb` on CUDA). |
 | `accuracy(preds, labels) -> float`, `confusion_counts(preds, labels) -> dict` | Classification. `confusion_counts` returns `{(label, prediction): n}`. |
@@ -643,17 +653,22 @@ print(context_support("Express shipping takes 2 days", "Express shipping deliver
 print(exact_match_rate(lambda s: s[::-1], [("abc", "cba"), ("ab", "ab")]))                                 # 0.5
 print(accuracy(["a", "b", "a"], ["a", "a", "a"]), confusion_counts(["a", "b", "a"], ["a", "a", "a"]))
 # 0.666...  {('a', 'a'): 2, ('a', 'b'): 1}
+
+from llm_edu_suite.evaluation import bootstrap_ci, paired_bootstrap_diff
+dense, hybrid = [0.5, 1.0, 0.0, 1.0, 0.5], [1.0, 1.0, 0.5, 1.0, 1.0]   # one score per question
+print(bootstrap_ci(hybrid))                    # (0.9, 0.7, 1.0): mean and 95 % interval
+print(paired_bootstrap_diff(dense, hybrid))    # (0.3, 0.1, 0.5): hybrid - dense; the interval excludes 0
 ```
 
 **In production:** `lm-evaluation-harness` (EleutherAI), `lighteval`, HELM; RAGAS / TruLens / DeepEval for RAG; LangSmith (datasets, experiments and evaluators) for applications; `ranx` / `pytrec_eval` for IR; MT-Bench / AlpacaEval / Arena-Hard as LLM judges; `vllm bench` / GuideLLM / `genai-perf` for latency and *throughput*.
 
-**Notebooks:** 02, 04 and 05 (`perplexity`), 06 (`benchmark_generation`) and 12 (`evaluate_ranking`). The [`train.py`](cli_scripts.md#trainpy) script uses `perplexity`.
+**Notebooks:** 02, 04 and 05 (`perplexity`), 06 (`benchmark_generation`), 10 (`bootstrap_ci` and `paired_bootstrap_diff` on the RAGAS scores) and 12 (`bootstrap_ci` and `paired_bootstrap_diff` for every comparison between recommender stages; the per-user metrics come from `recsys.rank_metrics`). The [`train.py`](cli_scripts.md#trainpy) script uses `perplexity`.
 
 ---
 
 ## 10. `config`
 
-**What it solves.** It is the one place where the models and services of the frameworks half are chosen (notebooks 10–16 and the `rag_demo.py` script). By default everything runs locally: Ollama serves the `qwen2.5:3b` chat model and the `nomic-embed-text` embedding model on your own machine (on the GPU if you have one), and LangSmith records traces when you put an API key in `.env`. Everything is read from environment variables, so switching provider is a one-line change in `.env`, not a code change.
+**What it solves.** It is the one place where the models and services of the frameworks half are chosen (notebooks 10–16 and the `rag_demo.py` script). By default everything runs locally: Ollama serves the `qwen2.5:3b` chat model, the `nomic-embed-text` embedding model and, if it is pulled, the `qwen2.5:7b` judge on your own machine (on the GPU if you have one), and LangSmith records traces when you put an API key in `.env`. Everything is read from environment variables, so switching provider is a one-line change in `.env`, not a code change.
 
 **Key concepts.**
 - *A single point of configuration*: the notebooks never build `ChatOllama(...)` by hand, they call `get_llm()`. Change `LLM_PROVIDER` or `LLM_MODEL` and they all change at once.
@@ -661,6 +676,7 @@ print(accuracy(["a", "b", "a"], ["a", "a", "a"]), confusion_counts(["a", "b", "a
 - *Lazy imports*: the provider's LangChain class (`langchain_ollama`, `langchain_openai` or `langchain_anthropic`) is imported inside `get_llm` / `get_embeddings`, so you only need to install the one for the provider you use.
 - *Anthropic has no embeddings API*: with `LLM_PROVIDER=anthropic`, `get_embeddings()` falls back to Ollama (`OllamaEmbeddings`).
 - *`.env` without overriding the environment*: `load_env()` loads the `.env` at the repository root with `override=False`, so a variable already set in your shell wins. `python-dotenv` is optional; without it, plain environment variables still work.
+- *A judge stronger than the system it grades*: `judge_model()` picks the model for LLM-as-judge (RAGAS, LangSmith evaluators). `JUDGE_MODEL` wins if it is set; with Ollama, `qwen2.5:7b` if it is in the list of pulled models (`ollama_models()`), otherwise the chat model. In notebook 10, the 3B model grading itself invented differences that the 7B judge does not confirm.
 - *One LangSmith project per notebook*: `setup(project=...)` sets `LANGSMITH_PROJECT` (only when LangSmith is enabled), so each notebook's traces land in their own project.
 
 **Environment variables** (all optional):
@@ -669,6 +685,7 @@ print(accuracy(["a", "b", "a"], ["a", "a", "a"]), confusion_counts(["a", "b", "a
 |---|---|
 | `LLM_PROVIDER` | `ollama` (default) \| `openai` \| `anthropic` |
 | `LLM_MODEL` | default `qwen2.5:3b` (Ollama), `gpt-4o-mini` (OpenAI), `claude-haiku-4-5` (Anthropic) |
+| `JUDGE_MODEL` | the judge model; default `qwen2.5:7b` if it is pulled in Ollama, otherwise the chat model |
 | `EMBEDDING_MODEL` | default `nomic-embed-text` (Ollama), `text-embedding-3-small` (OpenAI) |
 | `OLLAMA_BASE_URL` | default `http://localhost:11434` |
 | `LANGSMITH_TRACING` | `true` to send traces to LangSmith (needs `LANGSMITH_API_KEY`) |
@@ -681,14 +698,17 @@ The OpenAI and Anthropic keys are read directly by `ChatOpenAI` / `ChatAnthropic
 
 | Signature | What it does |
 |---|---|
-| `setup(project: str \| None = None, quiet: bool = False) -> dict` | Call it once at the top of a notebook: loads `.env`, sets the LangSmith project (if enabled), checks Ollama and prints what is configured (unless `quiet=True`). Returns `{"provider", "chat_model", "embedding_model", "ollama_running", "langsmith"}`. If Ollama does not answer, it prints how to start it and the `ollama pull` commands you need. |
+| `setup(project: str \| None = None, quiet: bool = False) -> dict` | Call it once at the top of a notebook: loads `.env`, sets the LangSmith project (if enabled), checks Ollama and prints what is configured (unless `quiet=True`). Returns `{"provider", "chat_model", "judge_model", "embedding_model", "ollama_running", "langsmith"}`. If Ollama does not answer, it prints how to start it and the `ollama pull` commands you need. |
 | `get_llm(model: str \| None = None, temperature: float = 0.0, **kwargs)` | The LangChain chat model: `ChatOllama` (with `base_url=OLLAMA_BASE_URL`), `ChatOpenAI` or `ChatAnthropic`. `model` overrides `LLM_MODEL`; `**kwargs` go straight to the class (for example `num_predict=200` for Ollama). Raises `ValueError` for an unknown provider. |
+| `judge_model() -> str` | The judge model's name: `JUDGE_MODEL`; if unset, with Ollama `qwen2.5:7b` when it is pulled (also as `qwen2.5:7b:latest`); otherwise the chat model (`LLM_MODEL` or the one in `DEFAULTS`). |
+| `get_judge_llm(**kwargs)` | `get_llm(model=judge_model(), temperature=0.0, **kwargs)`: a chat model for grading. |
+| `ollama_models(timeout: float = 2.0) -> list[str]` | Names of the models pulled into the local Ollama server (`/api/tags`); an empty list if it does not answer. |
 | `get_embeddings(model: str \| None = None)` | The LangChain embedding model: `OpenAIEmbeddings` with `LLM_PROVIDER=openai`; `OllamaEmbeddings` otherwise (Anthropic included). |
 | `ollama_available(timeout: float = 2.0) -> bool` | `True` if an Ollama server answers at `OLLAMA_BASE_URL/api/tags`. Notebooks and tests use it to fail early with a helpful message. |
 | `langsmith_enabled() -> bool` | `True` if `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` is set. |
 | `provider() -> str` | The active provider (`LLM_PROVIDER` lower-cased, `ollama` by default). |
 | `load_env() -> None` | Loads the project's `.env` without overriding variables already set. The other functions already call it. |
-| `DEFAULTS` | A `{provider: {"chat": ..., "embeddings": ...}}` dict with the default models. |
+| `DEFAULTS` | A `{provider: {"chat": ..., "embeddings": ...}}` dict with the default models; the Ollama entry also has `"judge": "qwen2.5:7b"`. |
 | `ROOT` | `Path` of the repository root (where `.env` is looked up). |
 
 **Example.**
@@ -699,6 +719,7 @@ from llm_edu_suite.config import setup, get_llm, get_embeddings, langsmith_enabl
 info = setup(project="my-experiment")
 # provider        : ollama
 # chat_model      : qwen2.5:3b
+# judge_model     : qwen2.5:7b        (or qwen2.5:3b if the 7B model is not pulled)
 # embedding_model : nomic-embed-text
 # ollama_running  : True
 # langsmith       : off (add LANGSMITH_API_KEY to .env to enable)
@@ -722,16 +743,16 @@ LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=lsv2_...
 ```
 
-Before using Ollama, pull the models: `ollama pull qwen2.5:3b` and `ollama pull nomic-embed-text` (see [Installation](installation.md)).
+Before using Ollama, pull the models: `ollama pull qwen2.5:3b` and `ollama pull nomic-embed-text`, and optionally `ollama pull qwen2.5:7b` for the judge (see [Installation](installation.md)).
 
 **In production:** the same idea, with a secrets manager instead of `.env`; LangChain's `init_chat_model` to pick a provider by name; a model gateway (LiteLLM, for example) when there are many teams and providers.
 
-**Notebooks:** 10, 11, 13, 14, 15 and 16 (`setup`, `get_llm`, `get_embeddings` in the setup cell), 12 (`setup`, `get_llm` for re-ranking) and 15 (`langsmith_enabled`). The [`rag_demo.py`](cli_scripts.md#rag_demopy) script uses it too.
+**Notebooks:** 10, 11, 13, 14, 15 and 16 (`setup`, `get_llm`, `get_embeddings` in the setup cell; 10 takes the RAGAS judge from `setup()["judge_model"]`), 12 (`setup`, `get_embeddings` for the movie texts and `get_llm` for the request and explanation layer) and 15 (`langsmith_enabled`). The [`rag_demo.py`](cli_scripts.md#rag_demopy) script uses it too.
 
 ---
 
 ## See also
 
-- [Command-line scripts](cli_scripts.md): `train.py`, `sample.py`, `finetune.py`, `rag_demo.py`, `mini_llm.py`, `mcp_server.py`.
+- [Command-line scripts](cli_scripts.md): `train.py`, `sample.py`, `finetune.py`, `rag_demo.py`, `mini_llm.py`, `mcp_server.py`, `generate_item_keywords.py`.
 - [Notebooks guide](notebooks_guide.md): the course path from 00 to 16.
 - [Glossary](glossary.md): short definitions of the terms used here.

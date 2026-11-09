@@ -2,7 +2,7 @@
 
 # Scripts de línea de comandos
 
-> Guía de los seis scripts de `scripts/` (más `tools/build_notebooks.py`, `tools/run_notebooks.py` y los objetivos del `Makefile`): todos sus argumentos reales (extraídos de `argparse`), qué hace cada script internamente, ejemplos de uso y resultados medidos.
+> Guía de los siete scripts de `scripts/` (más `tools/build_notebooks.py`, `tools/run_notebooks.py` y los objetivos del `Makefile`): todos sus argumentos reales (extraídos de `argparse`), qué hace cada script internamente, ejemplos de uso y resultados medidos.
 >
 > Documentos relacionados: [README](README.md) · [Instalación](instalacion.md) · [Referencia de módulos](referencia_modulos.md) · [Guía de notebooks](guia_notebooks.md) · [Caso de estudio](caso_de_estudio.md) · [Glosario](glosario.md)
 
@@ -14,6 +14,7 @@
 | [`finetune.py`](#finetunepy) | Post-training de SmolLM2-135M-Instruct: subcomandos `sft`, `dpo` o `grpo`, cada uno evaluado antes y después | Hugging Face `transformers` + `peft` + `trl` | PyTorch, descarga de ~260 MB la primera vez; muy recomendable una GPU |
 | [`rag_demo.py`](#rag_demopy) | RAG híbrido con citas sobre una carpeta de documentos, con métricas de recuperación y evaluación RAGAS opcional | LangChain (FAISS + BM25 + `EnsembleRetriever`), RAGAS | Ollama (`qwen2.5:3b`, `nomic-embed-text`) |
 | [`mcp_server.py`](#mcp_serverpy) | Un servidor MCP (`llm-edu-docs`) que expone `data/sample_docs` a Claude Code, Claude Desktop o cualquier cliente MCP | SDK oficial de MCP para Python (`FastMCP`) + `rank_bm25` | Nada más (ni PyTorch ni Ollama) |
+| [`generate_item_keywords.py`](#generate_item_keywordspy) | Palabras clave escritas por un LLM para cada película de MovieLens-1M (las usa el notebook 12); reanudable | `llm_edu_suite` (`config`, `recsys`) + LangChain | Ollama con `qwen2.5:7b`; descarga MovieLens-1M (6 MB) la primera vez |
 
 ---
 
@@ -35,7 +36,7 @@ Todos los comandos se ejecutan desde la **raíz del repositorio** y con el inté
 
 En el resto del documento cada ejemplo aparece en las dos formas. Si un comando largo se parte en varias líneas, el carácter de continuación es `` ` `` en PowerShell, `^` en cmd y `\` en bash.
 
-Todos los scripts con argumentos aceptan `-h` / `--help` (`mini_llm.py` no tiene: se configura con su diccionario `CFG`). `train.py`, `finetune.py` y `rag_demo.py` muestran además en la ayuda su docstring con ejemplos.
+Todos los scripts con argumentos aceptan `-h` / `--help` (`mini_llm.py` no tiene: se configura con su diccionario `CFG`). `train.py`, `finetune.py`, `rag_demo.py` y `generate_item_keywords.py` muestran además en la ayuda su docstring con ejemplos.
 
 Salvo que se indique otra cosa, los números de este documento se midieron en una RTX 3060 Laptop GPU (6 GB) con Ollama en local; los de `train.py` / `sample.py` son de CPU.
 
@@ -450,7 +451,7 @@ RAG sobre una carpeta de ficheros `.md` / `.txt` con **LangChain**: recuperació
 | `--docs` | ruta | `data/knowledge_base` | Carpeta con ficheros `.md` / `.txt` (solo el primer nivel, no recursivo). |
 | `--ask` | str | `None` | Pregunta a responder con citas. |
 | `--eval` | ruta (valor opcional) | `None` | Un JSON de evaluación. Si se pasa **sin** valor, usa `data/eval/rag_eval.json`. |
-| `--ragas` | flag | off | Con `--eval`: además genera una respuesta para cada pregunta y las puntúa con RAGAS. Lento: el LLM hace de juez. |
+| `--ragas` | flag | off | Con `--eval`: además genera una respuesta para cada pregunta y las puntúa con RAGAS. Lento: juzga `config.judge_model()` (`qwen2.5:7b` si está descargado; si no, el modelo de chat). |
 | `--retriever` | opción | `hybrid` | `hybrid`, `dense` o `bm25`: el recuperador que usa la cadena (y RAGAS). |
 | `--k` | int | `4` | Chunks por respuesta. |
 | `--chunk-size` | int | `800` | Caracteres por chunk; el solapamiento es `chunk_size // 8`. |
@@ -557,7 +558,7 @@ Medido (6 preguntas, juez `qwen2.5:3b`, la parte de RAGAS 47 s, ~55 s en total):
 
 - Las respuestas salen de un modelo de 3B en local: en este corpus suelen ser correctas, pero pueden parafrasear, citar el número de pasaje equivocado o responder de más (el ejemplo `--ask` con `dense` sobre `sample_docs` devolvió el documento de devoluciones entero). Para eso están las métricas de RAGAS.
 - `--ragas` usa Ollama para el juez aunque `LLM_PROVIDER` sea `openai` o `anthropic`.
-- Un juez de 3B es ruidoso. Usa sus puntuaciones RAGAS como señal relativa (comparar recuperadores o tamaños de chunk con el mismo juez), no como calidad absoluta.
+- Un juez de 3B es ruidoso (descarga `qwen2.5:7b` para usar el juez más fuerte; la medición de arriba se hizo con el 3B). Usa sus puntuaciones RAGAS como señal relativa (comparar recuperadores o tamaños de chunk con el mismo juez), no como calidad absoluta.
 - El índice FAISS vive en memoria y se reconstruye en cada ejecución (unos segundos para este corpus).
 - `langchain-community` muestra un aviso de *sunset* para `FAISS` / `BM25Retriever`; el script lo filtra.
 
@@ -692,6 +693,50 @@ El notebook 16 recorre las dos formas y construye un agente encima de las herram
 - `FastMCP` es aquí la clase del SDK 1.x. El curso fija `mcp<2` porque `langchain-mcp-adapters` todavía no soporta el SDK 2.x; en 2.x la misma clase se llama `mcp.server.mcpserver.MCPServer` y los decoradores funcionan igual.
 - Dentro de Jupyter, un cliente stdio necesita un apaño porque el `sys.stderr` de Jupyter no tiene un descriptor de fichero del sistema; el notebook 16 ya lo aplica. En scripts normales no hace falta.
 
+## `generate_item_keywords.py`
+
+Escribe con un LLM un perfil de palabras clave para cada película de MovieLens-1M. El notebook 12 las usa como texto de contenido (para el *cold start*) y como feature del ranker, y mide si ayudan en lugar de darlo por hecho (spoiler: en este dataset, no). Es el patrón "LLM como generador de features" offline: se ejecuta una vez por catálogo, no en cada petición.
+
+El resultado ya está en el repositorio, en `data/recsys/ml1m_llm_keywords.json` (3.706 de 3.706 películas), así que el notebook **no** necesita este script. Solo hace falta para regenerarlas, por ejemplo con otro modelo o otro prompt.
+
+### Argumentos
+
+| Argumento | Tipo | Por defecto | Descripción |
+|---|---|---|---|
+| `--model` | str | `qwen2.5:7b` | Modelo de Ollama que escribe las palabras clave. |
+| `--out` | ruta | `data/recsys/ml1m_llm_keywords.json` | Fichero JSON de salida (y de reanudación). |
+| `--batch` | int | `40` | Películas por lote; el fichero se guarda al terminar cada lote. |
+| `--concurrency` | int | `4` | Peticiones simultáneas a Ollama dentro de un lote. |
+
+### Qué hace internamente
+
+1. **Datos.** Carga MovieLens-1M con `recsys.load_movielens_1m(recsys.download_movielens_1m())`, que lo descarga en `data/cache/` la primera vez (6 MB; ver [instalación](instalacion.md#datos-que-se-descargan-al-ejecutar)).
+2. **Reanudación.** Si `--out` ya existe, lo lee y salta las películas que ya tienen perfil. Se puede parar con Ctrl+C y volver a lanzar: como mucho se pierde el lote en curso.
+3. **Prompt.** Para cada película, título y géneros, y la petición de 8 a 12 palabras clave separadas por comas (subgénero, tono, temas, ambientación, época, público) **sin nombres de personas**: los modelos pequeños inventan directores y actores con total seguridad, y un nombre falso en un perfil es peor que ninguno.
+4. **Modelo.** `config.get_llm(model=..., num_predict=48, num_ctx=512)`: una ventana de contexto corta mantiene el 7B entero dentro de una GPU de 6 GB (los prompts tienen unos 60 tokens). Las llamadas van con `llm.batch(..., config={"max_concurrency": ...})`.
+5. **Salida.** Un diccionario `{título: "palabra, palabra, ..."}` ordenado por título, en UTF-8, guardado tras cada lote, con una línea de progreso `hechas/total segundos`.
+
+### Ejemplos
+
+```powershell
+.venv\Scripts\python scripts\generate_item_keywords.py                          # qwen2.5:7b, todas las películas
+.venv\Scripts\python scripts\generate_item_keywords.py --model qwen2.5:3b --out data\cache\kw_3b.json
+```
+
+```bash
+.venv/bin/python scripts/generate_item_keywords.py                              # qwen2.5:7b, todas las películas
+.venv/bin/python scripts/generate_item_keywords.py --model qwen2.5:3b --out data/cache/kw_3b.json
+```
+
+Con `qwen2.5:7b` tarda alrededor de **una hora** en una GPU de portátil de 6 GB. Con `qwen2.5:3b` va más rápido y se inventa más detalles. Escribir en otra ruta (`--out`) evita pisar el fichero que usa el notebook.
+
+### Notas y trampas
+
+- Necesita Ollama en marcha y el modelo descargado (`ollama pull qwen2.5:7b`, 4,7 GB).
+- Las claves del JSON son los **títulos**, tal como aparecen en `movies.dat`; el notebook las cruza por título.
+- Las palabras clave pueden estar mal en películas poco conocidas, y a veces cambian de idioma: en el fichero publicado, *The Ref* (1994) sale descrita como película de deportes de instituto, con tres palabras clave en chino. Por eso el notebook mide antes de usarlas, y la validación acabó rechazándolas.
+- No ejecutes el script a la vez que un notebook de entrenamiento en una GPU de 6 GB (ver [instalación](instalacion.md#notas-sobre-la-gpu)).
+
 ---
 
 ## Herramientas y objetivos del Makefile
@@ -699,9 +744,20 @@ El notebook 16 recorre las dos formas y construye un agente encima de las herram
 **`tools/build_notebooks.py`** regenera los `.ipynb` a partir de sus generadores en `tools/notebooks/nbNN_*.py` (el generador del notebook 00 escribe además `scripts/mini_llm.py`). Regenerar **borra las salidas**.
 
 ```bash
-python tools/build_notebooks.py            # todos los notebooks
-python tools/build_notebooks.py 05 14      # solo algunos, por número
+python tools/build_notebooks.py                       # todos los notebooks
+python tools/build_notebooks.py 05 14                 # solo algunos, por número
+python tools/build_notebooks.py --keep-outputs 05     # cambios solo de texto: conserva las salidas ejecutadas
 ```
+
+### `tools/build_notebooks.py --keep-outputs`
+
+Regenerar desde cero obliga a volver a ejecutar el notebook, y algunos tardan mucho (el 12, unos 25 minutos; el 10, unos 19). Con `--keep-outputs`, el generador busca en el `.ipynb` existente una celda de código con exactamente el mismo fuente (la busca por contenido, no por posición, así que insertar celdas de texto no rompe nada) y, si la encuentra, **conserva sus salidas** (texto, tablas y gráficas) y su contador de ejecución. Las celdas de markdown se reescriben siempre; una celda de código cuyo fuente cambió se queda sin salidas, y el script imprime cuántas hay que volver a ejecutar (`N code cell(s) changed and need a re-run`) o `no code changed`. También conserva los metadatos del kernel, para que un notebook sin cambios no produzca diff. Es lo que quieres cuando solo has editado prosa, por ejemplo al añadir un apartado de teoría:
+
+```bash
+python tools/build_notebooks.py --keep-outputs 10 12    # reescribe el texto de 10 y 12 sin perder la ejecución
+```
+
+Úsalo solo para cambios que no alteran ningún resultado. Si cambias código, vuelve a ejecutar el notebook entero con `tools/run_notebooks.py`: conservar salidas de celdas sin cambios cuyos datos de entrada sí cambiaron (porque una celda anterior es distinta) dejaría salidas que el código ya no produce.
 
 **`tools/run_notebooks.py`** ejecuta notebooks sin interfaz y **en el sitio** (conservan sus salidas), cada uno con su propia carpeta como directorio de trabajo, igual que Jupyter. Busca en `notebooks/` de forma **recursiva**, así que encuentra los notebooks de todas las carpetas temáticas. Los argumentos pueden ser nombres de fichero o prefijos numéricos:
 
@@ -718,7 +774,7 @@ Imprime `[segundos] nombre: OK | FAIL` por notebook y `N/M notebooks OK` al fina
 | Objetivo | Comando | Qué hace |
 |---|---|---|
 | `make setup` | `bash setup_env.sh` | Crea `.venv` e instala todo (en Windows, ejecuta `setup_env.ps1`). |
-| `make test` | `pytest -q` | Todos los tests. Los 4 tests `ollama` se saltan solos si Ollama no está en marcha. Usa `pytest -q -m "not ollama"` para solo los rápidos (82 tests, ~35 s medidos). |
+| `make test` | `pytest -q` | Todos los tests. Los 4 tests `ollama` se saltan solos si Ollama no está en marcha. Usa `pytest -q -m "not ollama"` para solo los rápidos (85 tests, ~35 s). |
 | `make notebooks` | `python tools/build_notebooks.py` | Regenera todos los `.ipynb` (y `scripts/mini_llm.py`) desde los generadores. **Borra las salidas.** |
 | `make run-notebooks` | `python tools/run_notebooks.py` | Ejecuta todos los notebooks en el sitio. |
 | `make smoke` | `train.py --steps 100 --d-model 64 --n-layers 2 ...` | Prueba de humo corta de preentrenamiento. |
@@ -740,6 +796,6 @@ Imprime `[segundos] nombre: OK | FAIL` por notebook y `N/M notebooks OK` al fina
 | `rag_demo.py --docs data/sample_docs --eval data/sample_eval.json --ragas` | RTX 3060 Laptop GPU + Ollama | faithfulness **1.00**, answer relevancy **0.75**, context precision **1.00**, context recall **1.00**; ~55 s |
 | `rag_demo.py --ask "..."` | RTX 3060 Laptop GPU + Ollama | ~10–16 s incluido el indexado |
 | `mcp_server.py` con un cliente stdio del SDK | CPU | sesión completa (arranque, `initialize`, listar todo, 4 llamadas a herramientas, 1 lectura de recurso) ≈ 2 s |
-| `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 82 pasan en ~35 s / 4 pasan en ~40 s |
+| `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 85 pasan en ~35 s / 4 pasan en ~40 s |
 
 Para el contexto pedagógico de cada etapa, consulta la [guía de notebooks](guia_notebooks.md). Para un recorrido de principio a fin con interpretación de resultados, el [caso de estudio](caso_de_estudio.md).

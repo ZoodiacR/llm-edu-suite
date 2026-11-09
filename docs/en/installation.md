@@ -11,8 +11,8 @@ The course has two halves with different needs:
 | Notebooks | What they use | What they need |
 |---|---|---|
 | **00–06** | The from-scratch PyTorch model (package `llm_edu_suite`) | Only PyTorch. CPU works; an NVIDIA GPU is used automatically. |
-| **07–09** | Hugging Face `transformers` + `peft` + `trl` + `optimum-quanto` on SmolLM2 | PyTorch and a one-time download of SmolLM2 from the Hugging Face Hub (~1 GB). A GPU makes them much faster. |
-| **10–16** | LangChain, RAGAS, LangGraph, LangSmith, the official MCP SDK + `langchain-mcp-adapters` | A local **Ollama** server with `qwen2.5:3b` and `nomic-embed-text`. LangSmith is optional. |
+| **07–09** | Hugging Face `transformers` + `peft` + `trl` + `bitsandbytes` + `optimum-quanto` on SmolLM2 | PyTorch and a one-time download of SmolLM2 from the Hugging Face Hub (~1 GB). A GPU makes them much faster; the QLoRA section of 07 needs an NVIDIA GPU (`bitsandbytes`). |
+| **10–16** | LangChain, RAGAS, LangGraph, LangSmith, the official MCP SDK + `langchain-mcp-adapters`; in 12, also FAISS and LightGBM | A local **Ollama** server with `qwen2.5:3b` and `nomic-embed-text` (and, optionally, `qwen2.5:7b` as notebook 10's judge). LangSmith is optional. Notebook 12 downloads MovieLens-1M (6 MB) on the first run. |
 
 No API key is required. Everything runs locally by default.
 
@@ -25,10 +25,11 @@ No API key is required. Everything runs locally by default.
 | NVIDIA GPU | optional | RTX 3060 Laptop GPU, 6 GB |
 | [Ollama](https://ollama.com) | any recent version | 0.40.15 |
 | Disk: virtual environment | ~4 GB with the CUDA build of PyTorch (PyTorch alone is ~2.9 GB); much less with the CPU build | 4.1 GB |
-| Disk: Ollama models | ~2.2 GB (`qwen2.5:3b` 1.9 GB + `nomic-embed-text` 0.27 GB) | |
+| Disk: Ollama models | ~2.2 GB (`qwen2.5:3b` 1.9 GB + `nomic-embed-text` 0.27 GB); 4.7 GB more with the optional `qwen2.5:7b` judge | |
+| Disk: downloaded data | MovieLens-1M, 6 MB zipped, in `data/cache/` | |
 | Disk: Hugging Face cache | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB) | |
 
-The dependencies are declared once, in `pyproject.toml` (with lower bounds); `requirements.txt` only installs the project from there (`-e .[dev]`). These are the versions the course was verified with:
+The dependencies are declared once, in `pyproject.toml` (with lower bounds); `requirements.txt` only contains `-e .[dev]`, which installs the project from there with the `dev` extra (pytest and Jupyter). There is no `requirements-dev.txt` any more. The optional extras `openai` and `anthropic` add the cloud providers (see [Switching provider](#switching-provider)). v2.1 added two dependencies: `lightgbm>=4.5` (the LambdaMART ranker in notebook 12) and `bitsandbytes>=0.45` (the NF4 weights for QLoRA in notebook 07). These are the versions the course was verified with:
 
 | Package | Version | Package | Version |
 |---|---|---|---|
@@ -38,7 +39,8 @@ The dependencies are declared once, in `pyproject.toml` (with lower bounds); `re
 | optimum-quanto | 0.2.7 | langchain-ollama | 1.1.0 |
 | ragas | 0.4.3 | langgraph | 1.2.20 |
 | mcp | 1.30.0 (must stay `<2`) | langsmith | 0.14.17 |
-| langchain-mcp-adapters | 0.3.2 | | |
+| langchain-mcp-adapters | 0.3.2 | faiss-cpu | 1.15.1 |
+| bitsandbytes | 0.50.2 | lightgbm | 4.7.0 |
 
 > **Why a dedicated virtual environment.** Installing into your global Python can drag in broken combinations
 > (for example a `matplotlib` built against NumPy 1.x next to NumPy 2.x fails with
@@ -67,9 +69,9 @@ The script does, in order:
 
 1. Creates `.venv/` if it does not exist and upgrades `pip`.
 2. Installs PyTorch: the **CUDA** build (`cu128` index) if `nvidia-smi` is found, otherwise the small **CPU** build. On macOS it installs the default wheel, which includes MPS support.
-3. Installs `requirements.txt`, which installs the project with its `dev` extra from `pyproject.toml` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, LightGBM, transformers, peft, trl, datasets, accelerate, optimum-quanto, mcp, langchain-mcp-adapters) plus pytest, JupyterLab, ipykernel, nbclient and nbformat.
+3. Installs `requirements.txt`, which installs the project with its `dev` extra from `pyproject.toml` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, LightGBM, transformers, peft, trl, datasets, accelerate, bitsandbytes, optimum-quanto, mcp, langchain-mcp-adapters) plus pytest, JupyterLab, ipykernel, nbclient and nbformat.
 4. Registers the environment as a Jupyter kernel named **"Python (llm-edu-suite)"**.
-5. If the `ollama` command exists, runs `ollama pull qwen2.5:3b` and `ollama pull nomic-embed-text`. If it does not, it prints how to install Ollama and continues.
+5. If the `ollama` command exists, runs `ollama pull qwen2.5:3b` and `ollama pull nomic-embed-text`. If it does not, it prints how to install Ollama and continues. It does not pull the optional `qwen2.5:7b` judge; do that by hand if you want it (see [Ollama](#ollama)).
 6. Creates `.env` from `.env.example` if there is no `.env` yet.
 7. Runs the fast tests: `pytest -q -m "not ollama"`.
 8. (Windows script) prints the PyTorch version and the GPU it found.
@@ -129,6 +131,14 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
    ollama pull nomic-embed-text    # embedding model for retrieval and memory
    ```
 
+   **Optional: a stronger judge.** Notebook 10 uses `qwen2.5:7b` to grade the 3B model's answers with RAGAS, and `scripts/generate_item_keywords.py` uses it to write the movie keywords:
+
+   ```bash
+   ollama pull qwen2.5:7b          # 4.7 GB; the RAGAS judge (notebook 10)
+   ```
+
+   Everything works without it: `config.judge_model()` falls back to the chat model and the 3B model grades itself. Notebook 10 explains why that is a bad idea: with the 3B judge, differences between configurations showed up that the 7B judge does not confirm. With the 7B model, RAGAS scoring takes about 17 minutes on a 6 GB GPU, against about 7 with the 3B. To use another judge, set `JUDGE_MODEL` in `.env`.
+
 4. **Check it:**
 
    ```bash
@@ -147,6 +157,7 @@ From Python, `llm_edu_suite.config.setup()` prints the provider, the models, whe
 |---|---|---|
 | `LLM_PROVIDER` | `ollama` | `ollama`, `openai` or `anthropic`. |
 | `LLM_MODEL` | `qwen2.5:3b` (Ollama), `gpt-4o-mini` (OpenAI), `claude-haiku-4-5` (Anthropic) | The chat model returned by `get_llm()`. |
+| `JUDGE_MODEL` | `qwen2.5:7b` if it is pulled in Ollama, otherwise the chat model | The model that acts as the judge (LLM-as-judge) in evaluations: RAGAS in notebook 10 and `config.get_judge_llm()`. It should be stronger than the model it grades. |
 | `EMBEDDING_MODEL` | `nomic-embed-text` (Ollama), `text-embedding-3-small` (OpenAI) | The embedding model returned by `get_embeddings()`. Anthropic has no embeddings API, so with `anthropic` the embeddings still come from Ollama. |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Where the Ollama server is. |
 | `LANGSMITH_TRACING` | `true` in `.env.example` | Send traces to LangSmith. It only takes effect if `LANGSMITH_API_KEY` is also set. |
@@ -189,24 +200,30 @@ Times measured on the verification machine (RTX 3060 Laptop GPU, Ollama running 
 
 | What | Command | Time |
 |---|---|---|
-| Fast tests (no Ollama needed) | `pytest -q -m "not ollama"` | ~35 s (82 tests) |
+| Fast tests (no Ollama needed) | `pytest -q -m "not ollama"` | ~35 s (85 tests) |
 | Ollama integration tests | `pytest -q -m ollama` | ~40 s (4 tests; they skip themselves if Ollama is not running) |
 | All tests | `pytest -q` | the two above combined |
 | Open the notebooks | `jupyter lab notebooks/` and pick the kernel **Python (llm-edu-suite)** | — |
 | Run every notebook headlessly | `python tools/run_notebooks.py` | long; see the [notebooks guide](notebooks_guide.md) |
 | Run some notebooks | `python tools/run_notebooks.py 05 14` (by number) or `python tools/run_notebooks.py 05_pretraining.ipynb` | — |
-| Rebuild notebooks from their generators | `python tools/build_notebooks.py` (all) or `python tools/build_notebooks.py 05 14` | seconds |
+| Rebuild notebooks from their generators | `python tools/build_notebooks.py` (all) or `python tools/build_notebooks.py 05 14`; with `--keep-outputs` it keeps the outputs of code cells that did not change | seconds |
 | Pretrain a small LM | `python scripts/train.py --steps 300 --out runs/smoke` | see [CLI scripts](cli_scripts.md#trainpy) |
 | SFT with LoRA on SmolLM2 | `python scripts/finetune.py sft` | ~1.5 min on GPU |
 | RAG over the course docs | `python scripts/rag_demo.py --ask "What is GQA?"` | ~15 s |
 | MCP server | `python scripts/mcp_server.py` | — |
 
-The `.ipynb` files are **generated** from `tools/notebooks/nbNN_*.py` (and `scripts/mini_llm.py` from notebook 00's generator). To change a notebook permanently, edit its generator and rebuild; edits made directly in the `.ipynb` are lost on the next build. Building clears the outputs, so run `tools/run_notebooks.py` afterwards. With `make` available (Linux/macOS/Git Bash): `make test`, `make smoke`, `make notebooks`, `make run-notebooks`, `make mini-llm`, `make mcp-server` (see [CLI scripts](cli_scripts.md#tools-and-makefile-targets)).
+The `.ipynb` files are **generated** from `tools/notebooks/nbNN_*.py` (and `scripts/mini_llm.py` from notebook 00's generator). To change a notebook permanently, edit its generator and rebuild; edits made directly in the `.ipynb` are lost on the next build. Building clears the outputs, so run `tools/run_notebooks.py` afterwards; if you only changed prose (markdown, or anything that leaves the code untouched), `python tools/build_notebooks.py --keep-outputs 12` keeps the executed outputs of every code cell whose source did not change and saves you a re-run ([details](cli_scripts.md#toolsbuild_notebookspy---keep-outputs)). With `make` available (Linux/macOS/Git Bash): `make test`, `make smoke`, `make notebooks`, `make run-notebooks`, `make mini-llm`, `make mcp-server` (see [CLI scripts](cli_scripts.md#tools-and-makefile-targets)).
+
+## Data downloaded at run time
+
+- **SmolLM2** (notebooks 07–09 and `finetune.py`): from the Hugging Face Hub into the Hugging Face cache, on first use.
+- **MovieLens-1M** (notebook 12 and `scripts/generate_item_keywords.py`): `llm_edu_suite.recsys.download_movielens_1m()` fetches the official GroupLens zip (6 MB) and unzips it into `data/cache/ml-1m/` once. `data/cache/` is in `.gitignore`: the GroupLens license does not allow redistributing the dataset, so the repository does not include it and everyone downloads it from the original source. If you are offline, copy `ml-1m.zip` into `data/cache/` and the function will use it.
+- What *is* in the repository, because it is the course's own work: `data/recsys/ml1m_llm_keywords.json` (the keywords `qwen2.5:7b` wrote for each movie; regenerating them takes an hour, see [`generate_item_keywords.py`](cli_scripts.md#generate_item_keywordspy)) and `data/recsys/conversational_eval.json` (20 requests with checkable constraints).
 
 ## GPU notes
 
 - Nothing requires a GPU, but training is much faster with one: the notebook 00 mini LLM takes about **22 s on an RTX 3060 Laptop vs about 5 min on CPU**. `llm_edu_suite.utils.get_device()` picks `cuda` when available (Apple MPS only with `allow_mps=True`). On RTX 30xx or newer, training uses **bf16** mixed precision.
-- **VRAM budget on a 6 GB GPU.** Ollama keeps `qwen2.5:3b` loaded on the GPU for a few minutes after each call, using about **2.3 GB** of VRAM. The training notebooks cap their own PyTorch memory with `torch.cuda.set_per_process_memory_fraction`, at **1.5 GB by default** (environment variable `VRAM_BUDGET_GB`, e.g. `$env:VRAM_BUDGET_GB="3"` or `export VRAM_BUDGET_GB=3` to give them more).
+- **VRAM budget on a 6 GB GPU.** Ollama keeps `qwen2.5:3b` loaded on the GPU for a few minutes after each call, using about **2.3 GB** of VRAM. The training notebooks cap their own PyTorch memory with `torch.cuda.set_per_process_memory_fraction` (environment variable `VRAM_BUDGET_GB`, e.g. `$env:VRAM_BUDGET_GB="3"` or `export VRAM_BUDGET_GB=3` to give them more). The default is **2 GB in notebook 07**, which trains nine models in a row and whose 4-bit QLoRA model leaves about 0.1 GB behind, and **1.5 GB in 08 and 09**.
 - **Do not run the training notebooks (07–09) and the Ollama notebooks (10–16) at the same time on a 6 GB GPU.** When the two compete for VRAM, Ollama can hang instead of failing. Run them one after the other, and if you need the memory back, unload the models with `ollama stop qwen2.5:3b` (`ollama ps` shows what is loaded).
 - If Ollama cannot fit a model on the GPU, it runs it (partly) on the CPU: it still works, only slower.
 
