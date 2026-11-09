@@ -259,3 +259,16 @@ def test_hf_llama_weights_load_into_transformerlm():
         right_err = (mine - ref).abs().max()
         wrong_err = (wrong(ids)[0] - ref).abs().max()
     assert wrong_err > 100 * right_err              # (random tiny models attend almost uniformly, so compare relative errors)
+
+
+def test_bidirectional_encoder_sees_the_future():
+    """causal=False makes the first position depend on the last token; a causal decoder never does."""
+    from llm_edu_suite.model import ModelConfig, TransformerLM
+    torch.manual_seed(0)
+    for causal in (True, False):
+        m = TransformerLM(ModelConfig(vocab_size=50, max_seq_len=16, d_model=32, n_layers=2, n_heads=4, n_kv_heads=2, causal=causal)).eval()
+        a = torch.randint(0, 50, (1, 8)); b = a.clone(); b[0, -1] = (a[0, -1] + 1) % 50
+        with torch.no_grad():
+            changed = not torch.allclose(m(a)[0][0, 0], m(b)[0][0, 0])
+        assert changed == (not causal)
+        assert m.supports_cache == causal

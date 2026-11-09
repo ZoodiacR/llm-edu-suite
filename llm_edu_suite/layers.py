@@ -167,9 +167,11 @@ class GroupedQueryAttention(nn.Module):
     without bound, which helps training stability.
     """
 
-    def __init__(self, d_model: int, n_heads: int, n_kv_heads: int, qk_norm: bool = False, dropout: float = 0.0):
+    def __init__(self, d_model: int, n_heads: int, n_kv_heads: int, qk_norm: bool = False, dropout: float = 0.0,
+                 causal: bool = True):
         super().__init__()
         assert d_model % n_heads == 0 and n_heads % n_kv_heads == 0
+        self.causal = causal                                       # False: every token sees every other (an encoder)
         self.H, self.Hkv, self.Dh = n_heads, n_kv_heads, d_model // n_heads
         self.rep = n_heads // n_kv_heads
         self.wq = nn.Linear(d_model, n_heads * self.Dh, bias=False)
@@ -181,7 +183,7 @@ class GroupedQueryAttention(nn.Module):
         self.dropout = dropout
         self.cache_k: torch.Tensor | None = None
         self.cache_v: torch.Tensor | None = None
-        self.supports_cache = True
+        self.supports_cache = causal                               # an encoder reads the whole input at once
 
     def clear_cache(self) -> None:
         self.cache_k = self.cache_v = None
@@ -214,7 +216,7 @@ class GroupedQueryAttention(nn.Module):
         v = v.repeat_interleave(self.rep, dim=2)
 
         q, k, v = (t.transpose(1, 2) for t in (q, k, v))           # (B, H, T, Dh)
-        mask, is_causal = _causal_args(q.shape[2], k.shape[2], q.device)
+        mask, is_causal = _causal_args(q.shape[2], k.shape[2], q.device) if self.causal else (None, False)
         y = F.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, is_causal=is_causal, dropout_p=self.dropout if self.training else 0.0
         )

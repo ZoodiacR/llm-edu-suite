@@ -13,6 +13,7 @@ El curso tiene dos mitades con necesidades distintas:
 | **00–06** | El modelo PyTorch escrito desde cero (paquete `llm_edu_suite`) | Solo PyTorch. Funciona en CPU; si hay GPU NVIDIA se usa automáticamente. |
 | **07–09** | Hugging Face `transformers` + `peft` + `trl` + `bitsandbytes` + `optimum-quanto` sobre SmolLM2 | PyTorch y una descarga única de SmolLM2 desde el Hugging Face Hub (~1 GB). Con GPU van mucho más rápido; la sección de QLoRA del 07 necesita GPU NVIDIA (`bitsandbytes`). |
 | **10–16** | LangChain, RAGAS, LangGraph, LangSmith, el SDK oficial de MCP + `langchain-mcp-adapters`; en el 12, además FAISS y LightGBM | Un servidor **Ollama** local con `qwen2.5:3b` y `nomic-embed-text` (y, opcional, `qwen2.5:7b` como juez del notebook 10). LangSmith es opcional. El notebook 12 descarga MovieLens-1M (6 MB) la primera vez. |
+| **17** | El modelo desde cero con `causal=False`, Hugging Face `transformers` + `datasets` (ModernBERT-base, Flan-T5-small, Banking77), `scikit-learn` y LangChain | PyTorch, la descarga de ModernBERT-base (~600 MB), Flan-T5-small (~300 MB) y Banking77 desde el Hugging Face Hub la primera vez, y **Ollama** con `qwen2.5:3b` y `nomic-embed-text` para la comparación de la sección 2. Con GPU tarda unos 15 minutos. |
 
 No hace falta ninguna clave de API. Por defecto todo funciona en local.
 
@@ -27,9 +28,9 @@ No hace falta ninguna clave de API. Por defecto todo funciona en local.
 | Disco: entorno virtual | ~4 GB con la build CUDA de PyTorch (PyTorch solo ocupa ~2,9 GB); mucho menos con la de CPU | 4,1 GB |
 | Disco: modelos de Ollama | ~2,2 GB (`qwen2.5:3b` 1,9 GB + `nomic-embed-text` 0,27 GB); 4,7 GB más con el juez opcional `qwen2.5:7b` | |
 | Disco: datos descargados | MovieLens-1M, 6 MB comprimido, en `data/cache/` | |
-| Disco: caché de Hugging Face | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB) | |
+| Disco: caché de Hugging Face | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB) y ~0,9 GB más con el notebook 17 (ModernBERT-base ~600 MB + Flan-T5-small ~300 MB, más Banking77) | |
 
-Las dependencias se declaran una sola vez, en `pyproject.toml` (con cotas inferiores); `requirements.txt` solo contiene `-e .[dev]`, es decir, instala el proyecto desde ahí con el extra `dev` (pytest y Jupyter). Ya no existe `requirements-dev.txt`. Los extras opcionales `openai` y `anthropic` añaden los proveedores en la nube (ver [Cambiar de proveedor](#cambiar-de-proveedor)). En v2.1 entraron dos dependencias: `lightgbm>=4.5` (el ranker LambdaMART del notebook 12) y `bitsandbytes>=0.45` (los pesos NF4 de QLoRA en el notebook 07). Estas son las versiones con las que se verificó el curso:
+Las dependencias se declaran una sola vez, en `pyproject.toml` (con cotas inferiores); `requirements.txt` solo contiene `-e .[dev]`, es decir, instala el proyecto desde ahí con el extra `dev` (pytest y Jupyter). Ya no existe `requirements-dev.txt`. Los extras opcionales `openai` y `anthropic` añaden los proveedores en la nube (ver [Cambiar de proveedor](#cambiar-de-proveedor)). En v2.1 entraron dos dependencias: `lightgbm>=4.5` (el ranker LambdaMART del notebook 12) y `bitsandbytes>=0.45` (los pesos NF4 de QLoRA en el notebook 07). Con el notebook 17 entró `scikit-learn>=1.5` (la regresión logística y las métricas de clasificación). Estas son las versiones con las que se verificó el curso:
 
 | Paquete | Versión | Paquete | Versión |
 |---|---|---|---|
@@ -41,6 +42,7 @@ Las dependencias se declaran una sola vez, en `pyproject.toml` (con cotas inferi
 | mcp | 1.30.0 (debe seguir en `<2`) | langsmith | 0.14.17 |
 | langchain-mcp-adapters | 0.3.2 | faiss-cpu | 1.15.1 |
 | bitsandbytes | 0.50.2 | lightgbm | 4.7.0 |
+| scikit-learn | 1.9.1 | | |
 
 > **Por qué un entorno virtual propio.** Si instalas en tu Python global puedes heredar combinaciones rotas
 > (por ejemplo, un `matplotlib` compilado contra NumPy 1.x junto a NumPy 2.x falla con
@@ -69,7 +71,7 @@ El script hace, en orden:
 
 1. Crea `.venv/` si no existe y actualiza `pip`.
 2. Instala PyTorch: la build **CUDA** (índice `cu128`) si encuentra `nvidia-smi`, o la build **CPU** (pequeña) si no. En macOS instala el wheel por defecto, que incluye soporte MPS.
-3. Instala `requirements.txt`, que instala el proyecto con su extra `dev` desde `pyproject.toml` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, LightGBM, transformers, peft, trl, datasets, accelerate, bitsandbytes, optimum-quanto, mcp, langchain-mcp-adapters) más pytest, JupyterLab, ipykernel, nbclient y nbformat.
+3. Instala `requirements.txt`, que instala el proyecto con su extra `dev` desde `pyproject.toml` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, LightGBM, scikit-learn, transformers, peft, trl, datasets, accelerate, bitsandbytes, optimum-quanto, mcp, langchain-mcp-adapters) más pytest, JupyterLab, ipykernel, nbclient y nbformat.
 4. Registra el entorno como kernel de Jupyter con el nombre **"Python (llm-edu-suite)"**.
 5. Si existe el comando `ollama`, ejecuta `ollama pull qwen2.5:3b` y `ollama pull nomic-embed-text`. Si no existe, indica cómo instalar Ollama y continúa. El juez opcional `qwen2.5:7b` no lo descarga: hazlo a mano si lo quieres (ver [Ollama](#ollama)).
 6. Crea `.env` a partir de `.env.example` si todavía no hay `.env`.
@@ -217,6 +219,7 @@ Los `.ipynb` se **generan** a partir de `tools/notebooks/nbNN_*.py` (y `scripts/
 ## Datos que se descargan al ejecutar
 
 - **SmolLM2** (notebooks 07–09 y `finetune.py`): desde el Hugging Face Hub a la caché de Hugging Face, la primera vez.
+- **ModernBERT-base, Flan-T5-small y Banking77** (notebook 17): `answerdotai/ModernBERT-base` (~600 MB), `google/flan-t5-small` (~300 MB) y el dataset `PolyAI/banking77` (CC BY 4.0) se descargan del Hugging Face Hub a su caché la primera vez que se ejecuta el notebook.
 - **MovieLens-1M** (notebook 12 y `scripts/generate_item_keywords.py`): `llm_edu_suite.recsys.download_movielens_1m()` baja el zip oficial de GroupLens (6 MB) y lo descomprime en `data/cache/ml-1m/` una sola vez. `data/cache/` está en `.gitignore`: la licencia de GroupLens no permite redistribuir el dataset, así que el repositorio no lo incluye y cada uno lo descarga de la fuente original. Si estás sin conexión, copia `ml-1m.zip` en `data/cache/` y la función lo usará.
 - Lo que sí está en el repositorio, porque es trabajo propio: `data/recsys/ml1m_llm_keywords.json` (las palabras clave que escribió `qwen2.5:7b` para cada película; regenerarlas lleva una hora, ver [`generate_item_keywords.py`](scripts_cli.md#generate_item_keywordspy)) y `data/recsys/conversational_eval.json` (20 peticiones con restricciones verificables).
 

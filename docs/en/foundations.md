@@ -9,7 +9,7 @@
 ## Contents
 
 1. [Inside the model](#1-inside-the-model)
-   - [1.1 Tokenization](#11-tokenization) · [1.2 The transformer block](#12-the-transformer-block-and-the-residual-stream) · [1.3 Attention, RoPE and normalization](#13-attention-rope-and-normalization) · [1.4 Efficient attention](#14-efficient-attention-for-long-contexts) · [1.5 FFN and Mixture of Experts](#15-ffn-and-mixture-of-experts)
+   - [1.1 Tokenization](#11-tokenization) · [1.2 The transformer block](#12-the-transformer-block-and-the-residual-stream) · [1.3 Attention, RoPE and normalization](#13-attention-rope-and-normalization) · [1.4 Efficient attention](#14-efficient-attention-for-long-contexts) · [1.5 FFN and Mixture of Experts](#15-ffn-and-mixture-of-experts) · [1.6 Encoders and encoder-decoders](#16-encoders-and-encoder-decoders)
 2. [Pre-training and inference](#2-pre-training-and-inference)
    - [2.1 The objective](#21-the-objective-next-token-prediction) · [2.2 Optimizer and schedule](#22-optimizer-and-learning-rate-schedule) · [2.3 Scaling laws](#23-scaling-laws) · [2.4 Decoding](#24-decoding-strategies) · [2.5 KV-cache](#25-prefill-decode-and-the-kv-cache) · [2.6 Batching and serving](#26-batching-and-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Quantization](#28-quantization)
 3. [Post-training](#3-post-training)
@@ -228,6 +228,64 @@ MoE buys **capacity** at fixed compute and pays in **memory** and **communicatio
 **Key papers.** Shazeer et al. (2017); Lepikhin et al. (2020, GShard); Fedus et al. (2021, Switch); Zoph et al. (2022, ST-MoE); Jiang et al. (2024, Mixtral); Dai et al. (2024, DeepSeekMoE); Wang et al. (2024); DeepSeek-AI (2024, V3); Shazeer (2020); Geva et al. (2021).
 
 > **Notebook:** [04 · FFN and MoE](../../notebooks/01_architecture/04_ffn_moe.ipynb) · **In the course:** a badly imbalanced router is equalized by the aux-free bias with no gradient, while a large `bias_lr` (0.1) oscillates; dense vs MoE at equal active compute shows a small or absent MoE advantage on a toy corpus, which is the expected outcome.
+
+### 1.6 Encoders and encoder-decoders
+
+**Problem.** Everything above describes a decoder-only model, the design of GPT, Llama and Qwen. But the original transformer (Vaswani et al., 2017) had two halves, and each became a family of its own. To understand a text that is already complete (classify it, extract entities, turn it into an embedding) nothing has to be generated, and reading only to the left wastes half the context. To turn one sequence into a different one (translate, transcribe audio) it pays to read the whole input once and write the output separately.
+
+**The difference is the mask.** All three families stack the same block (attention, FFN, residuals, normalization). What changes is which positions each token may attend to:
+
+| Family | Attention | Training objective | Well-known members | Used today for |
+|---|---|---|---|---|
+| encoder-only | bidirectional: every token sees every other | fill in hidden tokens | BERT, RoBERTa, DeBERTa, ModernBERT | classification, entities, embeddings, rerankers, safety filters |
+| decoder-only | causal: a token sees only the past | predict the next token | GPT, Llama, Qwen, SmolLM2 | generation, chat, agents |
+| encoder-decoder | bidirectional encoder + causal decoder with cross-attention | rebuild corrupted spans, or map input to output | T5, BART, Flan-T5, Whisper | translation, speech recognition, structured rewriting |
+
+In code, an encoder is the same attention layer called without the causal mask (`is_causal=False`); in this repository, `ModelConfig(causal=False)`.
+
+**Masked language modeling (BERT).** A bidirectional model cannot be trained to predict the next token: it would be looking at it. BERT (Devlin et al., 2019) hides a random subset $\mathcal{M}$ of 15 % of the positions and asks the model to recover them from the rest:
+
+$$\mathcal{L}_{\text{MLM}} = -\sum_{i \in \mathcal{M}} \log p_\theta\big(x_i \mid x_{\setminus \mathcal{M}}\big)$$
+
+Of the chosen positions, 80 % are replaced by `[MASK]`, 10 % by a random token and 10 % are left unchanged. The mix exists because `[MASK]` never appears when the model is used later: if it only ever saw `[MASK]` at the positions it is graded on, it would not learn useful representations of the real tokens. RoBERTa (Liu et al., 2019) showed that BERT was under-trained: more data, dynamic masking and no next-sentence task.
+
+**The cost of MLM, and ELECTRA.** A causal LM learns from every position of every sequence; MLM only from 15 %. ELECTRA (Clark et al., 2020) fixes this with *replaced token detection*: a small generator corrupts some tokens and the encoder (the discriminator $D$) classifies **every** position as original or replaced,
+
+$$\mathcal{L}_{\text{disc}} = -\sum_{t=1}^{T} \Big[\mathbb{1}(\tilde x_t = x_t)\log D(\tilde x, t) + \mathbb{1}(\tilde x_t \ne x_t)\log\big(1 - D(\tilde x, t)\big)\Big]$$
+
+so every position gives signal and, at equal compute, the resulting encoder is better. DeBERTa-v3 uses this objective.
+
+**Span corruption (T5).** T5 (Raffel et al., 2020) replaces contiguous spans of the input with sentinels (`<extra_id_0>`, `<extra_id_1>`, ...) and the decoder has to write the missing spans, each preceded by its sentinel:
+
+$$\mathcal{L}_{\text{span}} = -\sum_{j=1}^{|y|} \log p_\theta\big(y_j \mid y_{<j}, \tilde x\big)$$
+
+where $\tilde x$ is the corrupted input and $y$ the sequence of sentinels and spans. The target is short (only what is missing), so pre-training is cheap, and the text-to-text format lets every task be treated the same way.
+
+**Classification head.** For a task with a fixed label set, the sentence is summarized in one vector: the state of the special first token `[CLS]`, or the mean of all token states (*mean pooling*, using the attention mask so padding is not counted). A linear layer on top is fine-tuned together with the whole encoder:
+
+$$p(y \mid x) = \mathrm{softmax}\big(W\, h_{\text{[CLS]}}(x) + b\big)$$
+
+This is the recipe behind `AutoModelForSequenceClassification`. One forward pass, no generation; the output is a distribution over the labels and never an answer outside them. If the encoder is frozen and only the linear layer is trained, the result is a **linear probe**: it measures how much task-relevant information the representations already hold.
+
+**ModernBERT.** BERT-base (2018) stayed the default encoder for six years. ModernBERT (Warner et al., 2024) rebuilds it with what decoders learned in the meantime: RoPE instead of learned positions, GeGLU feed-forward layers, pre-normalization, global attention layers alternating with 128-token sliding-window layers, *unpadding* (no compute spent on padding), an 8,192-token context and pre-training on 2 trillion tokens that include code. The base version has 150M parameters.
+
+**Cross-attention.** In an encoder-decoder, the encoder reads the input $X$ once, bidirectionally, and produces the states $H_X$. The decoder generates the output $Y$ causally and, in every layer, adds between self-attention and the FFN a cross-attention layer whose queries come from the output being written and whose keys and values come from the encoder:
+
+$$\mathrm{CrossAttn}(Y, X) = \mathrm{softmax}\!\Big(\frac{(Y W_Q)(H_X W_K)^\top}{\sqrt{d_h}}\Big) H_X W_V$$
+
+It has no causal mask: every output token may read the whole input. The keys and values of $H_X$ are computed once per input and reused at every decoding step. Flan-T5 (Chung et al., 2022) is T5 with instruction tuning.
+
+**Why decoder-only won, and where the others survive.** A decoder-only model has a single objective that turns any text into training signal (every position is graded), scales predictably and learns new tasks from the prompt (*in-context learning*) without a task head. For a general assistant that has to generate, it won. But:
+
+- when the task is a **fixed set of labels** and some labelled data exists, a small fine-tuned encoder is usually as accurate as an LLM, or more, at a fraction of the cost and latency;
+- **embedding models and rerankers** (cross-encoders) are encoders, and so are many safety filters (Meta's Prompt Guard is a fine-tuned mDeBERTa);
+- when input and output are different sequences, as in **translation and speech** (Whisper, NLLB), encoder-decoders remain competitive. Whether they are better at equal compute is still debated; Google's T5Gemma (2025) revisits the question.
+
+**Failure modes.** An encoder does not generate: there is no natural way to write left to right with it. The representations of an encoder pre-trained only with MLM are not built for similarity: without contrastive training, their mean is a poor sentence embedding. With few labels per class, a fine-tuned encoder falls short. Fine-tuned models are over-confident on out-of-distribution text (calibrate with temperature scaling on validation), and labels drift when new kinds of requests are forced into old classes (add an "other" class or a confidence threshold). In attention maps, *attention sinks* soak up probability and can hide the real alignment. And near-duplicates landing in both train and test inflate accuracy.
+
+**Key papers.** Vaswani et al. (2017); Devlin et al. (2019, BERT); Liu et al. (2019, RoBERTa); Clark et al. (2020, ELECTRA); Raffel et al. (2020, T5); He et al. (2021, DeBERTa); Chung et al. (2022, Flan); Warner et al. (2024, ModernBERT); Casanueva et al. (2020, Banking77).
+
+> **Notebook:** [17 · Encoders and encoder-decoders](../../notebooks/01_architecture/17_encoders_and_encoder_decoders.ipynb) (read after 04) · **In the course:** at the same size and 800 steps, the decoder recovers the first token of a hidden word 2.9 % of the time and the encoder that sees both sides 100 % (the same encoder with the right side cut off falls to 2.5 %); on Banking77 (77 intents), fine-tuned ModernBERT-base reaches 93.0 % test accuracy (69.6 % with 8 examples per intent, 89.3 % with 32), `nomic-embed-text` + logistic regression 93.3 % and frozen ModernBERT 89.2 %, while `qwen2.5:3b` gets 48.9 % zero-shot and 61.9 % few-shot with constrained decoding, and 15.2 % with function calling (181 of 231 outputs invalid); latency per message is 18 ms (embeddings + regression), 40 ms (encoder) and ~250 ms (LLM); Flan-T5-small splits its 77M into a 19M encoder, a 25M decoder with cross-attention and a 16M shared embedding, and its last-layer cross-attention is dominated by two attention sinks.
 
 ---
 

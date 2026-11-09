@@ -67,6 +67,7 @@ class ModelConfig:
     rope_scaling: dict | None = None    # {"factor": 8.0, "orig_len": 8192}
     tie_embeddings: bool = True
     norm_eps: float = 1e-6              # RMSNorm epsilon (Llama and SmolLM2 use 1e-5)
+    causal: bool = True                 # False = bidirectional attention, an encoder like BERT (gqa only)
 
     def __post_init__(self):
         if self.d_ff is None:
@@ -84,8 +85,11 @@ def build_attention(cfg: ModelConfig, layer_idx: int) -> nn.Module:
     kind = cfg.attn
     if cfg.hybrid_pattern:
         kind = "gqa" if cfg.hybrid_pattern[layer_idx % len(cfg.hybrid_pattern)] == "G" else cfg.attn
+    if not cfg.causal and kind != "gqa":
+        raise ValueError("bidirectional attention (causal=False) is only implemented for attn='gqa'")
     if kind == "gqa":
-        return GroupedQueryAttention(cfg.d_model, cfg.n_heads, cfg.n_kv_heads, qk_norm=cfg.qk_norm, dropout=cfg.dropout)
+        return GroupedQueryAttention(cfg.d_model, cfg.n_heads, cfg.n_kv_heads, qk_norm=cfg.qk_norm, dropout=cfg.dropout,
+                                     causal=cfg.causal)
     if kind == "mla":
         assert cfg.qk_rope_dim <= cfg.head_dim, "qk_rope_dim must fit in head_dim (shares the RoPE table)"
         return MultiHeadLatentAttention(cfg.d_model, cfg.n_heads, cfg.kv_lora_rank, cfg.qk_nope_dim, cfg.qk_rope_dim, cfg.v_dim)

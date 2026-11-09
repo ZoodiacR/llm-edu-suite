@@ -37,6 +37,7 @@ dependencies = [
     "faiss-cpu>=1.8",
     "rank-bm25>=0.2",
     "lightgbm>=4.5",                   # learning-to-rank (LambdaMART) for the recommender in notebook 12
+    "scikit-learn>=1.5",               # linear classifiers and metrics (notebook 17)
     # fine-tuning and quantization (notebooks 07-09)
     "transformers>=5.0",
     "peft>=0.21",

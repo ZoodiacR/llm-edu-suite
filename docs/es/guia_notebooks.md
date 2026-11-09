@@ -2,9 +2,9 @@
 
 🇬🇧 [English version](../en/notebooks_guide.md) · [← Volver al índice](README.md)
 
-Los 17 notebooks uno a uno: qué construyes, qué herramientas usas, qué conceptos te llevas, qué se mide y qué resultados salen. Los notebooks están en inglés; esta guía te acompaña en español.
+Los 18 notebooks uno a uno: qué construyes, qué herramientas usas, qué conceptos te llevas, qué se mide y qué resultados salen. Los notebooks están en inglés; esta guía te acompaña en español.
 
-El curso tiene dos mitades. **Los notebooks 00–06** construyen un modelo de lenguaje desde cero en PyTorch, con el paquete propio del curso, `llm_edu_suite`, para que veas cada pieza. **Los notebooks 07–16** hacen los mismos trabajos con los frameworks que usa la industria: `transformers`, `peft`, `trl`, `bitsandbytes` y `optimum-quanto` de Hugging Face sobre SmolLM2 (07–09), LangChain, LangGraph y LangSmith (10–15) y el SDK oficial de MCP (16). El modelo local de 10–16 es `qwen2.5:3b` servido con Ollama, con `nomic-embed-text` para los embeddings.
+El curso tiene dos mitades. **Los notebooks 00–06** construyen un modelo de lenguaje desde cero en PyTorch, con el paquete propio del curso, `llm_edu_suite`, para que veas cada pieza. **Los notebooks 07–16** hacen los mismos trabajos con los frameworks que usa la industria: `transformers`, `peft`, `trl`, `bitsandbytes` y `optimum-quanto` de Hugging Face sobre SmolLM2 (07–09), LangChain, LangGraph y LangSmith (10–15) y el SDK oficial de MCP (16). El modelo local de 10–16 es `qwen2.5:3b` servido con Ollama, con `nomic-embed-text` para los embeddings. **El notebook 17** (encoders y encoder-decoders) mezcla las dos mitades y se lee justo después del 04, antes del 05: cierra el tópico de arquitectura con las dos familias de transformers que no son decoder-only.
 
 **Cómo usar esta guía.** Lee la ficha antes de abrir el notebook, ejecútalo celda a celda y vuelve a la ficha para contrastar tus números. Todos los números de esta guía salen de la ejecución subida al repositorio (portátil con una RTX 3060 de 6 GB). Los tuyos se moverán un poco: los modelos pequeños son sensibles a la aritmética de cada máquina, y todo lo que genera o juzga un LLM cambia entre ejecuciones. Donde un resultado es frágil, el notebook lo dice, y esta guía también. Cada notebook incluye además apartados de teoría ("Background: ...") antes del código que los usa; la versión larga y en español de esa teoría, con las ecuaciones, está en los [fundamentos teóricos](fundamentos.md).
 
@@ -12,19 +12,20 @@ El curso tiene dos mitades. **Los notebooks 00–06** construyen un modelo de le
 - **00–06**: solo PyTorch y `llm_edu_suite`. Funcionan también en CPU.
 - **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA en el 07) y `optimum-quanto`. La primera vez se descarga SmolLM2 del Hugging Face Hub. Cada notebook limita su propia VRAM (`VRAM_BUDGET_GB`) para caber en la GPU junto a Ollama: 2 GB por defecto en el 07, que entrena nueve modelos y cuyo modelo de 4 bits deja ~0,1 GB ocupados, y 1,5 GB en el 08 y el 09.
 - **10–16**: **Ollama tiene que estar en marcha**, con `qwen2.5:3b` y `nomic-embed-text` descargados. La primera celda (`setup()` de `llm_edu_suite.config`) lo comprueba. El notebook 10 usa además `qwen2.5:7b` como juez de RAGAS si está descargado (`ollama pull qwen2.5:7b`, opcional; si no, juzga el 3B). En el notebook 12, Ollama solo hace falta para los embeddings de contenido y la capa de LLM (peticiones y explicaciones); SASRec, el two-tower y el ranker de LightGBM son PyTorch y LightGBM puros, y MovieLens-1M se descarga la primera vez en `data/cache/`.
+- **17**: `transformers` (ModernBERT-base y Flan-T5-small, que se descargan del Hugging Face Hub la primera vez), `datasets` (Banking77), `scikit-learn` (regresión logística) y **Ollama en marcha** con `qwen2.5:3b` y `nomic-embed-text` para la sección 2.
 - **LangSmith es opcional.** Con `LANGSMITH_TRACING=true` y `LANGSMITH_API_KEY` en `.env`, cada llamada de LangChain/LangGraph de 10–16 queda trazada. Sin clave todo funciona igual, y el notebook 15 se salta las celdas que necesitan el servidor de LangSmith e indica que las ha omitido. La ejecución publicada se hizo con LangSmith activado.
 
 | Tópico | Notebooks | Tiempo en GPU de la ejecución final |
 |---|---|---|
 | Empieza aquí | [00](#00) | 32 s |
-| Arquitectura | [01](#01) · [02](#02) · [03](#03) · [04](#04) | 5 s · 31 s · 180 s · 48 s (≈ 4,5 min) |
+| Arquitectura | [01](#01) · [02](#02) · [03](#03) · [04](#04) · [17](#17) | 5 s · 31 s · 180 s · 48 s · ≈ 15 min (≈ 19,5 min) |
 | Pre-entrenamiento e inferencia | [05](#05) · [06](#06) · [09](#09) | 35 s · 61 s · 53 s (≈ 2,5 min) |
 | Post-training | [07](#07) · [08](#08) | ≈ 14 min · 645 s (≈ 25 min) |
 | Aplicaciones | [10](#10) · [12](#12) · [13](#13) | ≈ 19 min · ≈ 25 min · 140 s (≈ 46 min) |
 | Agentes y MCP | [11](#11) · [14](#14) · [16](#16) | 56 s · 119 s · 65 s (≈ 4 min) |
 | LLMOps | [15](#15) | 129 s |
 
-Los notebooks 07, 10 y 12 se volvieron a ejecutar en v2.1 y sus tiempos son aproximados: el 07 entrena ahora también QLoRA, el 10 usa un juez de 7B (unos 17 de sus 19 minutos son la puntuación de RAGAS) y el 12 incluye ~11 minutos de construcción de features del ranker. En total, alrededor de hora y media para los 17, en GPU y con Ollama sin compartir la GPU con otros trabajos. Si otro proceso usa la GPU, los tiempos de 10–16 crecen mucho (las llamadas al LLM hacen cola). Los tiempos en CPU no se midieron en esta ejecución: 00–06 funcionan bien en CPU, pero cuenta con que 07–09 sean mucho más lentos sin GPU.
+Los notebooks 07, 10 y 12 se volvieron a ejecutar en v2.1 y sus tiempos son aproximados: el 07 entrena ahora también QLoRA, el 10 usa un juez de 7B (unos 17 de sus 19 minutos son la puntuación de RAGAS) y el 12 incluye ~11 minutos de construcción de features del ranker. En total, alrededor de hora y media para los notebooks 00–16, más unos 15 minutos del 17, en GPU y con Ollama sin compartir la GPU con otros trabajos. Si otro proceso usa la GPU, los tiempos de 10–16 crecen mucho (las llamadas al LLM hacen cola). Los tiempos en CPU no se midieron en esta ejecución: 00–06 funcionan bien en CPU, pero cuenta con que 07–09 sean mucho más lentos sin GPU.
 
 ---
 
@@ -101,6 +102,66 @@ Con solo 300 pasos incluso la densa está en 0,3%: las ***induction heads*** apa
 **Conceptos clave.** Parámetros totales frente a activos; por qué el router colapsa sin balanceo; por qué el ajuste del sesgo aux-free debe ser pequeño; comparación justa a igual cómputo activo.
 
 **Resultados.** Con top-2 de 8 expertos, la capa tiene 3× (2,99×) más parámetros totales que activos. El balanceo aux-free lleva un router desequilibrado de **4,0× a 1,15×** con `bias_lr=0,01`, mientras que con 0,1 oscila (solo baja a 1,68×; se ve en la gráfica). En el corpus de juguete el MoE no supera al modelo denso: densa ppl 3,24, MoE con pérdida auxiliar 3,31, MoE aux-free 3,24, con los mismos parámetros activos. El notebook explica por qué el MoE rinde a gran escala.
+
+**Siguiente:** el [17](#17), que completa el tópico de arquitectura, y después el 05.
+
+---
+
+<a id="17"></a>
+## 17 · Encoders y encoder-decoders: las otras dos familias de transformers
+`notebooks/01_architecture/17_encoders_and_encoder_decoders.ipynb` · módulos `model`, `data`, `training` · `transformers`, `datasets`, `scikit-learn`, LangChain (Ollama)
+
+Se lee después del 04 y antes del 05. Los notebooks 00–06 construyen un único tipo de transformer, el decoder-only; este presenta las otras dos ramas del transformer original: los **encoders** (BERT, ModernBERT), con atención bidireccional, y los **encoder-decoders** (T5, Flan-T5), con *cross-attention*.
+
+**Qué construyes.** Tres partes. (1) **Desde cero:** el mismo `TransformerLM` con `ModelConfig(causal=False)` (atención bidireccional), entrenado con el objetivo MLM de BERT, frente a un decoder causal del mismo tamaño; los dos con 800 pasos (~30 s cada uno) sobre el corpus sintético del 05, y una prueba de "rellenar el hueco". (2) **En la práctica:** clasificar los mensajes reales de Banking77 (77 intenciones) de tres maneras: ajustando un encoder (ModernBERT-base), con embeddings congelados + regresión logística, y preguntando a un LLM (`qwen2.5:3b`) zero-shot y few-shot. (3) **Encoder-decoder:** Flan-T5-small, cómo se reparten sus parámetros y qué lee su cross-attention.
+
+**Herramientas.** `ModelConfig(causal=False)` y `train_lm` de `llm_edu_suite`; una función `mask_tokens` con la receta 80/10/10 de BERT; `datasets.load_dataset("PolyAI/banking77")` con un split de validación estratificado; `AutoModelForSequenceClassification` + `Trainer` (`learning_rate=5e-5`, warm-up, decaimiento lineal, bf16, `DataCollatorWithPadding` para el padding dinámico); `AutoModel` con mean pooling; `OllamaEmbeddings(nomic-embed-text)` con el prefijo `classification:`; `scikit-learn` (`StandardScaler` + `LogisticRegression`, con `C` elegido en validación, y `f1_score`); `with_structured_output(..., method="json_schema" | "function_calling", include_raw=True)` con un `Literal` de las 77 intenciones; `evaluation.bootstrap_ci` y `paired_bootstrap_diff`; `AutoModelForSeq2SeqLM` con `attn_implementation="eager"` para obtener los pesos de atención.
+
+**Conceptos clave**
+- Las tres familias apilan el mismo bloque; lo que cambia es **la máscara**. Un encoder es la misma capa de atención llamada con `is_causal=False`.
+- **Masked language modeling**: un modelo bidireccional no puede entrenarse prediciendo el siguiente token (lo estaría viendo), así que se ocultan el 15% de las posiciones (80% `[MASK]`, 10% token aleatorio, 10% sin cambiar). Solo aprende del 15% de las posiciones; ELECTRA lo arregla clasificando todas.
+- Representación de la frase con `[CLS]` o con la media de los tokens, y una **cabeza de clasificación** lineal encima que se ajusta junto con el encoder.
+- ModernBERT: lo que aprendieron los decoders (RoPE, GeGLU, pre-normalización, capas globales alternadas con ventana local, *unpadding*, 8.192 tokens de contexto) aplicado a un encoder.
+- **Linear probe**: un clasificador lineal sobre representaciones congeladas mide cuánta información útil contienen.
+- **Decodificación restringida** frente a function calling cuando el enum es grande.
+- Cross-attention: las consultas vienen de la salida que se escribe; las claves y los valores, de los estados del encoder.
+- Protocolo: test oficial intacto, validación estratificada para elegir ajustes, macro-F1 además de accuracy y una muestra pareada para comparar con el LLM.
+
+**Resultados**
+
+Desde cero, ocultando un token del texto de validación (989 casos de primer token de palabra y 2069 de token interior):
+
+| Modelo | Primer token de una palabra | Dentro de una palabra | Todos |
+|---|---|---|---|
+| decoder (contexto izquierdo) | 2,9% | 95,4% | 73,6% |
+| encoder, solo contexto izquierdo | 2,5% | 95,9% | 73,8% |
+| **encoder, ambos lados** | **100%** | 98,3% | 99,1% |
+
+Banking77 (13.083 mensajes, CC BY 4.0; train 9.002 · validación 1.001 · test 3.080):
+
+| Método | Etiquetas | Accuracy en test (3.080) | Muestra pareada de 231 [IC 95%] | Latencia por mensaje |
+|---|---|---|---|---|
+| ModernBERT ajustado, 8 por intención | 616 | 69,6% (102 s) | 0,649 [0,589, 0,710] | 40 ms |
+| ModernBERT ajustado, 32 por intención | 2.464 | 89,3% (128 s) | 0,861 [0,818, 0,905] | 40 ms |
+| ModernBERT ajustado, todo (~117 por intención) | 9.002 | **93,0%** (163 s) | 0,922 [0,883, 0,957] | 40 ms |
+| `nomic-embed-text` + regresión logística | 9.002 | **93,3%** | 0,926 [0,892, 0,957] | **18 ms** |
+| ModernBERT congelado (mean pooling) + regresión logística | 9.002 | 89,2% | 0,896 [0,857, 0,935] | – |
+| `qwen2.5:3b` few-shot (1 por intención, `json_schema`) | 77 | – | 0,619 [0,554, 0,680] | ~250 ms |
+| `qwen2.5:3b` zero-shot (`json_schema`) | 0 | – | 0,489 [0,424, 0,554] | ~250 ms |
+| `qwen2.5:3b` zero-shot (`function_calling`) | 0 | – | 0,152 [0,104, 0,195], 181 de 231 salidas inválidas | ~310 ms |
+
+En todos los métodos entrenados, el macro-F1 coincide con la accuracy hasta la tercera cifra decimal.
+
+Flan-T5-small (77M): 19M de pila de encoder, 25M de pila de decoder (con cross-attention) y 16M de embedding compartido; un bloque de decoder es self-attention → cross-attention → feed-forward.
+
+**Hallazgos honestos**
+- **El contexto bidireccional es la ventaja del encoder, y viene del lado derecho.** Al empezar una palabra, desde la izquierda solo se sabe que empieza una palabra nueva (2,9%); con los dos lados, el resto de la palabra la delata (100%). La fila de control hace justa la comparación: el *mismo* encoder sin el lado derecho cae al 2,5%, el nivel del decoder. La ganancia no viene de que sea mejor modelo.
+- **Con etiquetas, un encoder ajustado o un clasificador lineal superan a un LLM pequeño por más de 30 puntos** en una tarea de 77 clases. Muchas intenciones son casi duplicados ("pending_transfer" frente a "transfer_not_received_by_recipient") que solo enseñan los datos.
+- **Embeddings + regresión logística igualan al fine-tuning** (0,926 frente a 0,922 en la muestra pareada, una diferencia dentro del ruido), sin entrenar ninguna red y con la mitad de latencia. ModernBERT congelado, que nunca se entrenó para similitud, queda cuatro puntos por detrás: para una representación "general" importa el objetivo de preentrenamiento.
+- **Al principio el encoder necesita datos**: con 8 ejemplos por intención se queda en 69,6%, aunque sigue por encima del LLM, y mejora con cada etiqueta, mientras que el prompting no.
+- **Cómo se restringe la salida decide entre útil e inútil.** Con `function_calling` el modelo casi nunca llamó a la tool con un enum de 77 valores (181 salidas inválidas de 231); con `json_schema` (decodificación restringida por gramática) todas las salidas fueron válidas. Es el contraste con el [11](#11), donde function calling fue lo más fiable con un esquema pequeño.
+- **Flan-T5-small** clasifica bien el mensaje de la tarjeta robada ("lost card") y escribe un resumen razonable, pero traduce mal: "Einzahlung" significa *depósito*, no *compra*. El mapa de cross-attention de la última capa lo dominan dos *attention sinks* (la "e" de "Translate" y `</s>`), con un alineamiento débil debajo. La última capa de un modelo pequeño es un mal sitio para mirar alineamientos.
+- El notebook termina con "Results" y una sección "In production" con una guía de decisión (sin etiquetas, un LLM con decodificación restringida; con cientos de etiquetas, embeddings + regresión logística; para los últimos puntos, ajustar un encoder), qué monitorizar y los modos de fallo típicos (deriva de etiquetas, sobreconfianza fuera de distribución, fugas entre train y test).
 
 ---
 

@@ -6,7 +6,7 @@
 
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-- **17 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
+- **18 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
 - **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free).
 - **Honest results**: when a technique does not help in our setup, the notebook shows it and explains why
 - **Tested**: fast tests with fake LLMs in CI on every push, integration tests against the local models
@@ -26,6 +26,7 @@ The number is the suggested study order; the folder is the topic.
 | | [02 · attention, RoPE, norms](notebooks/01_architecture/02_attention_rope_norm.ipynb) | RMSNorm, RoPE, MHA → GQA → MQA → MLA, KV-cache | PyTorch (from scratch) |
 | | [03 · efficient attention](notebooks/01_architecture/03_efficient_attention.ipynb) | sliding window, Longformer, block-sparse, linear attention, induction heads | PyTorch, FlexAttention |
 | | [04 · FFN & MoE](notebooks/01_architecture/04_ffn_moe.ipynb) | SwiGLU, Mixture of Experts, aux-loss vs aux-free balancing | PyTorch (from scratch) |
+| | [17 · encoders & encoder-decoders](notebooks/01_architecture/17_encoders_and_encoder_decoders.ipynb) | bidirectional attention and masked LM from scratch; classifying 77 intents with a fine-tuned ModernBERT, embeddings + logistic regression, or an LLM; Flan-T5 cross-attention | PyTorch, `transformers`, scikit-learn, LangChain |
 | **Pre-training & inference** | [05 · pre-training](notebooks/02_pretraining_and_inference/05_pretraining.ipynb) | the training pipeline, LR schedules, irreducible loss, scaling curves | PyTorch (from scratch) |
 | | [06 · inference & serving](notebooks/02_pretraining_and_inference/06_inference_serving.ipynb) | sampling, KV-cache, speculative decoding, batching, TTFT; loading SmolLM2's real weights into our model | PyTorch (from scratch), `transformers` |
 | | [09 · quantization](notebooks/02_pretraining_and_inference/09_quantization.ipynb) | int8 / float8 / int4 / int2 on a real model, measured with KL and top-1 agreement | `optimum-quanto` |
@@ -49,6 +50,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 |---|---|
 | 00 · mini LLM | a 1.9M-parameter GPT trains in ~20 s on the GPU and ends **0.6% above its corpus's theoretical minimum loss**; 82% of sampled sentences are grammatical |
 | 03 · efficient attention | long-range copy accuracy: **dense 99.9%, block-sparse 88.7%, hybrid 48.4%, sliding window and linear ~0%**; at 300 steps even dense is at 0.3% (the induction-head phase transition) |
+| 17 · encoders | from scratch, bidirectional context recovers the first token of a word **100% vs 2.9%** for a decoder. On Banking77 (77 intents): fine-tuned ModernBERT **93.0%**, nomic embeddings + logistic regression **93.3%**, `qwen2.5:3b` 61.9% few-shot; function calling left 181 of 231 outputs invalid, constrained decoding none |
 | 06 · inference | speculative decoding accepts **98% of draft tokens, ~4.6 tokens per target forward pass**. SmolLM2-135M's published weights run in our from-scratch `TransformerLM` with **identical greedy output** to Hugging Face (logits within 3e-5) |
 | 07 · SFT & LoRA (SmolLM2-135M) | few-shot 17.5% → **full SFT 35%**, LoRA r=16 32.5% training 3.5% of the parameters, r=64 45%. A new special token with frozen embeddings is **never emitted (0%)**; with `modules_to_save` it is emitted **100%** of the time |
 | 07 · QLoRA | the same LoRA on a 4-bit NF4 base: **no loss of quality** (37.5% vs 32.5% exact, same 86.5% of fields), weights 269 → 110 MB; for a 7B model the frozen weights drop from 14 GB to 3.6 GB |
@@ -99,7 +101,7 @@ Switching the whole course to a hosted model is a `.env` change (`LLM_PROVIDER=o
 
 ```
 llm-edu-suite/
-├── notebooks/                 17 notebooks, one folder per topic
+├── notebooks/                 18 notebooks, one folder per topic
 │   ├── 00_start_here/  01_architecture/  02_pretraining_and_inference/
 │   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/
 ├── llm_edu_suite/             the from-scratch model (tokenizer, layers, model, training, inference, recsys,
@@ -128,12 +130,12 @@ llm-edu-suite/
 | [v1.0](https://github.com/ZoodiacR/llm-edu-suite/tree/v1.0-from-scratch) | Everything implemented from scratch, including RAG, agents and observability, to learn how each piece works. |
 | [v2.0](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.0) | The model internals stay from scratch; the application layer moves to the tools used in industry (Hugging Face, LangChain, LangGraph, LangSmith, RAGAS, MCP SDK) with local models through Ollama. |
 | [v2.1](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.1) | Theory sections in every notebook and a bilingual foundations guide; the recommender rebuilt on MovieLens-1M as an industry funnel; QLoRA; a stronger LLM judge with confidence intervals. |
+| [v2.2](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.2) | From scratch to real models: SmolLM2's published weights run in the from-scratch transformer with identical output; a new notebook on encoders and encoder-decoders (masked LM from scratch, ModernBERT vs embeddings vs LLM for classification, Flan-T5); every new notebook closes with *Results* and *In production*. |
 
 ## Roadmap
 
 The next additions extend the hands-on side of the course:
 
-- **From scratch to real weights:** load a pretrained model's weights into the from-scratch transformer and check that it reproduces the reference outputs.
 - **Reasoning at inference time:** chain of thought, self-consistency and best-of-N with a verifier, measured as a cost-accuracy curve.
 - **Better retrieval:** fine-tuned embedding models and cross-encoder rerankers for the RAG notebook.
 - **Serving:** a benchmark of time to first token, time per output token and throughput under concurrent load.

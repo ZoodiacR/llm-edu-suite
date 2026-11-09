@@ -289,7 +289,7 @@ nb.md(r'''
 - MoE's wall time is higher here because the expert loop is Python; grouped GEMM kernels remove that overhead in practice.
 - Use MoE when compute-bound at scale with lots of data and expert-parallel infrastructure; otherwise dense. For fine-tuning, dense is far simpler.
 
-**Next:** `05_pretraining.ipynb` — the full training pipeline end to end.
+**Next:** `17_encoders_and_encoder_decoders.ipynb` — the other two transformer families (encoders and encoder-decoders), then `05_pretraining.ipynb` — the full training pipeline end to end.
 ''')
 nb.save(notebook_path("04_ffn_moe.ipynb"))
 print("04_ffn_moe.ipynb written")

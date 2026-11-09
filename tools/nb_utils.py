@@ -93,7 +93,7 @@ import os as _os
 NOTEBOOKS_DIR = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "notebooks"))
 TOPICS = {
     "00_start_here": ["00"],
-    "01_architecture": ["01", "02", "03", "04"],
+    "01_architecture": ["01", "02", "03", "04", "17"],
     "02_pretraining_and_inference": ["05", "06", "09"],
     "03_post_training": ["07", "08"],
     "04_applications": ["10", "12", "13"],

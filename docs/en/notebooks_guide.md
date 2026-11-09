@@ -2,9 +2,9 @@
 
 🇪🇸 [Versión en español](../es/guia_notebooks.md) · [← Back to the index](README.md)
 
-The 17 notebooks one by one: what you build, which tools you use, which concepts you take away, what gets measured and what results come out.
+The 18 notebooks one by one: what you build, which tools you use, which concepts you take away, what gets measured and what results come out.
 
-The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings.
+The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings. **Notebook 17** (encoders and encoder-decoders) mixes both halves and is read right after 04, before 05: it closes the architecture topic with the two transformer families that are not decoder-only.
 
 **How to use this guide.** Read the entry before you open the notebook, run it cell by cell, then come back and compare your numbers with the ones here. Every number below comes from the run committed to the repository (a laptop with a 6 GB RTX 3060). Your numbers will move a little: small models are sensitive to each machine's arithmetic, and anything an LLM generates or judges changes between runs. Where a result is fragile, the notebook says so, and so does this guide. Every notebook also has theory sections ("Background: ...") before the code that uses them; the long version of that theory, with the equations, is in the [theoretical foundations](foundations.md).
 
@@ -12,19 +12,20 @@ The course has two halves. **Notebooks 00–06** build a language model from scr
 - **00–06**: PyTorch and `llm_edu_suite` only. They also run on CPU.
 - **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA in 07) and `optimum-quanto`. The first run downloads SmolLM2 from the Hugging Face Hub. Each notebook caps its own VRAM (`VRAM_BUDGET_GB`) so it fits on the GPU next to Ollama: 2 GB by default in 07, which trains nine models and whose 4-bit model leaves ~0.1 GB behind, and 1.5 GB in 08 and 09.
 - **10–16**: **Ollama must be running** with `qwen2.5:3b` and `nomic-embed-text` pulled. The first cell (`setup()` from `llm_edu_suite.config`) checks this. Notebook 10 also uses `qwen2.5:7b` as the RAGAS judge if it is pulled (`ollama pull qwen2.5:7b`, optional; otherwise the 3B model judges). In notebook 12, Ollama is only needed for the content embeddings and the LLM layer (requests and explanations); SASRec, the two-tower model and the LightGBM ranker are plain PyTorch and LightGBM, and MovieLens-1M is downloaded into `data/cache/` on the first run.
+- **17**: `transformers` (ModernBERT-base and Flan-T5-small, downloaded from the Hugging Face Hub on the first run), `datasets` (Banking77), `scikit-learn` (logistic regression) and **Ollama running** with `qwen2.5:3b` and `nomic-embed-text` for section 2.
 - **LangSmith is optional.** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env`, every LangChain/LangGraph call in 10–16 is traced. Without a key everything still runs, and notebook 15 skips the cells that need the LangSmith server and prints that it skipped them. The committed run had LangSmith on.
 
 | Topic | Notebooks | GPU time of the final run |
 |---|---|---|
 | Start here | [00](#00) | 32 s |
-| Architecture | [01](#01) · [02](#02) · [03](#03) · [04](#04) | 5 s · 31 s · 180 s · 48 s (≈ 4.5 min) |
+| Architecture | [01](#01) · [02](#02) · [03](#03) · [04](#04) · [17](#17) | 5 s · 31 s · 180 s · 48 s · ≈ 15 min (≈ 19.5 min) |
 | Pre-training and inference | [05](#05) · [06](#06) · [09](#09) | 35 s · 61 s · 53 s (≈ 2.5 min) |
 | Post-training | [07](#07) · [08](#08) | ≈ 14 min · 645 s (≈ 25 min) |
 | Applications | [10](#10) · [12](#12) · [13](#13) | ≈ 19 min · ≈ 25 min · 140 s (≈ 46 min) |
 | Agents and MCP | [11](#11) · [14](#14) · [16](#16) | 56 s · 119 s · 65 s (≈ 4 min) |
 | LLMOps | [15](#15) | 129 s |
 
-Notebooks 07, 10 and 12 were re-run for v2.1 and their times are approximate: 07 now also trains QLoRA, 10 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 12 includes ~11 minutes of ranker feature building. In total, about an hour and a half for all 17, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU.
+Notebooks 07, 10 and 12 were re-run for v2.1 and their times are approximate: 07 now also trains QLoRA, 10 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 12 includes ~11 minutes of ranker feature building. In total, about an hour and a half for notebooks 00–16, plus about 15 minutes for 17, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU.
 
 ---
 
@@ -101,6 +102,66 @@ With only 300 steps even the dense model is at 0.3%: ***induction heads*** appea
 **Key concepts.** Total versus active parameters; why the router collapses without balancing; why the aux-free bias update must be small; a fair comparison at equal active compute.
 
 **Results.** With top-2 of 8 experts, the layer has 3× (2.99×) more total than active parameters. Aux-free balancing takes an unbalanced router **from 4.0× to 1.15×** with `bias_lr=0.01`, while 0.1 oscillates (it only gets to 1.68×; the plot shows it). On the toy corpus MoE does not beat the dense model: dense ppl 3.24, MoE with auxiliary loss 3.31, MoE aux-free 3.24, with the same active parameters. The notebook explains why MoE pays off at scale.
+
+**Next:** [17](#17), which completes the architecture topic, and then 05.
+
+---
+
+<a id="17"></a>
+## 17 · Encoders and encoder-decoders: the other two transformer families
+`notebooks/01_architecture/17_encoders_and_encoder_decoders.ipynb` · modules `model`, `data`, `training` · `transformers`, `datasets`, `scikit-learn`, LangChain (Ollama)
+
+Read it after 04 and before 05. Notebooks 00–06 build a single kind of transformer, the decoder-only one; this notebook covers the other two branches of the original transformer: **encoders** (BERT, ModernBERT), with bidirectional attention, and **encoder-decoders** (T5, Flan-T5), with *cross-attention*.
+
+**What you build.** Three parts. (1) **From scratch:** the same `TransformerLM` with `ModelConfig(causal=False)` (bidirectional attention), trained with BERT's MLM objective, against a causal decoder of the same size; both for 800 steps (~30 s each) on the synthetic corpus of 05, followed by a fill-in-the-blank test. (2) **In practice:** classifying the real messages of Banking77 (77 intents) three ways: fine-tuning an encoder (ModernBERT-base), frozen embeddings + logistic regression, and asking an LLM (`qwen2.5:3b`) zero-shot and few-shot. (3) **Encoder-decoder:** Flan-T5-small, how its parameters are split and what its cross-attention reads.
+
+**Tools.** `ModelConfig(causal=False)` and `train_lm` from `llm_edu_suite`; a `mask_tokens` function with BERT's 80/10/10 recipe; `datasets.load_dataset("PolyAI/banking77")` with a stratified validation split; `AutoModelForSequenceClassification` + `Trainer` (`learning_rate=5e-5`, warm-up, linear decay, bf16, `DataCollatorWithPadding` for dynamic padding); `AutoModel` with mean pooling; `OllamaEmbeddings(nomic-embed-text)` with the `classification:` prefix; `scikit-learn` (`StandardScaler` + `LogisticRegression`, `C` chosen on validation, and `f1_score`); `with_structured_output(..., method="json_schema" | "function_calling", include_raw=True)` with a `Literal` of the 77 intents; `evaluation.bootstrap_ci` and `paired_bootstrap_diff`; `AutoModelForSeq2SeqLM` with `attn_implementation="eager"` to get the attention weights.
+
+**Key concepts**
+- All three families stack the same block; what changes is **the mask**. An encoder is the same attention layer called with `is_causal=False`.
+- **Masked language modeling**: a bidirectional model cannot be trained to predict the next token (it would be looking at it), so 15% of the positions are hidden (80% `[MASK]`, 10% a random token, 10% unchanged). It only learns from that 15%; ELECTRA fixes this by classifying every position.
+- A sentence representation from `[CLS]` or from the mean of the tokens, with a linear **classification head** on top that is fine-tuned together with the encoder.
+- ModernBERT: what decoders learned (RoPE, GeGLU, pre-normalization, global layers alternating with local windows, *unpadding*, an 8,192-token context) applied to an encoder.
+- **Linear probe**: a linear classifier on frozen representations measures how much useful information they hold.
+- **Constrained decoding** versus function calling when the enum is large.
+- Cross-attention: the queries come from the output being written; the keys and values from the encoder states.
+- Protocol: the official test set untouched, a stratified validation split to choose settings, macro-F1 next to accuracy, and a paired sample to compare against the LLM.
+
+**Results**
+
+From scratch, hiding one token of held-out text (989 first-token-of-a-word cases and 2069 inside-a-word cases):
+
+| Model | First token of a word | Inside a word | All |
+|---|---|---|---|
+| decoder (left context) | 2.9% | 95.4% | 73.6% |
+| encoder, left context only | 2.5% | 95.9% | 73.8% |
+| **encoder, both sides** | **100%** | 98.3% | 99.1% |
+
+Banking77 (13,083 messages, CC BY 4.0; train 9,002 · validation 1,001 · test 3,080):
+
+| Method | Labels | Test accuracy (3,080) | Paired 231-message sample [95% CI] | Latency per message |
+|---|---|---|---|---|
+| ModernBERT fine-tuned, 8 per intent | 616 | 69.6% (102 s) | 0.649 [0.589, 0.710] | 40 ms |
+| ModernBERT fine-tuned, 32 per intent | 2,464 | 89.3% (128 s) | 0.861 [0.818, 0.905] | 40 ms |
+| ModernBERT fine-tuned, all (~117 per intent) | 9,002 | **93.0%** (163 s) | 0.922 [0.883, 0.957] | 40 ms |
+| `nomic-embed-text` + logistic regression | 9,002 | **93.3%** | 0.926 [0.892, 0.957] | **18 ms** |
+| ModernBERT frozen (mean-pooled) + logistic regression | 9,002 | 89.2% | 0.896 [0.857, 0.935] | – |
+| `qwen2.5:3b` few-shot (1 per intent, `json_schema`) | 77 | – | 0.619 [0.554, 0.680] | ~250 ms |
+| `qwen2.5:3b` zero-shot (`json_schema`) | 0 | – | 0.489 [0.424, 0.554] | ~250 ms |
+| `qwen2.5:3b` zero-shot (`function_calling`) | 0 | – | 0.152 [0.104, 0.195], 181 of 231 outputs invalid | ~310 ms |
+
+For every trained method, macro-F1 equals accuracy to three decimals.
+
+Flan-T5-small (77M): a 19M encoder stack, a 25M decoder stack (with cross-attention) and a 16M shared embedding; a decoder block is self-attention → cross-attention → feed-forward.
+
+**Honest findings**
+- **Bidirectional context is the encoder's advantage, and it comes from the right-hand side.** At the start of a word, from the left you only know that a new word begins (2.9%); with both sides, the rest of the word gives it away (100%). The control row is what makes the comparison fair: the *same* encoder with the right side cut off falls to 2.5%, the decoder's level. The gain does not come from a better model.
+- **With labels, a fine-tuned encoder or a linear classifier beats a small LLM by more than 30 points** on a 77-way task. Many intents are near-duplicates ("pending_transfer" vs "transfer_not_received_by_recipient") that only data teaches.
+- **Embeddings + logistic regression match fine-tuning** (0.926 against 0.922 on the paired sample, a difference inside the noise), with no network training and half the latency. Frozen ModernBERT, never trained for similarity, is four points behind: for a "general" representation, the pre-training objective matters.
+- **The encoder is data-hungry at first**: with 8 examples per intent it stays at 69.6%, still above the LLM, and it improves with every label, while prompting does not.
+- **How the output is constrained decides between usable and useless.** With `function_calling` the model mostly did not call the tool with a 77-value enum (181 of 231 outputs invalid); with `json_schema` (grammar-constrained decoding) every output was valid. This is the contrast with [11](#11), where function calling was the more reliable method on a small schema.
+- **Flan-T5-small** classifies the stolen-card message correctly ("lost card") and writes a reasonable summary, but its translation is wrong: "Einzahlung" means *deposit*, not *purchase*. The last layer's cross-attention map is dominated by two *attention sinks* (the "e" of "Translate" and `</s>`), with a faint alignment underneath. The last layer of a small model is a poor place to look for alignment.
+- The notebook ends with "Results" and an "In production" section with a decision guide (no labels: an LLM with constrained decoding; hundreds of labels: embeddings + logistic regression; for the last points: fine-tune an encoder), what to monitor and the typical failure modes (label drift, over-confidence out of distribution, train/test leakage).
 
 ---
 

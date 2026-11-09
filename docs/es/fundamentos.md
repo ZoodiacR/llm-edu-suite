@@ -9,7 +9,7 @@
 ## Índice
 
 1. [El modelo por dentro](#1-el-modelo-por-dentro)
-   - [1.1 Tokenización](#11-tokenización) · [1.2 El bloque transformer](#12-el-bloque-transformer-y-el-flujo-residual) · [1.3 Atención, RoPE y normalización](#13-atención-rope-y-normalización) · [1.4 Atención eficiente](#14-atención-eficiente-para-contextos-largos) · [1.5 FFN y Mixture of Experts](#15-ffn-y-mixture-of-experts)
+   - [1.1 Tokenización](#11-tokenización) · [1.2 El bloque transformer](#12-el-bloque-transformer-y-el-flujo-residual) · [1.3 Atención, RoPE y normalización](#13-atención-rope-y-normalización) · [1.4 Atención eficiente](#14-atención-eficiente-para-contextos-largos) · [1.5 FFN y Mixture of Experts](#15-ffn-y-mixture-of-experts) · [1.6 Encoders y encoder-decoders](#16-encoders-y-encoder-decoders)
 2. [Pre-training e inferencia](#2-pre-training-e-inferencia)
    - [2.1 El objetivo](#21-el-objetivo-predecir-el-siguiente-token) · [2.2 Optimizador y schedule](#22-optimizador-y-plan-de-learning-rate) · [2.3 Leyes de escalado](#23-leyes-de-escalado) · [2.4 Decodificación](#24-estrategias-de-decodificación) · [2.5 KV-cache](#25-prefill-decode-y-kv-cache) · [2.6 Batching y serving](#26-batching-y-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Cuantización](#28-cuantización)
 3. [Post-training](#3-post-training)
@@ -228,6 +228,64 @@ MoE compra **capacidad** a cómputo fijo y la paga en **memoria** y **comunicaci
 **Papers clave.** Shazeer et al. (2017); Lepikhin et al. (2020, GShard); Fedus et al. (2021, Switch); Zoph et al. (2022, ST-MoE); Jiang et al. (2024, Mixtral); Dai et al. (2024, DeepSeekMoE); Wang et al. (2024); DeepSeek-AI (2024, V3); Shazeer (2020); Geva et al. (2021).
 
 > **Notebook:** [04 · FFN y MoE](../../notebooks/01_architecture/04_ffn_moe.ipynb) · **En el curso:** se fuerza un router muy desequilibrado y el sesgo aux-free equilibra la carga sin gradiente, mientras que un `bias_lr` grande (0.1) oscila; la comparación densa frente a MoE a igual cómputo activo muestra una ventaja pequeña o nula en un corpus de juguete, que es lo esperable.
+
+### 1.6 Encoders y encoder-decoders
+
+**Problema.** Todo lo anterior describe un decoder-only, el diseño de GPT, Llama y Qwen. Pero el transformer original (Vaswani et al., 2017) tenía dos mitades, y cada una dio lugar a una familia propia. Para entender un texto que ya está completo (clasificarlo, extraer entidades, convertirlo en un embedding) no hace falta generar nada, y leer solo hacia la izquierda desperdicia la mitad del contexto. Para transformar una secuencia en otra distinta (traducir, transcribir audio) interesa leer la entrada entera una vez y escribir la salida aparte.
+
+**La diferencia es la máscara.** Las tres familias apilan el mismo bloque (atención, FFN, residuales, normalización). Lo que cambia es a qué posiciones puede atender cada token:
+
+| Familia | Atención | Objetivo de entrenamiento | Miembros conocidos | Uso hoy |
+|---|---|---|---|---|
+| encoder-only | bidireccional: cada token ve a todos | rellenar tokens ocultos | BERT, RoBERTa, DeBERTa, ModernBERT | clasificación, entidades, embeddings, rerankers, filtros de seguridad |
+| decoder-only | causal: cada token ve solo el pasado | predecir el siguiente token | GPT, Llama, Qwen, SmolLM2 | generación, chat, agentes |
+| encoder-decoder | encoder bidireccional + decoder causal con cross-attention | reconstruir tramos corruptos o mapear entrada a salida | T5, BART, Flan-T5, Whisper | traducción, reconocimiento de voz, reescritura estructurada |
+
+En código, un encoder es la misma capa de atención llamada sin máscara causal (`is_causal=False`); en este repositorio, `ModelConfig(causal=False)`.
+
+**Masked language modeling (BERT).** Un modelo bidireccional no puede entrenarse prediciendo el siguiente token: lo estaría viendo. BERT (Devlin et al., 2019) oculta un subconjunto aleatorio $\mathcal{M}$ del 15 % de las posiciones y pide recuperarlas a partir del resto:
+
+$$\mathcal{L}_{\text{MLM}} = -\sum_{i \in \mathcal{M}} \log p_\theta\big(x_i \mid x_{\setminus \mathcal{M}}\big)$$
+
+De las posiciones elegidas, el 80 % se sustituye por `[MASK]`, el 10 % por un token aleatorio y el 10 % se deja igual. La mezcla existe porque `[MASK]` no aparece nunca al usar el modelo después: si solo viera `[MASK]` en las posiciones que se puntúan, no aprendería representaciones útiles de los tokens reales. RoBERTa (Liu et al., 2019) mostró que BERT estaba infraentrenado: más datos, máscaras dinámicas y sin la tarea de "siguiente frase".
+
+**El coste de MLM y ELECTRA.** Un LM causal aprende de todas las posiciones de cada secuencia; MLM, solo del 15 %. ELECTRA (Clark et al., 2020) lo resuelve con *replaced token detection*: un generador pequeño corrompe algunos tokens y el encoder (el discriminador $D$) clasifica **todas** las posiciones como originales o sustituidas,
+
+$$\mathcal{L}_{\text{disc}} = -\sum_{t=1}^{T} \Big[\mathbb{1}(\tilde x_t = x_t)\log D(\tilde x, t) + \mathbb{1}(\tilde x_t \ne x_t)\log\big(1 - D(\tilde x, t)\big)\Big]$$
+
+con lo que cada posición da señal y, a igual cómputo, el encoder resultante es mejor. DeBERTa-v3 usa este objetivo.
+
+**Span corruption (T5).** T5 (Raffel et al., 2020) sustituye tramos contiguos de la entrada por centinelas (`<extra_id_0>`, `<extra_id_1>`, ...) y el decoder tiene que escribir los tramos que faltan, cada uno precedido de su centinela:
+
+$$\mathcal{L}_{\text{span}} = -\sum_{j=1}^{|y|} \log p_\theta\big(y_j \mid y_{<j}, \tilde x\big)$$
+
+donde $\tilde x$ es la entrada corrupta e $y$ la secuencia de centinelas y tramos. La salida es corta (solo lo que falta), así que el preentrenamiento es barato, y el formato texto a texto permite tratar cualquier tarea igual.
+
+**Cabeza de clasificación.** Para una tarea con un conjunto fijo de etiquetas, la frase se resume en un vector: el estado del token especial inicial `[CLS]` o la media de los estados de todos los tokens (*mean pooling*, con la máscara de atención para no contar el padding). Encima va una capa lineal que se ajusta junto con todo el encoder:
+
+$$p(y \mid x) = \mathrm{softmax}\big(W\, h_{\text{[CLS]}}(x) + b\big)$$
+
+Es la receta de `AutoModelForSequenceClassification`. Una sola pasada, sin generación; la salida es una distribución sobre las etiquetas y nunca una respuesta fuera de ellas. Si en lugar de ajustar el encoder se congela y solo se entrena la capa lineal, se tiene un **linear probe**: mide cuánta información útil para la tarea hay ya en las representaciones.
+
+**ModernBERT.** BERT-base (2018) fue el encoder por defecto durante seis años. ModernBERT (Warner et al., 2024) lo reconstruye con lo que aprendieron los decoders: RoPE en lugar de posiciones aprendidas, FFN GeGLU, pre-normalización, capas de atención global alternadas con capas de ventana deslizante de 128 tokens, *unpadding* (no se gasta cómputo en el padding), 8.192 tokens de contexto y preentrenamiento sobre 2 billones de tokens con código. La versión base tiene 150M de parámetros.
+
+**Cross-attention.** En un encoder-decoder, el encoder lee la entrada $X$ una vez, de forma bidireccional, y produce los estados $H_X$. El decoder genera la salida $Y$ de forma causal y, en cada capa, añade entre la self-attention y la FFN una capa de cross-attention cuyas consultas vienen de la salida que se escribe y cuyas claves y valores vienen del encoder:
+
+$$\mathrm{CrossAttn}(Y, X) = \mathrm{softmax}\!\Big(\frac{(Y W_Q)(H_X W_K)^\top}{\sqrt{d_h}}\Big) H_X W_V$$
+
+No lleva máscara causal: cada token de salida puede leer toda la entrada. Las claves y valores de $H_X$ se calculan una sola vez por entrada y se reutilizan en todos los pasos de decodificación. Flan-T5 (Chung et al., 2022) es T5 con instruction tuning.
+
+**Por qué ganó el decoder-only, y dónde sobreviven los otros.** El decoder-only tiene un único objetivo que convierte cualquier texto en señal de entrenamiento (todas las posiciones puntúan), escala de forma predecible y aprende tareas nuevas desde el prompt (*in-context learning*) sin cabeza específica. Para un asistente general que tiene que generar, ganó. Pero:
+
+- cuando la tarea es un **conjunto fijo de etiquetas** y hay algo de datos etiquetados, un encoder pequeño ajustado suele ser igual o más preciso que un LLM, con una fracción del coste y la latencia;
+- los **modelos de embeddings y los rerankers** (cross-encoders) son encoders, y también muchos filtros de seguridad (Prompt Guard de Meta es un mDeBERTa ajustado);
+- cuando entrada y salida son secuencias distintas, como en **traducción y voz** (Whisper, NLLB), los encoder-decoders siguen siendo competitivos. Si son mejores a igual cómputo está en discusión; T5Gemma (Google, 2025) vuelve sobre la pregunta.
+
+**Modos de fallo.** Un encoder no genera: no hay forma natural de escribir con él de izquierda a derecha. Las representaciones de un encoder preentrenado solo con MLM no están hechas para similitud: sin un entrenamiento contrastivo, su media no es un buen embedding de frase. Con pocas etiquetas por clase, un encoder ajustado se queda corto. Los modelos ajustados son sobreconfiados con texto fuera de distribución (se calibran con *temperature scaling* en validación), y las etiquetas derivan cuando aparecen peticiones nuevas que se fuerzan en clases viejas (una clase "otros" o un umbral de confianza). En los mapas de atención, los *attention sinks* acaparan probabilidad y pueden tapar el alineamiento real. Y si casi-duplicados caen en train y en test, la accuracy se infla.
+
+**Papers clave.** Vaswani et al. (2017); Devlin et al. (2019, BERT); Liu et al. (2019, RoBERTa); Clark et al. (2020, ELECTRA); Raffel et al. (2020, T5); He et al. (2021, DeBERTa); Chung et al. (2022, Flan); Warner et al. (2024, ModernBERT); Casanueva et al. (2020, Banking77).
+
+> **Notebook:** [17 · Encoders y encoder-decoders](../../notebooks/01_architecture/17_encoders_and_encoder_decoders.ipynb) (se lee después del 04) · **En el curso:** con el mismo tamaño y 800 pasos, el decoder recupera el primer token de una palabra oculta el 2.9 % de las veces y el encoder que ve los dos lados el 100 % (el mismo encoder sin el lado derecho cae al 2.5 %); en Banking77 (77 intenciones), ModernBERT-base ajustado llega al 93.0 % en test (69.6 % con 8 ejemplos por intención, 89.3 % con 32), `nomic-embed-text` + regresión logística al 93.3 % y ModernBERT congelado al 89.2 %, mientras que `qwen2.5:3b` se queda en 48.9 % zero-shot y 61.9 % few-shot con decodificación restringida, y en 15.2 % con function calling (181 de 231 salidas inválidas); latencia por mensaje de 18 ms (embeddings + regresión), 40 ms (encoder) y ~250 ms (LLM); Flan-T5-small reparte sus 77M en 19M de encoder, 25M de decoder con cross-attention y 16M de embedding compartido, y su cross-attention de la última capa la dominan dos attention sinks.
 
 ---
 

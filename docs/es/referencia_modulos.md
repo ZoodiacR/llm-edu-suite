@@ -14,7 +14,7 @@ Los identificadores de código (clases, funciones, argumentos) se mantienen en i
 
 El curso tiene dos mitades, y el paquete solo contiene código para una de ellas.
 
-- **Primera mitad (notebooks 00–06): el modelo construido desde cero en PyTorch.** Ver la atención, RoPE, MoE o una KV-cache escritas línea a línea es la mejor forma de entenderlas. Los módulos 1–9 de esta referencia (`utils`, `tokenizer`, `layers`, `model`, `data`, `training`, `inference`, `recsys` y `evaluation`) son ese modelo y sus herramientas. El notebook 12 (recomendadores) también los usa: reutiliza `TransformerLM` como recomendador secuencial y carga MovieLens-1M con `recsys`, y encima añade FAISS, LightGBM y LangChain.
+- **Primera mitad (notebooks 00–06): el modelo construido desde cero en PyTorch.** Ver la atención, RoPE, MoE o una KV-cache escritas línea a línea es la mejor forma de entenderlas. Los módulos 1–9 de esta referencia (`utils`, `tokenizer`, `layers`, `model`, `data`, `training`, `inference`, `recsys` y `evaluation`) son ese modelo y sus herramientas. El notebook 12 (recomendadores) también los usa: reutiliza `TransformerLM` como recomendador secuencial y carga MovieLens-1M con `recsys`, y encima añade FAISS, LightGBM y LangChain. El notebook 17 (encoders y encoder-decoders) también: entrena el mismo `TransformerLM` con `ModelConfig(causal=False)` como encoder, y después pasa a ModernBERT y Flan-T5 con `transformers`.
 - **Segunda mitad (notebooks 07–16): las herramientas que usa la industria.** Fine-tuning, cuantización, RAG, agentes, LLMOps y MCP se enseñan con frameworks reales: Hugging Face `transformers` / `peft` / `trl` / `optimum-quanto`, LangChain, LangGraph, LangSmith, RAGAS y el SDK oficial de MCP con `langchain-mcp-adapters`. Para esta mitad el paquete aporta [`config`](#10-config), el único sitio donde se eligen el modelo de chat, el juez, el de embeddings y el trazado, y los intervalos bootstrap de [`evaluation`](#9-evaluation) con los que el notebook 10 compara configuraciones.
 
 ### ¿Dónde está ahora...? (módulos eliminados en v2)
@@ -45,16 +45,16 @@ La versión 1 del paquete tenía implementaciones propias de estos temas. En v2 
 
 | # | Módulo | Qué contiene | Necesita `torch` | Lo importan los notebooks |
 |---|---|---|---|---|
-| 1 | [`utils`](#1-utils) | semillas, dispositivo, conteo de parámetros, cronómetro, impresión de máscaras | sí | 01–06, 12 |
+| 1 | [`utils`](#1-utils) | semillas, dispositivo, conteo de parámetros, cronómetro, impresión de máscaras | sí | 01–06, 12, 17 |
 | 2 | [`tokenizer`](#2-tokenizer) | tokenizador BPE a nivel de bytes | no | 01, 05 |
 | 3 | [`layers`](#3-layers) | RMSNorm, RoPE, MHA/GQA/MQA, MLA, atenciones eficientes, SwiGLU, MoE | sí | 02, 03, 04 |
-| 4 | [`model`](#4-model) | `TransformerLM` configurable, KV-cache, muestreo | sí | 02–06, 12 |
-| 5 | [`data`](#5-data) | corpus sintéticos y de texto, batching para preentrenamiento | sí | 01–06 |
-| 6 | [`training`](#6-training) | schedules de LR, AdamW con grupos, bucle de entrenamiento, checkpoints | sí | 02–06 |
+| 4 | [`model`](#4-model) | `TransformerLM` configurable (causal o bidireccional), KV-cache, muestreo | sí | 02–06, 12, 17 |
+| 5 | [`data`](#5-data) | corpus sintéticos y de texto, batching para preentrenamiento | sí | 01–06, 17 |
+| 6 | [`training`](#6-training) | schedules de LR, AdamW con grupos, bucle de entrenamiento, checkpoints | sí | 02–06, 17 |
 | 7 | [`inference`](#7-inference) | decodificación especulativa, generación por lotes, tamaño de KV-cache | sí | 06 |
 | 8 | [`recsys`](#8-recsys) | MovieLens-1M (descarga, carga, partición temporal con ítems fríos, rangos y métricas con ranking completo); catálogo sintético, SASRec pequeño y rankers por embeddings | parcial | 12 |
-| 9 | [`evaluation`](#9-evaluation) | perplejidad, exact match, F1/ROUGE-L, recall/nDCG/MRR, intervalos bootstrap, proxy de fidelidad, latencia, clasificación | parcial | 02, 04, 05, 06, 10, 12 |
-| 10 | [`config`](#10-config) | `get_llm`, `get_judge_llm`, `get_embeddings`, `setup`: modelos y servicios de los notebooks 10–16, leídos de `.env` | no | 10–16 |
+| 9 | [`evaluation`](#9-evaluation) | perplejidad, exact match, F1/ROUGE-L, recall/nDCG/MRR, intervalos bootstrap, proxy de fidelidad, latencia, clasificación | parcial | 02, 04, 05, 06, 10, 12, 17 |
+| 10 | [`config`](#10-config) | `get_llm`, `get_judge_llm`, `get_embeddings`, `setup`: modelos y servicios de los notebooks 10–16, leídos de `.env` | no | 10–17 |
 
 "Parcial" significa que el módulo importa `torch` de forma opcional (`try/except ImportError`): las métricas puras y los datos sintéticos funcionan sin PyTorch, lo que toca modelos no. `config` no necesita `torch`, pero sí `langchain-ollama` (o `langchain-openai` / `langchain-anthropic`, según el proveedor) y, opcionalmente, `python-dotenv`.
 
@@ -65,7 +65,7 @@ Los notebooks 07, 08 y 09 no importan nada de `llm_edu_suite`: trabajan directam
 | Carpeta | Notebooks |
 |---|---|
 | `notebooks/00_start_here/` | 00 (un mini LLM completo de principio a fin) |
-| `notebooks/01_architecture/` | 01–04 |
+| `notebooks/01_architecture/` | 01–04, 17 (se lee después del 04) |
 | `notebooks/02_pretraining_and_inference/` | 05, 06, 09 |
 | `notebooks/03_post_training/` | 07, 08 |
 | `notebooks/04_applications/` | 10, 12, 13 |
@@ -164,7 +164,7 @@ with timer("máscara"):
 
 **En producción:** `transformers.set_seed`, `accelerate.Accelerator().device`, `torch.utils.benchmark`.
 
-**Notebooks:** lo importan 01–06 y 12, en la celda de configuración (`seed_everything`, `get_device`, `count_params`, `human`; `show_mask` en 01–06).
+**Notebooks:** lo importan 01–06, 12 y 17, en la celda de configuración (`seed_everything`, `get_device`, `count_params`, `human`; `show_mask` en 01–06).
 
 ---
 
@@ -241,7 +241,7 @@ Como las rotaciones se componen sumando ángulos, el producto $\langle \tilde q_
 | `1 < n_kv_heads < n_heads` | GQA (Llama 3, Mistral) | $2 \cdot H_{kv} \cdot D_h$ |
 | `n_kv_heads == 1` | MQA | $2 \cdot D_h$ |
 
-¿Por qué importa? En decodificación, el cuello de botella es leer la KV-cache de memoria. GQA la reduce `H / H_kv` veces y la calidad apenas se resiente. La clase incluye KV-cache: se llama con `start_pos=0` sobre el prompt (*prefill*) y después con `start_pos=t` y un token por paso (*decode*). La opción `qk_norm` aplica RMSNorm a q y k por cabeza para evitar que crezcan los logits de atención (OLMo 2, Gemma 3).
+¿Por qué importa? En decodificación, el cuello de botella es leer la KV-cache de memoria. GQA la reduce `H / H_kv` veces y la calidad apenas se resiente. Con `causal=False` la misma clase es la atención de un **encoder**: sin máscara, cada token ve a todos (BERT), y entonces `supports_cache` vale `False`, porque un encoder lee la entrada entera de una vez. La clase incluye KV-cache: se llama con `start_pos=0` sobre el prompt (*prefill*) y después con `start_pos=t` y un token por paso (*decode*). La opción `qk_norm` aplica RMSNorm a q y k por cabeza para evitar que crezcan los logits de atención (OLMo 2, Gemma 3).
 
 ### 3.4 MLA (Multi-head Latent Attention, DeepSeek-V2/V3)
 
@@ -302,7 +302,7 @@ El despacho es un bucle Python sobre expertos (claro, pero lento). En producció
 | `causal_mask(T, device=None)` | Máscara `(T, T)` triangular inferior. |
 | `sliding_window_mask(T, window, device=None)` | Causal y además `i - j < window`. |
 | `longformer_mask(T, window, global_idx, device=None)` | Ventana + filas y columnas globales (causal). |
-| `GroupedQueryAttention(d_model, n_heads, n_kv_heads, qk_norm=False, dropout=0.0)` | MHA/GQA/MQA con KV-cache. Métodos `clear_cache()`, `kv_cache_bytes_per_token(dtype_bytes=2)`. |
+| `GroupedQueryAttention(d_model, n_heads, n_kv_heads, qk_norm=False, dropout=0.0, causal=True)` | MHA/GQA/MQA con KV-cache. `causal=False` quita la máscara (atención bidireccional) y desactiva la caché (`supports_cache = False`). Métodos `clear_cache()`, `kv_cache_bytes_per_token(dtype_bytes=2)`. |
 | `MultiHeadLatentAttention(d_model, n_heads, kv_lora_rank, qk_nope_dim, qk_rope_dim, v_dim, q_lora_rank=None)` | MLA con caché comprimida. Mismos métodos de caché. |
 | `SlidingWindowAttention(d_model, n_heads, window)` | Atención local. |
 | `LongformerAttention(d_model, n_heads, window, global_idx=(0,))` | Ventana + globales. |
@@ -360,13 +360,14 @@ Block (pre-norm):
 - *Pérdida*: entropía cruzada (`ignore_index=-100`) más `aux_loss_coef · aux_total / n_layers`.
 - *Parámetros activos*: `num_active_params()` descuenta `(E - k)` expertos por capa MoE.
 - *Muestreo*: temperatura (`<= 0` equivale a greedy), top-k, top-p (*nucleus*, conserva el primer token que cruza `p`) y penalización de repetición de CTRL (divide los logits positivos y multiplica los negativos de tokens ya generados). `next_token_distribution` devuelve la distribución exacta de la que se muestrea (tras temperatura, top-k y top-p; los tokens filtrados quedan con probabilidad 0), útil para visualizar el efecto de cada parámetro. `sample_next_token` la usa internamente.
+- *Causal o bidireccional*: `causal=False` convierte el modelo en un **encoder** tipo BERT: la atención no lleva máscara y cada posición ve toda la secuencia. Solo está implementado para `attn="gqa"` (con otra atención, o con un `hybrid_pattern` que use otra, `build_attention` lanza `ValueError`), y no hay KV-cache (`supports_cache` es `False`). Se entrena con MLM: la entrada lleva los tokens ocultos y `targets` está alineado con ella, con `-100` en las posiciones que no se puntúan (notebook 17).
 - *Generación con KV-cache*: si todas las capas tienen `supports_cache`, hace *prefill* con `start_pos=0` y luego decodifica un token por paso. Si alguna no lo tiene, recalcula la secuencia completa en cada paso (correcto, pero $O(T^2)$ por token). La generación se detiene al llegar a `max_seq_len`.
 
 **API pública.**
 
 | Firma | Qué hace |
 |---|---|
-| `ModelConfig(vocab_size=512, max_seq_len=256, d_model=128, n_layers=4, n_heads=8, n_kv_heads=2, d_ff=None, dropout=0.0, attn="gqa", hybrid_pattern=None, window=64, global_idx=(0,), block=16, top_blocks=2, qk_norm=False, sandwich_norm=False, kv_lora_rank=32, qk_nope_dim=16, qk_rope_dim=8, v_dim=16, moe=False, n_experts=4, top_k=2, n_shared_experts=0, moe_routing="softmax", aux_loss_coef=0.01, moe_every=1, rope_base=10000.0, rope_scaling=None, tie_embeddings=True, norm_eps=1e-6)` | *Dataclass* de configuración. `attn` ∈ `gqa \| mla \| swa \| longformer \| blocksparse \| linear`. `d_ff=None` aplica la regla de Llama (múltiplo de 8). Propiedad `head_dim` y método `to_dict()`. |
+| `ModelConfig(vocab_size=512, max_seq_len=256, d_model=128, n_layers=4, n_heads=8, n_kv_heads=2, d_ff=None, dropout=0.0, attn="gqa", hybrid_pattern=None, window=64, global_idx=(0,), block=16, top_blocks=2, qk_norm=False, sandwich_norm=False, kv_lora_rank=32, qk_nope_dim=16, qk_rope_dim=8, v_dim=16, moe=False, n_experts=4, top_k=2, n_shared_experts=0, moe_routing="softmax", aux_loss_coef=0.01, moe_every=1, rope_base=10000.0, rope_scaling=None, tie_embeddings=True, norm_eps=1e-6, causal=True)` | *Dataclass* de configuración. `attn` ∈ `gqa \| mla \| swa \| longformer \| blocksparse \| linear`. `causal=False` da atención bidireccional (un encoder; solo con `gqa`, sin KV-cache). `d_ff=None` aplica la regla de Llama (múltiplo de 8). Propiedad `head_dim` y método `to_dict()`. |
 | `build_attention(cfg, layer_idx) -> nn.Module` | Fábrica de la atención de cada capa (respeta `hybrid_pattern`). |
 | `Block(cfg, layer_idx)` | Bloque pre-norm. `forward(x, freqs_cis, start_pos=None) -> (x, aux)`. |
 | `TransformerLM(cfg)` | El modelo. |
@@ -405,7 +406,7 @@ print(m2.num_params(), m2.num_active_params(), m2.supports_cache)   # swa no tie
 
 **En producción:** `transformers.LlamaForCausalLM` / `AutoModelForCausalLM` + `GenerationConfig`; nanoGPT y `litgpt` como referencias legibles; `torchtitan` para preentrenamiento a escala.
 
-**Notebooks:** 02–06 y 12 (el recomendador reutiliza `TransformerLM` sin cambios). Los scripts [`train.py`](scripts_cli.md#trainpy) y [`sample.py`](scripts_cli.md#samplepy) también lo usan.
+**Notebooks:** 02–06, 12 (el recomendador reutiliza `TransformerLM` sin cambios) y 17 (el mismo modelo con `causal=False`, entrenado con MLM, frente al decoder del mismo tamaño). Los scripts [`train.py`](scripts_cli.md#trainpy) y [`sample.py`](scripts_cli.md#samplepy) también lo usan.
 
 ---
 
@@ -446,7 +447,7 @@ loader = torch.utils.data.DataLoader(TokenDataset(tr, block_size=32), batch_size
 
 **En producción:** `datasets` (Hugging Face) con *streaming*; *packing* de secuencias; datatrove / FineWeb para corpus reales; `tokenizer.apply_chat_template` y los formatos de dataset de TRL para post-training (notebooks 07 y 08).
 
-**Notebooks:** 01 y 05 (corpus de texto, `load_text_file`), 02–04 y 06 (corpus sintético, `train_val_split`), 05 (`get_batch`).
+**Notebooks:** 01 y 05 (corpus de texto, `load_text_file`), 02–04 y 06 (corpus sintético, `train_val_split`), 05 (`get_batch`) y 17 (`synthetic_structured_corpus`, `train_val_split` y `get_batch` para el bucle de MLM).
 
 ---
 
@@ -493,7 +494,7 @@ print([round(lr_schedule(s, 1e-3, 10, 100, kind="wsd"), 5) for s in (0, 50, 85, 
 
 **En producción:** `transformers.Trainer`, `accelerate`, PyTorch Lightning; `torchtitan` / Megatron-LM / `nanotron` con FSDP2 y paralelismo de tensor y *pipeline*; Weights & Biases para el registro.
 
-**Notebooks:** 05 (pipeline completo, ablación de schedule, `plot_training`) y, como utilidad, 02–04 y 06. El script [`train.py`](scripts_cli.md#trainpy) lo usa por línea de comandos.
+**Notebooks:** 05 (pipeline completo, ablación de schedule, `plot_training`) y, como utilidad, 02–04, 06 y 17 (`train_lm` entrena el decoder de referencia; el encoder usa un bucle MLM propio). El script [`train.py`](scripts_cli.md#trainpy) lo usa por línea de comandos.
 
 ---
 
@@ -665,7 +666,7 @@ print(paired_bootstrap_diff(dense, hybrid))    # (0.3, 0.1, 0.5): híbrida - den
 
 **En producción:** `lm-evaluation-harness` (EleutherAI), `lighteval`, HELM; RAGAS / TruLens / DeepEval para RAG; LangSmith (datasets, experimentos y evaluadores) para aplicaciones; `ranx` / `pytrec_eval` para IR; MT-Bench / AlpacaEval / Arena-Hard como jueces LLM; `vllm bench` / GuideLLM / `genai-perf` para latencia y *throughput*.
 
-**Notebooks:** 02, 04 y 05 (`perplexity`), 06 (`benchmark_generation`), 10 (`bootstrap_ci` y `paired_bootstrap_diff` sobre las puntuaciones de RAGAS) y 12 (`bootstrap_ci` y `paired_bootstrap_diff` en cada comparación entre etapas del recomendador; las métricas por usuario salen de `recsys.rank_metrics`). El script [`train.py`](scripts_cli.md#trainpy) usa `perplexity`.
+**Notebooks:** 02, 04 y 05 (`perplexity`), 06 (`benchmark_generation`), 10 (`bootstrap_ci` y `paired_bootstrap_diff` sobre las puntuaciones de RAGAS) y 12 (`bootstrap_ci` y `paired_bootstrap_diff` en cada comparación entre etapas del recomendador; las métricas por usuario salen de `recsys.rank_metrics`) y 17 (`bootstrap_ci` y `paired_bootstrap_diff` para comparar los clasificadores de Banking77 con el LLM sobre la misma muestra de 231 mensajes). El script [`train.py`](scripts_cli.md#trainpy) usa `perplexity`.
 
 ---
 
@@ -750,7 +751,7 @@ Antes de usar Ollama hay que descargar los modelos: `ollama pull qwen2.5:3b` y `
 
 **En producción:** lo mismo, con un gestor de secretos en lugar de `.env`; `init_chat_model` de LangChain para elegir proveedor por nombre; un *gateway* de modelos (LiteLLM, por ejemplo) cuando hay muchos equipos y proveedores.
 
-**Notebooks:** 10, 11, 13, 14, 15 y 16 (`setup`, `get_llm`, `get_embeddings` en la celda de configuración; el 10 toma el juez de RAGAS de `setup()["judge_model"]`), 12 (`setup`, `get_embeddings` para el texto de las películas y `get_llm` para la capa de peticiones y explicaciones) y 15 (`langsmith_enabled`). El script [`rag_demo.py`](scripts_cli.md#rag_demopy) también lo usa.
+**Notebooks:** 10, 11, 13, 14, 15 y 16 (`setup`, `get_llm`, `get_embeddings` en la celda de configuración; el 10 toma el juez de RAGAS de `setup()["judge_model"]`), 12 (`setup`, `get_embeddings` para el texto de las películas y `get_llm` para la capa de peticiones y explicaciones), 15 (`langsmith_enabled`) y 17 (`get_embeddings` para los embeddings de `nomic-embed-text` y `get_llm` para clasificar con `qwen2.5:3b`). El script [`rag_demo.py`](scripts_cli.md#rag_demopy) también lo usa.
 
 ---
 
