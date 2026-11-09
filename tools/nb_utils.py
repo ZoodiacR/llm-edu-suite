@@ -95,7 +95,7 @@ TOPICS = {
     "00_start_here": ["00"],
     "01_architecture": ["01", "02", "03", "04", "17"],
     "02_pretraining_and_inference": ["05", "06", "09", "18", "19"],
-    "03_post_training": ["07", "08"],
+    "03_post_training": ["07", "08", "20"],
     "04_applications": ["10", "12", "13"],
     "05_agents_and_mcp": ["11", "14", "16"],
     "06_llmops": ["15"],

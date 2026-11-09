@@ -4,7 +4,7 @@
 
 [← Back to the index](README.md)
 
-This guide gets the project ready to run **everything**: the test suite, the command-line scripts and the 20 notebooks.
+This guide gets the project ready to run **everything**: the test suite, the command-line scripts and the 21 notebooks.
 
 The course has two halves with different needs:
 
@@ -16,6 +16,7 @@ The course has two halves with different needs:
 | **17** | The from-scratch model with `causal=False`, Hugging Face `transformers` + `datasets` (ModernBERT-base, Flan-T5-small, Banking77), `scikit-learn` and LangChain | PyTorch, a first-run download of ModernBERT-base (~600 MB), Flan-T5-small (~300 MB) and Banking77 from the Hugging Face Hub, and **Ollama** with `qwen2.5:3b` and `nomic-embed-text` for the comparison in section 2. About 15 minutes on a GPU. |
 | **18** | The from-scratch `TransformerLM` (two trainings), Hugging Face `datasets` + `transformers` (FineWeb and FineWeb-Edu samples, the FineWeb-Edu classifier, the SmolLM2 tokenizer) and LangChain | PyTorch, about 100 MB of FineWeb samples streamed once and kept in `data/cache/`, the `HuggingFaceFW/fineweb-edu-classifier` (~440 MB) and **Ollama** with `qwen2.5:3b` for the synthetic-data section. About 30 minutes on a GPU (two trainings of 10–11 minutes and about 3 minutes of generation). |
 | **19** | The from-scratch `TransformerLM`, `torch.profiler`, `torch.utils.checkpoint`, the `F.scaled_dot_product_attention` backends, `torch.compile` and `torch.distributed` | CUDA PyTorch and **an NVIDIA GPU** (it measures GPU memory and kernels; without one it stops at the start). No downloads, no Ollama. On Windows, FlashAttention-2 and Triton are missing and `torchrun` does not work (see [GPU notes](#gpu-notes)); the notebook detects this and carries on. About 5 minutes. |
+| **20** | LangChain with Ollama (`config.get_llm` and `get_judge_llm`), Hugging Face `datasets` (GSM8K) and Pydantic for the judge's structured output | **Ollama** with `qwen2.5:3b`, `deepseek-r1:1.5b` (1.1 GB) and, as verifier and pairwise judge, the optional `qwen2.5:7b`; the GSM8K test split from the Hugging Face Hub on the first run. No training. About 53 minutes, almost all of it LLM calls. |
 
 No API key is required. Everything runs locally by default.
 
@@ -28,7 +29,7 @@ No API key is required. Everything runs locally by default.
 | NVIDIA GPU | optional | RTX 3060 Laptop GPU, 6 GB |
 | [Ollama](https://ollama.com) | any recent version | 0.40.15 |
 | Disk: virtual environment | ~4 GB with the CUDA build of PyTorch (PyTorch alone is ~2.9 GB); much less with the CPU build | 4.1 GB |
-| Disk: Ollama models | ~2.2 GB (`qwen2.5:3b` 1.9 GB + `nomic-embed-text` 0.27 GB); 4.7 GB more with the optional `qwen2.5:7b` judge | |
+| Disk: Ollama models | ~2.2 GB (`qwen2.5:3b` 1.9 GB + `nomic-embed-text` 0.27 GB); 4.7 GB more with the optional `qwen2.5:7b` judge, and 1.1 GB for `deepseek-r1:1.5b` (notebook 20) | |
 | Disk: downloaded data | MovieLens-1M, 6 MB zipped, and the FineWeb (12,000 documents) and FineWeb-Edu (1,000) samples, about 45 MB of JSONL, in `data/cache/` | |
 | Disk: Hugging Face cache | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB), plus ~0.9 GB for notebook 17 (ModernBERT-base ~600 MB + Flan-T5-small ~300 MB, plus Banking77), and ~0.45 GB more for notebook 18 (`fineweb-edu-classifier` ~440 MB and the SmolLM2-135M tokenizer) | |
 
@@ -141,7 +142,13 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
    ollama pull qwen2.5:7b          # 4.7 GB; the RAGAS judge (notebook 10)
    ```
 
-   Everything works without it: `config.judge_model()` falls back to the chat model and the 3B model grades itself. Notebook 10 explains why that is a bad idea: with the 3B judge, differences between configurations showed up that the 7B judge does not confirm. With the 7B model, RAGAS scoring takes about 17 minutes on a 6 GB GPU, against about 7 with the 3B. To use another judge, set `JUDGE_MODEL` in `.env`.
+   **Notebook 20** also needs a small reasoning model, and uses the 7B judge as its verifier and pairwise judge:
+
+   ```bash
+   ollama pull deepseek-r1:1.5b    # 1.1 GB; DeepSeek-R1-Distill-Qwen-1.5B (notebook 20)
+   ```
+
+   Everything works without the 7B judge: `config.judge_model()` falls back to the chat model and the 3B model grades itself. Notebook 10 explains why that is a bad idea: with the 3B judge, differences between configurations showed up that the 7B judge does not confirm. With the 7B model, RAGAS scoring takes about 17 minutes on a 6 GB GPU, against about 7 with the 3B. To use another judge, set `JUDGE_MODEL` in `.env`.
 
 4. **Check it:**
 
@@ -223,13 +230,14 @@ The `.ipynb` files are **generated** from `tools/notebooks/nbNN_*.py` (and `scri
 - **SmolLM2** (notebooks 07–09 and `finetune.py`): from the Hugging Face Hub into the Hugging Face cache, on first use.
 - **ModernBERT-base, Flan-T5-small and Banking77** (notebook 17): `answerdotai/ModernBERT-base` (~600 MB), `google/flan-t5-small` (~300 MB) and the `PolyAI/banking77` dataset (CC BY 4.0) are downloaded from the Hugging Face Hub into its cache the first time the notebook runs.
 - **FineWeb, FineWeb-Edu and the FineWeb-Edu classifier** (notebook 18): the notebook streams (`datasets.load_dataset(..., streaming=True)`) the first 12,000 documents of `HuggingFaceFW/fineweb` and 1,000 of `HuggingFaceFW/fineweb-edu` (config `sample-10BT`), about 100 MB of download, and stores them once in `data/cache/fineweb_12k.jsonl` and `data/cache/fineweb_edu_1k.jsonl` (about 45 MB). Later runs read those files offline. FineWeb is ODC-By licensed and the repository does not redistribute it. The `HuggingFaceFW/fineweb-edu-classifier` (~440 MB) and the `HuggingFaceTB/SmolLM2-135M` tokenizer go into the Hugging Face cache on first use.
+- **GSM8K** (notebook 20): the test split of `openai/gsm8k` (config `main`, MIT license) is downloaded from the Hugging Face Hub into its cache the first time the notebook runs; the notebook uses 80 of its problems.
 - **MovieLens-1M** (notebook 12 and `scripts/generate_item_keywords.py`): `llm_edu_suite.recsys.download_movielens_1m()` fetches the official GroupLens zip (6 MB) and unzips it into `data/cache/ml-1m/` once. `data/cache/` is in `.gitignore`: the GroupLens license does not allow redistributing the dataset, so the repository does not include it and everyone downloads it from the original source. If you are offline, copy `ml-1m.zip` into `data/cache/` and the function will use it.
 - What *is* in the repository, because it is the course's own work: `data/recsys/ml1m_llm_keywords.json` (the keywords `qwen2.5:7b` wrote for each movie; regenerating them takes an hour, see [`generate_item_keywords.py`](cli_scripts.md#generate_item_keywordspy)) and `data/recsys/conversational_eval.json` (20 requests with checkable constraints).
 
 ## GPU notes
 
 - Nothing requires a GPU except notebook 19, but training is much faster with one: the notebook 00 mini LLM takes about **22 s on an RTX 3060 Laptop vs about 5 min on CPU**. `llm_edu_suite.utils.get_device()` picks `cuda` when available (Apple MPS only with `allow_mps=True`). On RTX 30xx or newer, training uses **bf16** mixed precision.
-- **VRAM budget on a 6 GB GPU.** Ollama keeps `qwen2.5:3b` loaded on the GPU for a few minutes after each call, using about **2.3 GB** of VRAM. The training notebooks cap their own PyTorch memory with `torch.cuda.set_per_process_memory_fraction` (environment variable `VRAM_BUDGET_GB`, e.g. `$env:VRAM_BUDGET_GB="3"` or `export VRAM_BUDGET_GB=3` to give them more). The default is **2 GB in notebook 07**, which trains nine models in a row and whose 4-bit QLoRA model leaves about 0.1 GB behind, and **1.5 GB in 08 and 09**.
+- **VRAM budget on a 6 GB GPU.** Ollama keeps `qwen2.5:3b` loaded on the GPU for a few minutes after each call, using about **2.3 GB** of VRAM. The training notebooks cap their own PyTorch memory with `torch.cuda.set_per_process_memory_fraction` (environment variable `VRAM_BUDGET_GB`, e.g. `$env:VRAM_BUDGET_GB="3"` or `export VRAM_BUDGET_GB=3` to give them more). The default is **2 GB in notebook 07**, which trains eleven models in a row and whose 4-bit QLoRA model leaves about 0.1 GB behind, and **1.5 GB in 08 and 09**.
 - **Do not run the training notebooks (07–09) and the Ollama notebooks (10–16) at the same time on a 6 GB GPU.** When the two compete for VRAM, Ollama can hang instead of failing. Run them one after the other, and if you need the memory back, unload the models with `ollama stop qwen2.5:3b` (`ollama ps` shows what is loaded).
 - If Ollama cannot fit a model on the GPU, it runs it (partly) on the CPU: it still works, only slower.
 - **Notebook 19 on Windows.** The Windows PyTorch wheels ship without FlashAttention-2 (SDPA then uses the memory-efficient or cuDNN kernels) and without Triton, so `torch.compile`'s default backend, `inductor`, fails with `TritonMissing` and the notebook uses `backend="cudagraphs"`. For FlashAttention-2, `torch.compile` with `inductor` or the `flash-attn` package, use Linux or WSL2. The notebook's DDP runs in two CPU processes with `gloo`, launched with `torch.multiprocessing.spawn` and connected through a shared file (`init_method="file://..."`, a `FileStore`), because `torchrun`'s TCP rendezvous needs libuv, which the Windows build does not include; NCCL, the GPU backend, exists only on Linux.

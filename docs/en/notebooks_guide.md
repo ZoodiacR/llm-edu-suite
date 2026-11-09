@@ -2,19 +2,20 @@
 
 🇪🇸 [Versión en español](../es/guia_notebooks.md) · [← Back to the index](README.md)
 
-The 20 notebooks one by one: what you build, which tools you use, which concepts you take away, what gets measured and what results come out.
+The 21 notebooks one by one: what you build, which tools you use, which concepts you take away, what gets measured and what results come out.
 
-The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings. **Notebook 17** (encoders and encoder-decoders) mixes both halves and is read right after 04, before 05: it closes the architecture topic with the two transformer families that are not decoder-only. **Notebook 18** (data engineering) is read right before 05: deduplication, quality filtering, decontamination and synthetic data on a real FineWeb sample, and two `TransformerLM`s trained on raw and clean data to see what changes. **Notebook 19** (systems) is read right after 05: it measures on the course's GPU where the memory and the time of a training run go (weights, gradients, Adam and activations, bf16, activation checkpointing, attention kernels, profiling, CUDA graphs and MFU) and how training is split across several GPUs (real DDP in two processes and a ZeRO / FSDP calculator).
+The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings. **Notebook 17** (encoders and encoder-decoders) mixes both halves and is read right after 04, before 05: it closes the architecture topic with the two transformer families that are not decoder-only. **Notebook 18** (data engineering) is read right before 05: deduplication, quality filtering, decontamination and synthetic data on a real FineWeb sample, and two `TransformerLM`s trained on raw and clean data to see what changes. **Notebook 19** (systems) is read right after 05: it measures on the course's GPU where the memory and the time of a training run go (weights, gradients, Adam and activations, bf16, activation checkpointing, attention kernels, profiling, CUDA graphs and MFU) and how training is split across several GPUs (real DDP in two processes and a ZeRO / FSDP calculator). **Notebook 20** (reasoning and test-time compute) is read right after 08: on GSM8K with `qwen2.5:3b` it measures what chain of thought, self-consistency, best-of-N with a verifier and a distilled reasoning model (DeepSeek-R1-Distill 1.5B) buy in accuracy and cost in tokens, and how far a pairwise LLM judge can be trusted.
 
 **How to use this guide.** Read the entry before you open the notebook, run it cell by cell, then come back and compare your numbers with the ones here. Every number below comes from the run committed to the repository (a laptop with a 6 GB RTX 3060). Your numbers will move a little: small models are sensitive to each machine's arithmetic, and anything an LLM generates or judges changes between runs. Where a result is fragile, the notebook says so, and so does this guide. Every notebook also has theory sections ("Background: ...") before the code that uses them; the long version of that theory, with the equations, is in the [theoretical foundations](foundations.md).
 
 **What each block needs**
 - **00–06**: PyTorch and `llm_edu_suite` only. They also run on CPU.
-- **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA in 07) and `optimum-quanto`. The first run downloads SmolLM2 from the Hugging Face Hub. Each notebook caps its own VRAM (`VRAM_BUDGET_GB`) so it fits on the GPU next to Ollama: 2 GB by default in 07, which trains nine models and whose 4-bit model leaves ~0.1 GB behind, and 1.5 GB in 08 and 09.
+- **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA in 07) and `optimum-quanto`. The first run downloads SmolLM2 from the Hugging Face Hub. Each notebook caps its own VRAM (`VRAM_BUDGET_GB`) so it fits on the GPU next to Ollama: 2 GB by default in 07, which trains eleven models and whose 4-bit model leaves ~0.1 GB behind, and 1.5 GB in 08 and 09.
 - **10–16**: **Ollama must be running** with `qwen2.5:3b` and `nomic-embed-text` pulled. The first cell (`setup()` from `llm_edu_suite.config`) checks this. Notebook 10 also uses `qwen2.5:7b` as the RAGAS judge if it is pulled (`ollama pull qwen2.5:7b`, optional; otherwise the 3B model judges). In notebook 12, Ollama is only needed for the content embeddings and the LLM layer (requests and explanations); SASRec, the two-tower model and the LightGBM ranker are plain PyTorch and LightGBM, and MovieLens-1M is downloaded into `data/cache/` on the first run.
 - **17**: `transformers` (ModernBERT-base and Flan-T5-small, downloaded from the Hugging Face Hub on the first run), `datasets` (Banking77), `scikit-learn` (logistic regression) and **Ollama running** with `qwen2.5:3b` and `nomic-embed-text` for section 2.
 - **18**: `datasets` (FineWeb and FineWeb-Edu samples, about 100 MB streamed once and kept in `data/cache/`), `transformers` (the `HuggingFaceFW/fineweb-edu-classifier`, ~440 MB, and the SmolLM2 tokenizer), `llm_edu_suite.model` for the two models it trains, and **Ollama running** with `qwen2.5:3b` for section 7 (synthetic data). About 30 minutes on the RTX 3060: two trainings of 10–11 minutes and about 3 minutes of LLM generation.
 - **19**: PyTorch and `llm_edu_suite.model` only, no downloads and no Ollama, but it **needs a CUDA GPU** (it measures GPU memory and kernels; without one it stops with a message at the start). The Windows PyTorch wheels ship without FlashAttention-2 and without Triton (the `inductor` backend of `torch.compile`): the notebook detects this and carries on with what is available, and DDP runs in two CPU processes with `gloo`. About 5 minutes on the RTX 3060.
+- **20**: **Ollama running** with `qwen2.5:3b`, `deepseek-r1:1.5b` (`ollama pull deepseek-r1:1.5b`, 1.1 GB) and, as the verifier and pairwise judge, `qwen2.5:7b` (if it is not pulled, `config.judge_model()` falls back to the chat model and the 3B model judges itself); `datasets` downloads the GSM8K test split from the Hugging Face Hub on the first run. No training and no PyTorch model: it is all LLM calls. About 53 minutes on the RTX 3060, of which about 25 go to sampling five chains of thought for each of the 80 problems, about 10 to the verifier and about 10 to the reasoning model.
 - **LangSmith is optional.** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env`, every LangChain/LangGraph call in 10–16 is traced. Without a key everything still runs, and notebook 15 skips the cells that need the LangSmith server and prints that it skipped them. The committed run had LangSmith on.
 
 | Topic | Notebooks | GPU time of the final run |
@@ -22,12 +23,12 @@ The course has two halves. **Notebooks 00–06** build a language model from scr
 | Start here | [00](#00) | 32 s |
 | Architecture | [01](#01) · [02](#02) · [03](#03) · [04](#04) · [17](#17) | 5 s · 31 s · 180 s · 48 s · ≈ 15 min (≈ 19.5 min) |
 | Pre-training and inference | [18](#18) · [05](#05) · [19](#19) · [06](#06) · [09](#09) | ≈ 30 min · 35 s · ≈ 5 min · 61 s · 53 s (≈ 37.5 min) |
-| Post-training | [07](#07) · [08](#08) | ≈ 14 min · 645 s (≈ 25 min) |
+| Post-training | [07](#07) · [08](#08) · [20](#20) | ≈ 25 min · 645 s · ≈ 53 min (≈ 89 min) |
 | Applications | [10](#10) · [12](#12) · [13](#13) | ≈ 19 min · ≈ 25 min · 140 s (≈ 46 min) |
 | Agents and MCP | [11](#11) · [14](#14) · [16](#16) | 56 s · 119 s · 65 s (≈ 4 min) |
 | LLMOps | [15](#15) | 129 s |
 
-Notebooks 07, 10 and 12 were re-run for v2.1 and their times are approximate: 07 now also trains QLoRA, 10 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 12 includes ~11 minutes of ranker feature building. In total, about an hour and a half for notebooks 00–16, plus about 15 minutes for 17, about 30 for 18 and about 5 for 19, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU. Notebook 19 does not run without a CUDA GPU.
+Notebooks 07, 10 and 12 were re-run for v2.1 and their times are approximate: 07 now also trains QLoRA, 10 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 12 includes ~11 minutes of ranker feature building. In total, about an hour and a half for notebooks 00–16, plus about 15 minutes for 17, about 30 for 18, about 5 for 19 and about 53 for 20, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU. Notebook 19 does not run without a CUDA GPU.
 
 ---
 
@@ -313,9 +314,9 @@ Read right after 05. Notebook 05 trains a model; this one looks at **what that c
 ## 07 · Fine-tuning with Hugging Face: SFT, LoRA and distillation
 `notebooks/03_post_training/07_finetuning_sft_lora.ipynb` · `transformers`, `peft`, `trl` · also as a script: `python scripts/finetune.py sft`
 
-**What you build.** You fine-tune `HuggingFaceTB/SmolLM2-135M-Instruct` to turn a booking request into strict JSON (`name`, `restaurant`, `people` as an integer, lowercase `day`, `time` in 24h). 300 labelled examples; 40 test requests with names and restaurants never seen in training. Few-shot baseline → full SFT → LoRA → QLoRA on a 4-bit base → the "new special token" trap → rank ablation → distillation from a 360M teacher.
+**What you build.** You fine-tune `HuggingFaceTB/SmolLM2-135M-Instruct` to turn a booking request into strict JSON (`name`, `restaurant`, `people` as an integer, lowercase `day`, `time` in 24h). 300 labelled examples; 40 test requests with names and restaurants never seen in training. Few-shot baseline → full SFT → LoRA → QLoRA on a 4-bit base → the "new special token" trap → rank ablation → distillation from a 360M teacher → model merging: a second adapter for another task (converting a time to 24-hour format) is merged with the booking adapter in four ways and compared with one multi-task adapter trained on both datasets.
 
-**Tools.** `AutoTokenizer.apply_chat_template`, `AutoModelForCausalLM`; `trl.SFTConfig` / `SFTTrainer` with a prompt/completion dataset (loss on the completion only); `peft.LoraConfig(r=16, lora_alpha=32, target_modules="all-linear")`, `get_peft_model`, `PeftModel.from_pretrained`, `merge_and_unload()`; `tokenizer.add_tokens` + `resize_token_embeddings`, and `LoraConfig(modules_to_save=["embed_tokens"], ensure_weight_tying=True)`; for QLoRA, `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)`, `peft.prepare_model_for_kbit_training` and `optim="paged_adamw_8bit"`.
+**Tools.** `AutoTokenizer.apply_chat_template`, `AutoModelForCausalLM`; `trl.SFTConfig` / `SFTTrainer` with a prompt/completion dataset (loss on the completion only); `peft.LoraConfig(r=16, lora_alpha=32, target_modules="all-linear")`, `get_peft_model`, `PeftModel.from_pretrained`, `merge_and_unload()`; `tokenizer.add_tokens` + `resize_token_embeddings`, and `LoraConfig(modules_to_save=["embed_tokens"], ensure_weight_tying=True)`; for QLoRA, `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)`, `peft.prepare_model_for_kbit_training` and `optim="paged_adamw_8bit"`; for merging, `PeftModel.load_adapter` (two adapters on one base) and `add_weighted_adapter(combination_type="linear" | "cat" | "ties_svd" | "dare_ties_svd")`.
 
 **Key concepts**
 - The chat template and loss masking: prompt labels are `-100`, and the loss covers the answer **including `<|im_end|>`** (in the example, 42 of 110 tokens). The notebook checks that TRL builds exactly the same labels.
@@ -324,6 +325,7 @@ Read right after 05. Notebook 05 trains a model; this one looks at **what that c
 - **QLoRA**: the frozen weights are stored in NF4 (16 levels at the quantiles of a normal distribution), with double quantization of the scales and a paged optimizer; the adapters stay in bf16 and every matmul dequantizes first. It saves weight memory, not activation memory, and the adapter is merged into a bf16 copy of the base.
 - **The new-token trap**: with tied embeddings and mean initialization, a new token can never be the most likely one if the embeddings are frozen. Fix: train the embedding.
 - Training loss does not tell you task accuracy; per-field metrics tell you where the errors are (here, almost always `time`).
+- **Model merging**: a fine-tune is a *task vector* $\tau = \theta_t - \theta_0$, and fine-tunes of the same base can be added (task arithmetic) because they stay in one basin of the loss and unrelated updates are nearly orthogonal. TIES and DARE deal with interference when the vectors overlap. With LoRA there is a trap: summing the $A$ and $B$ factors separately (`linear`) adds the cross terms $B_1A_2 + B_2A_1$; `cat` and `svd` give the exact sum.
 
 **Results** (40 test requests; each one is 2.5 points)
 
@@ -331,19 +333,39 @@ Read right after 05. Notebook 05 trains a model; this one looks at **what that c
 |---|---|---|---|---|---|---|---|
 | base, zero-shot | 5% | 0% | 2% | 0% | – | – | – |
 | base, few-shot (4 examples) | 100% | 17.5% | 73% | 25% | – | – | – |
-| full SFT | 100% | 35% | 85.5% | 37.5% | 134.5 M | 52 | 1.19 GB |
-| LoRA r=2 | 100% | 20% | 80.5% | 30% | 0.6 M | 37 | 1.46 GB |
-| LoRA r=16 | 100% | 32.5% | 86.5% | 32.5% | 4.9 M | 41 | 1.41 GB |
-| QLoRA r=16 (NF4 base) | 100% | 37.5% | 86.5% | 45% | 4.9 M | 47 | 1.34 GB |
-| LoRA r=64 | 100% | 45% | 89% | 45% | 19.5 M | 72 | 1.25 GB |
-| teacher 360M, LoRA r=16 | 100% | **87.5%** | 97.5% | 92.5% | 8.7 M | 181 | 1.27 GB |
-| student 135M, human + teacher labels | 100% | **55%** | 91% | 55% | 4.9 M | 71 | 1.54 GB |
+| full SFT | 100% | 35% | 85.5% | 37.5% | 134.5 M | 72 | 1.19 GB |
+| LoRA r=2 | 100% | 20% | 80.5% | 30% | 0.6 M | 58 | 1.46 GB |
+| LoRA r=16 | 100% | 32.5% | 86.5% | 32.5% | 4.9 M | 63 | 1.41 GB |
+| QLoRA r=16 (NF4 base) | 100% | 37.5% | 86.5% | 45% | 4.9 M | 72 | 1.34 GB |
+| LoRA r=64 | 100% | 45% | 89% | 45% | 19.5 M | 109 | 1.25 GB |
+| teacher 360M, LoRA r=16 | 100% | **87.5%** | 97.5% | 92.5% | 8.7 M | 230 | 1.27 GB |
+| student 135M, human + teacher labels | 100% | **55%** | 91% | 55% | 4.9 M | 87 | 1.54 GB |
 
 - LoRA r=16 trains 3.5% of the parameters and lands within one request of full SFT. The adapter is 19.6 MB (the model in bf16 is 269 MB). Merged in fp32 it changes the logits by at most 1e-4 and keeps the same greedy token at every position.
-- **QLoRA** loses no quality: 37.5% exact match against 32.5% for LoRA, with the same 86.5% of fields. That is two requests out of 40, noise, so the honest reading is "the same", not "better". The weights in memory drop from 269 MB to 110 MB (210 linear layers in 4 bits; the tied 28M-parameter embedding stays in bf16), but the training peak barely moves (1.41 → 1.34 GB): at 135M the activations and the 49k-token output layer dominate. Each step is a little slower (47 s against 41 s) because it dequantizes. The decisive saving comes with large models: the frozen weights of a 7B model go from 14 GB to 3.6 GB, a 13B from 26 to 6.7 GB and a 70B from 140 to 36.1 GB.
+- **QLoRA** loses no quality: 37.5% exact match against 32.5% for LoRA, with the same 86.5% of fields. That is two requests out of 40, noise, so the honest reading is "the same", not "better". The weights in memory drop from 269 MB to 110 MB (210 linear layers in 4 bits; the tied 28M-parameter embedding stays in bf16), but the training peak barely moves (1.41 → 1.34 GB): at 135M the activations and the 49k-token output layer dominate. Each step is a little slower (72 s against 63 s) because it dequantizes. The decisive saving comes with large models: the frozen weights of a 7B model go from 14 GB to 3.6 GB, a 13B from 26 to 6.7 GB and a 70B from 140 to 36.1 GB.
 - **New token `<|json|>`**: with frozen embeddings it is never emitted (0% of answers; rank ~24,000 as the first token, probability ≈ 0, training loss 0.30) and the model degenerates. With a trainable embedding (33.2M parameters) it starts 100% of the answers (p ≈ 0.93) and exact match is back to 32.5%. `trainable_token_indices` fails inside `SFTTrainer` on a tied `lm_head` with the versions used (trl 1.17, peft 0.21).
-- **Distillation**: the teacher labels 600 new requests in 86 s, 90% of them exactly right; the student goes from 32.5% to 55%. Honest caveats: the student also took 57 optimizer steps instead of 38, and it learns from labels that are 10% wrong.
+- **Distillation**: the teacher labels 600 new requests in 104 s, 90% of them exactly right; the student goes from 32.5% to 55%. Honest caveats: the student also took 57 optimizer steps instead of 38, and it learns from labels that are 10% wrong.
 - The biggest levers were model size and more data (even machine-labelled); rank came next.
+
+Model merging (both tasks on the same model; booking = exact match on the 40 requests, time = accuracy on 40 time conversions):
+
+| Model | Booking exact | Booking fields | Time conversion |
+|---|---|---|---|
+| base, no adapter | 0% | 1% | 30% |
+| booking adapter only | 32.5% | 86.5% | 27.5% |
+| time adapter only | 0% | 0% | 97.5% |
+| merge `linear` | 27.5% | 83.5% | 87.5% |
+| merge `cat` (task arithmetic) | **32.5%** | 85% | **90%** |
+| merge `ties_svd` | 27.5% | 83% | 80% |
+| merge `dare_ties_svd` | 30% | 84% | 87.5% |
+| multi-task LoRA (both datasets) | **55%** | 89.5% | **97.5%** |
+
+- **The two task vectors barely overlap**: across the 210 adapted matrices the mean cosine similarity is +0.012 (the largest 0.095), and where both updates are large their signs disagree 49% of the time, what unrelated directions give. That is the condition under which plain addition works.
+- **Task arithmetic (`cat`) is the best merge**: it keeps the booking task where the booking adapter alone had it (32.5% exact) and converts times at 90%, against 97.5% for the specialist and 30% for the base model. The four merges took 19 s of arithmetic, with no data and no training.
+- `linear` loses on both tasks: its update is 91% away from the exact sum (the cross terms). **TIES and DARE did not help** here (their updates are 37% and 50% away from the sum): there was no interference to resolve, so keeping half the coordinates only threw signal away.
+- **No skill transfer**: the merged models keep the booking `time` field at 32.5–37.5%, no better than the booking adapter. Merging puts two behaviours in one model; it does not combine them into a new one.
+- **Multi-task training wins when you have both datasets**: 55% exact, 70% on the `time` field and 97.5% on conversion, better than every merge on both tasks, with 76 optimizer steps (as many as the two specialists together).
+- The notebook ends with "Results" and an "In production" section: the recipe (a held-out set before training, a few-shot baseline, LoRA r = 16 on all linear layers, QLoRA only when the bf16 base does not fit, full fine-tuning only when LoRA plateaus); data beats knobs (add examples of exactly what fails, distil from a stronger model and spot-check its labels); serving adapters (merge into a bf16 base for one task; one base with many adapters in vLLM, SGLang or LoRAX for many; version each adapter with its base, data and evaluation); to combine adapters you cannot retrain together, merge with task arithmetic (`cat` / `svd` in `peft`, or `mergekit` for full models) and run every task's evaluation on the merge; what to monitor (frozen test set, JSON validity, general benchmarks for forgetting, input drift), and the failure modes (LR too low for LoRA, training on the prompt, an untrained new token, merging into the wrong base or merging LoRA factors with `linear`, a teacher's errors copied by the student, trusting the training loss).
 
 ---
 
@@ -386,6 +408,59 @@ Arithmetic (100 held-out problems, 40 GRPO steps):
 - Without a single labelled answer, GRPO goes from 5% to 42–46% in about 3.5 minutes. Answers get shorter (~27 → ~13 tokens): the policy learns that a short `96 - 20 = …` is rewarded more often than an explanation that gets cut off.
 - The dense reward gives a signal to more groups, but it did not produce a better model: a bit higher on its proxy, a bit lower on exact match. That is the direction Goodhart predicts, but 4 problems out of 100 are within noise.
 - Peak VRAM was at most 1.40 GB for everything (0.88 GB for GRPO).
+
+**Next:** [20](#20), where reasoning of the kind GRPO trains is put to work and measured at inference time, then [09](#09).
+
+---
+
+<a id="20"></a>
+## 20 · Reasoning and test-time compute: chain of thought, self-consistency, verifiers, reasoning models
+`notebooks/03_post_training/20_reasoning_test_time_compute.ipynb` · modules `config`, `evaluation` · LangChain (Ollama), `datasets`, Pydantic
+
+Read right after 08. GRPO in 08 is how reasoning is *trained*; this notebook is about how it is *used* and what it costs. Since 2024 the strongest models (o1/o3, DeepSeek-R1, Claude with extended thinking, Gemini thinking, Qwen3) spend extra tokens thinking before they answer. Here that idea is taken apart lever by lever on 80 problems from the GSM8K test set, with `qwen2.5:3b` served by Ollama, and every lever is measured in accuracy (with bootstrap intervals), output tokens and seconds per problem.
+
+**What you build.**
+1. **Direct answer vs chain of thought**: the same model with greedy decoding, once told to give only the final number (16 tokens allowed) and once told to solve step by step and put the number on the last line (512 tokens).
+2. **Self-consistency**: five chains of thought per problem at temperature 0.7; for every $k$ from 1 to 5, **maj@k** (majority vote among the first $k$, ties to the earliest answer) and **pass@k** (at least one of the $k$ is right, the ceiling of a perfect verifier).
+3. **Best-of-5 with a verifier**: the judge (`qwen2.5:7b` if it is pulled) scores each of the five solutions from 1 to 10 and the top one wins, on the first 40 problems, against the vote and pass@5 on the same 40.
+4. **A reasoning model**: `deepseek-r1:1.5b` (Qwen2.5-Math-1.5B fine-tuned on DeepSeek-R1's reasoning traces), which thinks inside `<think>...</think>`, with up to 2,048 tokens.
+5. **The cost-accuracy picture**: every strategy as a point on a log axis of output tokens.
+6. **Comparative evaluation**: a Bradley-Terry ranking of the strategies from per-problem "matches", with bootstrap intervals, and a pairwise LLM judge asked to compare the chain-of-thought and R1 solutions of 30 problems in both orders.
+
+**Tools.** `datasets.load_dataset("openai/gsm8k", "main", split="test")` (shuffled with seed 0, first 80); a `final_number` function that takes the last number after any `</think>` block (extraction is part of the evaluation); `config.get_llm(num_predict=..., temperature=...)` and `get_llm(model="deepseek-r1:1.5b", num_predict=2048)` with `.batch(..., config={"max_concurrency": 4})`, reading the output tokens from `usage_metadata`; `config.get_judge_llm(num_predict=600).with_structured_output(..., method="json_schema", include_raw=True)` with Pydantic models (`Verdict` with a bounded `reasoning` and a 1–10 `score`; `Choice` with `Literal["A", "B"]`), so a malformed verdict comes back as data instead of an exception; `evaluation.bootstrap_ci` and `paired_bootstrap_diff`; Bradley-Terry fitted in NumPy with minorization-maximization updates and 300 bootstrap resamples.
+
+**Key concepts**
+- **Chain of thought as serial computation**: a transformer does a fixed amount of work per token, so writing the intermediate steps as tokens is what lets later steps read earlier results. More tokens buy more serial computation.
+- **Test-time compute**: parallel sampling (self-consistency, best-of-N), sequential refinement (self-refine, *budget forcing*) and trained reasoning are all ways of spending more compute per problem at inference time; Snell et al. (2024) treat it as a scaling axis of its own.
+- **maj@k vs pass@k**: the gap between them is the most a verifier could recover. When it is small, voting already extracts nearly everything.
+- **Verifiers**: an *outcome* reward model scores the final answer, a *process* reward model every step. A verifier only helps if it tells right from wrong better than the vote.
+- **Reasoning models and distillation**: R1 learned long reasoning with RL on verifiable rewards (08); R1-Distill copies it into small models by SFT on R1's traces. Whether that holds up outside the training distribution has to be measured, not assumed.
+- **Costs and failure modes**: reasoning is paid in output tokens, the slow and expensive ones (06); overthinking, unfaithful chains of thought, fooled or reward-hacked verifiers, and answer-extraction bugs.
+- **Bradley-Terry and pairwise judges**: $P(i \succ j) = e^{\beta_i} / (e^{\beta_i} + e^{\beta_j})$, the model behind Chatbot Arena and RLHF reward models (08); an LLM judge has to be checked for position bias by judging every pair in both orders.
+
+**Results**
+
+| Strategy (`qwen2.5:3b` unless noted, 80 GSM8K problems) | Accuracy [95% CI] | Output tokens per problem | Seconds per problem |
+|---|---|---|---|
+| direct answer | 12.5 % [6.2, 20.0] | 3 | 0.13 |
+| chain of thought (greedy) | **85.0 %** [77.5, 92.5] | 246 | 3.63 |
+| self-consistency, 5 samples (maj@5) | **90.0 %** [83.8, 96.2] | 1,274 | 19.05 |
+| best-of-5 with a 7B judge (first 40) | 85.0 % (majority 90.0 %, pass@5 90.0 %) | 1,274 + judging | 33.40 |
+| DeepSeek-R1-Distill 1.5B | 63.7 % [53.8, 73.8]; 16 hit the token limit | 870 | 7.73 |
+| Bradley-Terry ranking | self-consistency > chain of thought > R1-Distill > direct, non-overlapping intervals | | |
+| pairwise LLM judge, both orders | consistent on only 43 % of 30 pairs | | |
+
+**Honest findings**
+- **Reasoning tokens are the biggest lever by far.** The same 3B model goes from 12.5 % to 85.0 % when it is allowed to write its steps, at 246 output tokens instead of 3 (3.63 s instead of 0.13 s per problem). The example in the notebook shows why: each step writes an intermediate result (125, then 175) that the next step reads back.
+- **Voting adds a few points at linear cost.** One sample at temperature 0.7 is a little worse than greedy (78.8 % vs 85.0 %); maj@5 reaches 90.0 %, 5.0 points over greedy chain of thought with a paired interval of [+0.0, +11.2], so a real but modest gain, for five times the tokens (about 1,274 per problem). pass@k stops at 91.2 % from $k = 3$, barely above maj@5: on this set voting already gets almost everything a perfect verifier could.
+- **The LLM verifier made things worse.** On the first 40 problems, best-of-5 with the 7B judge scored 85.0 %, against 90.0 % for the vote and for pass@5. The judge gives correct solutions an average of 7.30 and wrong ones 6.15, so it barely tells them apart and often picks a fluent wrong solution. All 200 verdicts were valid JSON, so the problem is discrimination, not formatting; and it was the most expensive strategy, with 14.3 s of judging per problem on top of the sampling.
+- **The small distilled reasoning model lost to plain prompting.** R1-Distill 1.5B reached 63.7 % (against 85.0 % for chain of thought with the 3B model) while generating 870 tokens per problem, 3.5 times as many, and taking twice as long. 16 of the 80 answers hit the 2,048-token limit without finishing and 15 ended with no number to extract: at 1.5B, the long thinking style often turns into loops and second-guessing (*overthinking*). This is a measurement of this model with this budget, not a verdict on reasoning models.
+- **On the cost-accuracy curve the returns diminish fast**: the first ~243 tokens of reasoning bought 72.5 points, the next ~1,000 of self-consistency bought 5 more, the verifier bought nothing, and the reasoning model spent more tokens for less.
+- **Bradley-Terry separates the strategies cleanly**: self-consistency +3.09, chain of thought +1.14, R1-Distill −0.58 and direct −3.65, with bootstrap intervals that do not overlap between neighbours. Read as probabilities: on a problem where they differ, chain of thought beats R1-Distill 85 % of the time.
+- **The pairwise judge is the cautionary tale.** All 30 pairs were judged in both orders and the judge gave the same verdict only 43 % of the time. It did not lean towards one position overall (52 % of verdicts for A), so this is less position bias than plain noise. When it was consistent and exactly one solution was right, it picked the right one 89 % of the time, but that was only 9 cases.
+- The notebook ends with "Results" and an "In production" section: how to choose a strategy (start with chain of thought, or a reasoning model with a capped thinking budget; add self-consistency, with $k$ between 3 and 8, only where the gain is worth $k$× the cost; use best-of-N only with a verifier shown to discriminate: unit tests, a calculator or solver, a schema validator, a trained reward model); how to serve reasoning models (explicit `max_tokens` or a thinking budget, watching the share of answers that hit the limit, robust answer parsing with extraction failures as their own metric, pricing by output tokens); how to evaluate with judges (both orders, consistency reported, the judge validated against ground truth as in [10](#10) and [15](#15), bounded judge reasoning, Bradley-Terry with intervals); what to monitor (tokens per request and their tail, truncated or unparseable answers, accuracy against the target and latency), and the failure modes.
+
+**Next:** back to the main path with [09](#09) (quantization), or [14](#14) to see reasoning inside agents.
 
 ---
 

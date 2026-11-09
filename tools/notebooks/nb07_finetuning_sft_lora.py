@@ -227,7 +227,7 @@ LoRA became the default for three reasons: it adds no latency once merged, it ma
 ''')
 nb.code(r'''
 import os
-# This notebook trains nine models in one process, and the 4-bit model of section 4.3 leaves ~0.1 GB behind on the GPU.
+# This notebook trains eleven models in one process, and the 4-bit model of section 4.3 leaves ~0.1 GB behind on the GPU.
 # A 2 GB budget fits every run and still leaves room for Ollama (~2.3 GB) on a 6 GB card. Notebooks 08-09 keep 1.5 GB.
 os.environ.setdefault("VRAM_BUDGET_GB", "2")
 ''')
@@ -492,7 +492,7 @@ for b in (7, 13, 70):
     print(f"{b:>5d}B {2 * b:>11.0f} GB {b * 4.127 / 8:>10.1f} GB")
 ''')
 nb.md(r'''
-**What we see.** The 4-bit base holds its own: QLoRA reaches 37.5 % exact match against 32.5 % for plain LoRA, with the same 86.5 % of fields right. Two requests out of 40 are within the noise, so the honest reading is *no loss of quality*, not *better*. The memory story is the one predicted: the weights shrink from 269 MB to 110 MB (210 linear layers stored in NF4; the 28M-parameter tied embedding stays in bf16), but the training peak barely moves (1.41 → 1.34 GB), because on a 135M model the activations and the 49k-token output layer dominate. Each run is a little slower (47 s against 41 s for the same 38 steps), because every matmul dequantizes its weights first.
+**What we see.** The 4-bit base holds its own: QLoRA reaches 37.5 % exact match against 32.5 % for plain LoRA, with the same 86.5 % of fields right. Two requests out of 40 are within the noise, so the honest reading is *no loss of quality*, not *better*. The memory story is the one predicted: the weights shrink from 269 MB to 110 MB (210 linear layers stored in NF4; the 28M-parameter tied embedding stays in bf16), but the training peak barely moves (1.41 → 1.34 GB), because on a 135M model the activations and the 49k-token output layer dominate. Each run is a little slower (72 s against 63 s for the same 38 steps), because every matmul dequantizes its weights first.
 
 The last table is the reason QLoRA exists. For a 7B model the frozen weights go from 14 GB to about 3.6 GB: the difference between *does not fit* and *fits with room for activations* on an 8 GB card, and for a 70B model between a multi-GPU server and a single 48 GB GPU. Rule of thumb: if the base model fits in bf16 with room to train, use LoRA (faster, simpler, merges directly); if it does not, use QLoRA and merge the adapter into a bf16 copy of the base.
 
@@ -650,8 +650,175 @@ del trainer; free()
 ''')
 nb.md(r'''
 **What happened.** Trained on the *same* 300 human labels, the 360M teacher reaches 87.5 % exact (92.5 % on `time`): the bigger model learns the conversion rule from data that was not enough for the 135M model. Its labels for the 600 new requests are 90 % exactly right. The 135M student trained on human + teacher labels goes from 32.5 % (human labels only, LoRA r = 16) to **55 %** exact. Two honest caveats: the comparison is not perfectly controlled (the student also took 57 optimizer steps instead of 38), and the student still trails its teacher and has learned from labels that are 10 % wrong. In real projects you cannot compute that 90 % for free as we did here: spot-check a sample of the teacher's labels, or filter them with a verifier (here, a JSON schema check would catch format errors but not a wrong hour).
+''')
+nb.md(r'''
+## 8. Model merging: combining fine-tunes without training
 
-## 8. Evaluation
+You now have several adapters trained from the same base: one per task, per customer or per experiment. **Model merging** combines them into one set of weights with arithmetic alone, with no data and no GPU training. It is how many top open-weight models on public leaderboards were built (with `mergekit`), and how teams fold a specialist adapter back into a general model.
+
+### The idea: fine-tunes are vectors
+
+Fine-tuning moves the weights from $\theta_0$ to $\theta_t$. Ilharco et al. (2023, *Editing Models with Task Arithmetic*) call the difference a **task vector**, $\tau_t = \theta_t - \theta_0$, and showed that you can do arithmetic with it:
+
+$$\theta_{\text{merged}} = \theta_0 + \sum_t \lambda_t\, \tau_t$$
+
+Adding two task vectors gives a model that does both tasks, often nearly as well as each specialist. Subtracting one ($\lambda < 0$) removes a behaviour: the paper used it to make a model less toxic. With LoRA, the task vector of each adapted matrix is just $\Delta W = \frac{\alpha}{r} BA$.
+
+### Why it works at all
+
+Weights are not normally additive: average two networks trained from different random initializations and you get a broken model, because their neurons are permuted relative to each other. Fine-tunes of the *same* pretrained model are different. They stay in the same basin of the loss landscape, connected by a straight path along which the loss stays low (*linear mode connectivity*, Frankle et al., 2020; Neyshabur et al., 2020). Wortsman et al. (2022, *Model soups*) used this to average fine-tunes of one task with different hyperparameters and got better accuracy and robustness than the best single run, for free at inference time.
+
+For different tasks, merging works when the task vectors interfere little. In a model with millions of parameters per matrix, two unrelated updates are nearly **orthogonal** (cosine similarity close to 0), so adding one barely disturbs the other. We measure that below.
+
+### When they interfere: TIES and DARE
+
+When task vectors overlap, plain addition goes wrong in two ways: small, noisy coordinates add up, and coordinates where the tasks pull in opposite directions cancel out or overshoot. Two methods address this.
+
+- **TIES-Merging** (Yadav et al., 2023) works in three steps:
+  1. *Trim*: keep only the largest-magnitude fraction (the *density*) of each task vector.
+  2. *Elect sign*: for each coordinate, choose the sign with the larger total magnitude.
+  3. *Disjoint merge*: average only the values that agree with that sign.
+- **DARE** (Yu et al., 2024, *Language Models are Super Mario*) randomly drops a fraction $p$ of each task vector's coordinates and rescales the rest by $1/(1-p)$, which keeps the expected update the same. It found that fine-tuning updates are so redundant that 90 % or more can be dropped, and it is usually combined with TIES' sign election (`dare_ties`).
+
+Other popular methods: **SLERP** interpolates two models along the sphere instead of a straight line (two models only), and **LoraHub** (Huang et al., 2023) learns the mixing weights from a few examples.
+
+### Merging LoRA adapters: the factor trap
+
+A LoRA adapter stores $B$ and $A$, not $\Delta W$, and $\big(B_1 + B_2\big)\big(A_1 + A_2\big) = B_1 A_1 + B_2 A_2 + \underbrace{B_1 A_2 + B_2 A_1}_{\text{cross terms}}$. Summing the factors therefore adds two cross terms that neither task asked for. `peft`'s `add_weighted_adapter` offers several merging methods:
+
+| `combination_type` | what it computes | exact? |
+|---|---|---|
+| `linear` | sums the $A$ factors and the $B$ factors separately | no, adds the cross terms (the docs call it "a very rough approximation") |
+| `cat` | concatenates the factors: rank $r_1 + r_2$, $\Delta W = \sum_t \lambda_t \Delta W_t$ | yes, this is task arithmetic |
+| `svd` | forms $\sum_t \lambda_t \Delta W_t$, then compresses it back to a chosen rank with an SVD | exact if `svd_rank` ≥ the rank of the sum |
+| `ties_svd`, `dare_ties_svd`, ... | TIES or DARE on the full $\Delta W$, then an SVD | the method's own approximation |
+
+### The experiment
+
+We train a second adapter on a different task, **converting a time to 24-hour format** ("8:30 pm" → "20:30"), on 300 examples. It is a skill the booking adapter only half learned (its `time` field is its main error). Then we compare, on *both* tasks:
+- the booking adapter alone and the time adapter alone;
+- four merges of the two, all with weights 1 and 1 (`linear`, `cat`, `ties_svd`, `dare_ties_svd`);
+- the usual alternative to merging, one **multi-task** adapter trained on both datasets together.
+
+We also check whether merging transfers the conversion skill into the booking task.
+
+### Key papers
+
+- Frankle, Dziugaite, Roy & Carbin (2020), *Linear Mode Connectivity and the Lottery Ticket Hypothesis*.
+- Wortsman et al. (2022), *Model soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time*.
+- Ilharco et al. (2023), *Editing Models with Task Arithmetic*.
+- Yadav et al. (2023), *TIES-Merging: Resolving Interference When Merging Models*.
+- Yu et al. (2024), *Language Models are Super Mario: Absorbing Abilities from Homologous Models as a Free Lunch* (DARE).
+- Huang et al. (2023), *LoraHub: Efficient Cross-Task Generalization via Dynamic LoRA Composition*.
+- Goddard et al. (2024), *Arcee's MergeKit: A Toolkit for Merging Large Language Models*.
+''')
+nb.code(r'''
+# A second, different task: convert a time to 24-hour format. Same generator of time phrasings as the bookings.
+TIME_SYSTEM = "Convert the time to 24-hour format. Reply with HH:MM only."
+def time_examples(n, seed):
+    rng = random.Random(seed); out = []
+    for _ in range(n):
+        h, m = rng.randint(13, 22), rng.choice([0, 0, 15, 30, 45])
+        out.append((time_text(h, m, rng), f"{h:02d}:{m:02d}"))
+    return out
+def time_row(x, y):
+    return {"prompt": [{"role": "system", "content": TIME_SYSTEM}, {"role": "user", "content": x}],
+            "completion": [{"role": "assistant", "content": y}]}
+time_train, time_test = time_examples(300, seed=3), time_examples(40, seed=4)
+time_rows = [time_row(x, y) for x, y in time_train]
+print(time_rows[0]["prompt"][1]["content"], "->", time_rows[0]["completion"][0]["content"])
+
+def time_accuracy(model):
+    replies = generate(model, tok, [time_row(x, y)["prompt"] for x, y in time_test], max_new_tokens=10)
+    found = [re.search(r"\b\d{1,2}:\d{2}\b", r) for r in replies]
+    return np.mean([f is not None and f.group(0) == y for f, (_, y) in zip(found, time_test)])
+
+MERGE = {}        # name -> metrics on both tasks
+def both_tasks(model, name):
+    _ = evaluate(model, tok, name)                    # the booking test set (prints one line)
+    MERGE[name] = dict(RESULTS[name], time_task=time_accuracy(model))
+    print(f"{'':34s} time-conversion task {100 * MERGE[name]['time_task']:5.1f}%")
+
+cfg = LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", task_type="CAUSAL_LM")
+trainer = train_sft(from_pretrained(AutoModelForCausalLM, MODEL, dtype=DTYPE).to(device), time_rows, "LoRA r=16, time task", peft_config=cfg)
+time_dir = os.path.join(OUT, "lora_time"); trainer.model.save_pretrained(time_dir)
+del trainer; free()
+
+# The alternative to merging: one adapter trained on both datasets (600 rows, so twice the steps of each specialist).
+cfg = LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", task_type="CAUSAL_LM")
+trainer = train_sft(from_pretrained(AutoModelForCausalLM, MODEL, dtype=DTYPE).to(device), train_rows + time_rows,
+                    "multi-task LoRA (both datasets)", peft_config=cfg)
+both_tasks(trainer.model, "multi-task LoRA (both datasets)")
+del trainer; free()
+''')
+nb.code(r'''
+from peft import PeftModel
+import torch.nn.functional as F
+
+# fp32 for this section: the SVD-based merges need it. The two adapters are loaded side by side on one base model.
+pm = PeftModel.from_pretrained(from_pretrained(AutoModelForCausalLM, MODEL, dtype=torch.float32).to(device), adapter_dir, adapter_name="booking")
+pm.load_adapter(time_dir, adapter_name="time")
+torch.manual_seed(0)                                   # DARE drops coordinates at random
+METHODS = {"linear": {}, "cat": {}, "ties_svd": {"density": 0.5, "svd_rank": 32}, "dare_ties_svd": {"density": 0.5, "svd_rank": 32}}
+t0 = time.time()
+for method, kw in METHODS.items():
+    pm.add_weighted_adapter(["booking", "time"], [1.0, 1.0], adapter_name=method, combination_type=method, **kw)
+print(f"4 merges computed in {time.time() - t0:.1f} s, no data and no training")
+
+# How much do the two task vectors interfere? Compare them matrix by matrix.
+def delta(m, name):
+    return (m.lora_B[name].weight @ m.lora_A[name].weight) * m.scaling[name]
+mods = [m for m in pm.modules() if hasattr(m, "lora_A") and "booking" in m.lora_A]
+cos, conflict, err = [], [], {k: [] for k in METHODS}
+with torch.no_grad():
+    for m in mods:
+        a, b = delta(m, "booking"), delta(m, "time")
+        cos.append(F.cosine_similarity(a.flatten(), b.flatten(), dim=0).item())
+        big = (a.abs() > a.abs().median()) & (b.abs() > b.abs().median())       # coordinates where both updates are large
+        conflict.append((a.sign() != b.sign())[big].float().mean().item())
+        for k in METHODS:
+            err[k].append(((delta(m, k) - (a + b)).norm() / (a + b).norm()).item())
+print(f"{len(mods)} adapted matrices | cosine(booking, time) per matrix: mean {np.mean(cos):+.3f}, max |cos| {np.max(np.abs(cos)):.3f}")
+print(f"sign conflicts where both updates are large: {100 * np.mean(conflict):.0f}% (50% would be unrelated directions)")
+for k in METHODS:
+    print(f"  {k:14s} distance from the exact sum of the two updates: {100 * np.mean(err[k]):5.1f}% (relative norm)")
+''')
+nb.code(r'''
+# The merges were computed in fp32; we evaluate in bf16 like every other model in this notebook (and it fits the VRAM budget).
+pm = pm.to(DTYPE); free()
+pm.set_adapter("booking"); both_tasks(pm, "booking adapter only")
+pm.set_adapter("time");    both_tasks(pm, "time adapter only")
+for method in METHODS:
+    pm.set_adapter(method); both_tasks(pm, f"merge: {method}")
+with pm.disable_adapter():
+    both_tasks(pm, "base model, no adapter")
+del pm; free()
+
+names = list(MERGE)
+fig, ax = plt.subplots(figsize=(7.5, 5))
+for n in names:
+    x, y = 100 * MERGE[n]["exact"], 100 * MERGE[n]["time_task"]
+    ax.scatter(x, y, s=60, color="tab:green" if n.startswith("merge") else "tab:blue" if "multi" in n else "tab:gray")
+    ax.annotate(n, (x, y), textcoords="offset points", xytext=(6, 4), fontsize=8)
+ax.set_xlabel("booking task: exact match (%)"); ax.set_ylabel("time-conversion task: accuracy (%)")
+ax.set_xlim(-5, 105); ax.set_ylim(-5, 105); ax.grid(alpha=.3)
+ax.set_title("One model, two tasks: merged adapters vs specialists vs multi-task training")
+plt.tight_layout(); plt.show()
+''')
+nb.md(r'''
+**What the numbers say.**
+
+- **The two task vectors barely overlap.** Across the 210 adapted matrices their average cosine similarity is +0.012 (the largest 0.095), and where both updates are large their signs agree half the time, which is what unrelated directions give. This is the condition under which plain addition should work, and it does.
+- **Task arithmetic (`cat`) is the best merge.** One set of weights keeps the booking task intact (32.5 % exact, the same as the booking adapter alone, and 85.0 % of fields against 86.5 %) and converts times at 90.0 %: the specialist gets 97.5 % and the base model 30.0 %. All four merges took 19 s of arithmetic, with no data and no training.
+- **`linear` loses on both tasks** (27.5 % and 87.5 %). Its merged update is 91 % away from the exact sum of the two: those are the cross terms $B_1A_2 + B_2A_1$, a change neither task asked for.
+- **TIES and DARE did not help** (27.5 % / 80.0 % and 30.0 % / 87.5 %). They are designed to resolve interference, and here there was none to resolve, so keeping half the coordinates (density 0.5) only threw signal away; their updates are 37 % and 50 % away from the exact sum. They earn their keep when merging many overlapping fine-tunes, for example full chat models fine-tuned from the same base.
+- **Merging did not transfer the skill.** The merged models keep the booking `time` field at 32.5–37.5 %, no better than the booking adapter alone (one or two requests, within the noise). The time adapter learned to convert *when the prompt asks for a conversion*, not inside a JSON extraction. Merging puts two behaviours in one model; it does not combine them into a new one.
+- **Multi-task training wins when you can do it**: 55.0 % exact, 70.0 % on the `time` field and 97.5 % on time conversion, better than every merge on both tasks. When the two datasets are trained together, the conversion skill *does* carry over into the booking task. It used 76 steps (as many as the two specialists together) and needs both datasets at once.
+
+So: train one multi-task model when you own all the data. Merge when you cannot, for example when the adapters come from different teams or from the Hub, the data is no longer available, or there is no budget to retrain. For LoRA use `cat` or `svd` (exact), never `linear`, and evaluate the merge on *every* task it should keep.
+''')
+nb.md(r'''
+## 9. Evaluation
 
 Every model on the same 40 held-out requests, plus what each training run cost.
 ''')
@@ -706,6 +873,56 @@ With 40 test requests, each request is 2.5 points: treat differences of one or t
 - **New tokens + frozen embeddings cannot work** with tied embeddings and mean initialization: make the embedding trainable (`modules_to_save` or `trainable_token_indices`).
 - **Rank** helped here (20 → 45 % from r = 2 to r = 64), but much less than more data did. Start at r = 16 and let the held-out metric decide.
 - **Sequence-level distillation**: a stronger teacher turns cheap unlabelled prompts into training data. The student is bounded by the teacher's mistakes, so measure the teacher's labels.
+- **Model merging**: adapters from the same base can be added with task arithmetic (`cat`, exact) when their task vectors are nearly orthogonal. Merging keeps both behaviours, but multi-task training on both datasets did better on both tasks and transferred the skill between them.
+''')
+nb.md(r'''
+## Results
+
+All numbers on the same 40 held-out booking requests (SmolLM2-135M-Instruct, RTX 3060 Laptop, 300 labelled examples).
+
+| experiment | result | lesson |
+|---|---|---|
+| prompting baseline | zero-shot 0 % exact (5 % valid JSON); few-shot 17.5 % exact, 73 % of fields | fine-tuning has to beat a good prompt |
+| full SFT | 35.0 % exact, 85.5 % fields, 100 % valid JSON; 134.5M trainable parameters, 72 s | 300 examples double the best prompt |
+| LoRA r = 16 | 32.5 % exact, 86.5 % fields; 3.5 % of the parameters, a 19.6 MB adapter; merges back with logits within 1e-4 | within one request of full fine-tuning |
+| QLoRA r = 16 (NF4) | 37.5 % exact, 86.5 % fields; weights 269 → 110 MB; 72 s vs 63 s | no loss of quality from the 4-bit base |
+| new special token | frozen embeddings: emitted 0 % of the time (rank ~24,000); `modules_to_save`: 100 % | train the embedding row of any new token |
+| rank ablation | r = 2: 20 %, r = 16: 32.5 %, r = 64: 45 % exact | rank helps a little, data helps more |
+| distillation | 360M teacher 87.5 %; its labels 90 % right; 135M student 32.5 → **55 %** | cheap machine labels from a stronger model |
+| model merging | task arithmetic keeps booking at 32.5 % and converts times at 90 % (specialist 97.5 %); `linear`, TIES and DARE are worse; multi-task training 55 % + 97.5 % | merge when you cannot retrain; train together when you can |
+
+What this establishes: the full workflow for adapting an open model to a narrow task, measured end to end. Parameter-efficient methods match full fine-tuning at a fraction of the memory. The biggest levers were model size and data, not the training method. And the failure modes covered here (an untrained new token, a merge that silently breaks a task) only show up if you measure each task separately.
+
+## In production
+
+**The recipe.**
+- Build a held-out set before training.
+- Measure a few-shot baseline.
+- Start with LoRA r = 16 on all linear layers, learning rate around 1e-4 to 1e-3, prompt-completion data with the model's chat template.
+- Use QLoRA only when the bf16 base does not fit.
+- Go to full fine-tuning only when LoRA plateaus and you have the memory.
+- Libraries: TRL's `SFTTrainer` + `peft` here; Unsloth or Axolotl wrap the same pieces with faster kernels and YAML configs; `torchtune` is PyTorch's own.
+
+**Data beats knobs.** Look at the per-field errors and add examples of exactly what fails. If labels are scarce, distil from a stronger model (an open model you are allowed to use, or an API whose terms permit it). Spot-check the teacher's labels, or filter them with a verifier.
+
+**Serving adapters.**
+- With one task, merge the adapter into a bf16 base: no latency cost.
+- With many tasks or customers, serve one base model with many adapters loaded on demand. vLLM (`--enable-lora`), SGLang and LoRAX batch requests for different adapters together.
+- An adapter is a 20 MB artifact: version it with the base model it was trained on, the data and the evaluation results.
+- To combine adapters you cannot retrain together, merge with task arithmetic (`cat` / `svd` in `peft`, or `mergekit` for full models), then run every task's evaluation on the merge.
+
+**What to monitor.**
+- Exact match and per-field accuracy on a frozen test set, plus JSON validity, or use constrained decoding so validity is guaranteed.
+- General capabilities before and after (`lm-eval-harness`, IFEval) to catch forgetting.
+- The drift between your production inputs and your training data, such as new restaurants, new time formats or other languages.
+
+**Failure modes.**
+- Learning rate too low for LoRA.
+- Training on the prompt tokens.
+- A new token that the frozen embeddings cannot emit.
+- Merging an adapter into a different base than the one it was trained on, or merging LoRA factors with `linear`.
+- A teacher's systematic errors copied by the student.
+- Trusting the training loss: here, runs with the same final loss differ by 25 points of exact match.
 
 **Next:** `08_preference_rl_dpo_grpo.ipynb`: DPO and GRPO with TRL.
 ''')

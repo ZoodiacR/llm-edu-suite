@@ -442,7 +442,7 @@ Small test sets (40 and 100 items) mean differences of a few points are noise; t
 - Diagnose RL with the reward curves, the KL to the reference, and the fraction of groups with zero reward variance (they carry no gradient).
 - At scale: `DPOTrainer` with a learning rate around 5e-7 to 5e-6 for full fine-tuning; `GRPOTrainer(use_vllm=True, num_generations=8–16)` with reasoning-length completions. Read: DPO (Rafailov 2023), DeepSeekMath (GRPO), DeepSeek-R1, DAPO and Dr. GRPO (the loss variants TRL offers as `loss_type`).
 
-**Next:** `09_quantization.ipynb`.
+**Next:** `20_reasoning_test_time_compute.ipynb`, which spends the compute at inference time instead of training time, then `09_quantization.ipynb`.
 ''')
 if __name__ == "__main__":
     nb.save(notebook_path("08_preference_rl_dpo_grpo.ipynb"))

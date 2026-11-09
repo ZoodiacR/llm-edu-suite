@@ -13,6 +13,8 @@ Notebook 18 (data engineering) is read right before 05, because it is what happe
 
 Notebook 19 (systems) is read right after 05: it measures on the GPU where the memory and the time of a training run go (weights, gradients, Adam and activations; bf16 and activation checkpointing; FlashAttention and the attention kernels; profiling, CUDA graphs and MFU) and how training is split across several GPUs, with real DDP in two processes and a ZeRO / FSDP calculator for 7B and 70B.
 
+Notebook 20 (reasoning and test-time compute) is read right after 08: GRPO there is how reasoning is trained, here is how it is used and measured. On GSM8K with `qwen2.5:3b` it compares a direct answer with chain of thought, self-consistency (maj@k against pass@k), best-of-N with a 7B judge as verifier and the distilled reasoning model DeepSeek-R1-Distill 1.5B, puts them all on one cost-accuracy curve, ranks them with Bradley-Terry and measures how consistent a pairwise LLM judge is when the order of the answers is swapped.
+
 Everything runs locally: **Ollama** serves the LLMs (`qwen2.5:3b` and `nomic-embed-text`) and the training models are Hugging Face SmolLM2. An NVIDIA GPU makes it fast (the published results were measured on an RTX 3060, 6 GB); CPU works too, except for notebook 19, which needs a CUDA GPU. LangSmith is optional.
 
 ## Pages
@@ -20,7 +22,7 @@ Everything runs locally: **Ollama** serves the LLMs (`qwen2.5:3b` and `nomic-emb
 | Page | What it is for |
 |---|---|
 | [Installation and environment](installation.md) | `.venv`, CUDA PyTorch, Ollama and its models, the `.env`, the LangSmith key, troubleshooting |
-| [Notebook guide](notebooks_guide.md) | the 20 notebooks one by one: what you build, with which tools, which concepts and which results |
+| [Notebook guide](notebooks_guide.md) | the 21 notebooks one by one: what you build, with which tools, which concepts and which results |
 | [Theoretical foundations](foundations.md) | the theory behind each technique and pattern: the problem it solves, the idea, why it is used today, how it fails |
 | [Module reference](module_reference.md) | the `llm_edu_suite/` package (the from-scratch model and `config.py`) and where each topic is taught with frameworks |
 | [Command-line scripts](cli_scripts.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP) |
@@ -34,7 +36,7 @@ Everything runs locally: **Ollama** serves the LLMs (`qwen2.5:3b` and `nomic-emb
 | Start here | `notebooks/00_start_here/` | 00 · a complete mini LLM | PyTorch |
 | Architecture | `notebooks/01_architecture/` | 01 tokenization · 02 attention, RoPE and normalization · 03 efficient attention · 04 FFN and MoE · 17 encoders and encoder-decoders | PyTorch from scratch · `transformers` and `scikit-learn` (17) |
 | Pre-training and inference | `notebooks/02_pretraining_and_inference/` | 18 data engineering (deduplication, filtering, decontamination) · 05 pre-training · 19 systems (memory, precision, kernels, parallelism) · 06 inference · 09 quantization | PyTorch · `datasets` and `transformers` (18) · `torch.profiler` and `torch.distributed` (19) · `optimum-quanto` |
-| Post-training | `notebooks/03_post_training/` | 07 SFT, LoRA and distillation · 08 DPO and GRPO | `transformers` · `peft` · `trl` |
+| Post-training | `notebooks/03_post_training/` | 07 SFT, LoRA, distillation and model merging · 08 DPO and GRPO · 20 reasoning and test-time compute | `transformers` · `peft` · `trl` · LangChain (Ollama) (20) |
 | Applications | `notebooks/04_applications/` | 10 RAG · 12 recommendation · 13 application patterns | LangChain · RAGAS · PyTorch |
 | Agents and MCP | `notebooks/05_agents_and_mcp/` | 11 tools and structured output · 14 agentic AI · 16 MCP | LangChain · LangGraph · `mcp` SDK |
 | LLMOps | `notebooks/06_llmops/` | 15 observability and evaluation | LangSmith |
@@ -50,6 +52,7 @@ flowchart LR
     S --> E[06 Inference]
     D --> F["07-08 Post-training<br/>HF · peft · trl"]
     F --> G["09 Quantization<br/>optimum-quanto"]
+    F --> R["20 Reasoning<br/>CoT · self-consistency · verifiers"]
     E --> H[Applications with LangChain]
     H --> I["10 RAG + RAGAS"]
     H --> K[12 Recommendation]
@@ -65,7 +68,7 @@ flowchart LR
 0. **Overview:** 00, to see how the pieces fit before studying them one by one.
 1. **Architecture:** 01 → 02 → 03 → 04 → 17. Afterwards you should be able to write a transformer from memory and know when an encoder or an encoder-decoder is a better fit than a decoder-only model.
 2. **Data, training and inference:** 18 → 05 → 19 → 06. First which text goes into the model and why, then how a model is trained on it and what that training costs in memory and time, on one GPU and on many.
-3. **Post-training with Hugging Face:** 07 → 08, then 09 (quantization).
+3. **Post-training with Hugging Face:** 07 → 08 → 20, then 09 (quantization). After 20 you should know what reasoning tokens buy, when voting or a verifier is worth its cost, and how to tell whether a judge can be trusted.
 4. **Applications with LangChain:** 10 → 13 → 12. Golden rule: **build your evaluation set before the system**.
 5. **Agents:** 11 → 14 → 16 and finally 15, to see how everything is observed and evaluated in production.
 

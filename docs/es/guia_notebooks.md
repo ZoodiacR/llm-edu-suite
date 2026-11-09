@@ -2,19 +2,20 @@
 
 🇬🇧 [English version](../en/notebooks_guide.md) · [← Volver al índice](README.md)
 
-Los 20 notebooks uno a uno: qué construyes, qué herramientas usas, qué conceptos te llevas, qué se mide y qué resultados salen. Los notebooks están en inglés; esta guía te acompaña en español.
+Los 21 notebooks uno a uno: qué construyes, qué herramientas usas, qué conceptos te llevas, qué se mide y qué resultados salen. Los notebooks están en inglés; esta guía te acompaña en español.
 
-El curso tiene dos mitades. **Los notebooks 00–06** construyen un modelo de lenguaje desde cero en PyTorch, con el paquete propio del curso, `llm_edu_suite`, para que veas cada pieza. **Los notebooks 07–16** hacen los mismos trabajos con los frameworks que usa la industria: `transformers`, `peft`, `trl`, `bitsandbytes` y `optimum-quanto` de Hugging Face sobre SmolLM2 (07–09), LangChain, LangGraph y LangSmith (10–15) y el SDK oficial de MCP (16). El modelo local de 10–16 es `qwen2.5:3b` servido con Ollama, con `nomic-embed-text` para los embeddings. **El notebook 17** (encoders y encoder-decoders) mezcla las dos mitades y se lee justo después del 04, antes del 05: cierra el tópico de arquitectura con las dos familias de transformers que no son decoder-only. **El notebook 18** (ingeniería de datos) se lee justo antes del 05: deduplicación, filtros de calidad, descontaminación y datos sintéticos sobre una muestra real de FineWeb, y dos `TransformerLM` entrenados con datos en bruto y limpios para ver qué cambia. **El notebook 19** (sistemas) se lee justo después del 05: mide en la GPU del curso adónde van la memoria y el tiempo de un entrenamiento (pesos, gradientes, Adam y activaciones, bf16, activation checkpointing, kernels de atención, profiling, CUDA graphs y MFU) y cómo se reparte entre varias GPUs (DDP real en dos procesos y una calculadora de ZeRO / FSDP).
+El curso tiene dos mitades. **Los notebooks 00–06** construyen un modelo de lenguaje desde cero en PyTorch, con el paquete propio del curso, `llm_edu_suite`, para que veas cada pieza. **Los notebooks 07–16** hacen los mismos trabajos con los frameworks que usa la industria: `transformers`, `peft`, `trl`, `bitsandbytes` y `optimum-quanto` de Hugging Face sobre SmolLM2 (07–09), LangChain, LangGraph y LangSmith (10–15) y el SDK oficial de MCP (16). El modelo local de 10–16 es `qwen2.5:3b` servido con Ollama, con `nomic-embed-text` para los embeddings. **El notebook 17** (encoders y encoder-decoders) mezcla las dos mitades y se lee justo después del 04, antes del 05: cierra el tópico de arquitectura con las dos familias de transformers que no son decoder-only. **El notebook 18** (ingeniería de datos) se lee justo antes del 05: deduplicación, filtros de calidad, descontaminación y datos sintéticos sobre una muestra real de FineWeb, y dos `TransformerLM` entrenados con datos en bruto y limpios para ver qué cambia. **El notebook 19** (sistemas) se lee justo después del 05: mide en la GPU del curso adónde van la memoria y el tiempo de un entrenamiento (pesos, gradientes, Adam y activaciones, bf16, activation checkpointing, kernels de atención, profiling, CUDA graphs y MFU) y cómo se reparte entre varias GPUs (DDP real en dos procesos y una calculadora de ZeRO / FSDP). **El notebook 20** (razonamiento y cómputo en inferencia) se lee justo después del 08: sobre GSM8K con `qwen2.5:3b` mide cuánto acierto compran, y cuántos tokens cuestan, la cadena de pensamiento, la self-consistency, best-of-N con un verificador y un modelo de razonamiento destilado (DeepSeek-R1-Distill 1.5B), y hasta qué punto uno se puede fiar de un juez LLM por pares.
 
 **Cómo usar esta guía.** Lee la ficha antes de abrir el notebook, ejecútalo celda a celda y vuelve a la ficha para contrastar tus números. Todos los números de esta guía salen de la ejecución subida al repositorio (portátil con una RTX 3060 de 6 GB). Los tuyos se moverán un poco: los modelos pequeños son sensibles a la aritmética de cada máquina, y todo lo que genera o juzga un LLM cambia entre ejecuciones. Donde un resultado es frágil, el notebook lo dice, y esta guía también. Cada notebook incluye además apartados de teoría ("Background: ...") antes del código que los usa; la versión larga y en español de esa teoría, con las ecuaciones, está en los [fundamentos teóricos](fundamentos.md).
 
 **Qué necesita cada bloque**
 - **00–06**: solo PyTorch y `llm_edu_suite`. Funcionan también en CPU.
-- **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA en el 07) y `optimum-quanto`. La primera vez se descarga SmolLM2 del Hugging Face Hub. Cada notebook limita su propia VRAM (`VRAM_BUDGET_GB`) para caber en la GPU junto a Ollama: 2 GB por defecto en el 07, que entrena nueve modelos y cuyo modelo de 4 bits deja ~0,1 GB ocupados, y 1,5 GB en el 08 y el 09.
+- **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA en el 07) y `optimum-quanto`. La primera vez se descarga SmolLM2 del Hugging Face Hub. Cada notebook limita su propia VRAM (`VRAM_BUDGET_GB`) para caber en la GPU junto a Ollama: 2 GB por defecto en el 07, que entrena once modelos y cuyo modelo de 4 bits deja ~0,1 GB ocupados, y 1,5 GB en el 08 y el 09.
 - **10–16**: **Ollama tiene que estar en marcha**, con `qwen2.5:3b` y `nomic-embed-text` descargados. La primera celda (`setup()` de `llm_edu_suite.config`) lo comprueba. El notebook 10 usa además `qwen2.5:7b` como juez de RAGAS si está descargado (`ollama pull qwen2.5:7b`, opcional; si no, juzga el 3B). En el notebook 12, Ollama solo hace falta para los embeddings de contenido y la capa de LLM (peticiones y explicaciones); SASRec, el two-tower y el ranker de LightGBM son PyTorch y LightGBM puros, y MovieLens-1M se descarga la primera vez en `data/cache/`.
 - **17**: `transformers` (ModernBERT-base y Flan-T5-small, que se descargan del Hugging Face Hub la primera vez), `datasets` (Banking77), `scikit-learn` (regresión logística) y **Ollama en marcha** con `qwen2.5:3b` y `nomic-embed-text` para la sección 2.
 - **18**: `datasets` (muestras de FineWeb y FineWeb-Edu, unos 100 MB que se leen en streaming una sola vez y se guardan en `data/cache/`), `transformers` (el clasificador `HuggingFaceFW/fineweb-edu-classifier`, ~440 MB, y el tokenizador de SmolLM2), `llm_edu_suite.model` para los dos modelos que entrena, y **Ollama en marcha** con `qwen2.5:3b` para la sección 7 (datos sintéticos). Tarda unos 30 minutos en la RTX 3060: dos entrenamientos de 10–11 minutos y unos 3 minutos de generación con el LLM.
 - **19**: solo PyTorch y `llm_edu_suite.model`, sin descargas ni Ollama, pero **necesita una GPU CUDA** (mide la memoria y los kernels de la GPU; sin ella se detiene con un aviso al empezar). Las wheels de PyTorch para Windows no traen FlashAttention-2 ni Triton (el backend `inductor` de `torch.compile`): el notebook lo detecta y sigue con lo que hay, y el DDP corre en dos procesos de CPU con `gloo`. Tarda unos 5 minutos en la RTX 3060.
+- **20**: **Ollama en marcha** con `qwen2.5:3b`, `deepseek-r1:1.5b` (`ollama pull deepseek-r1:1.5b`, 1,1 GB) y, como verificador y juez por pares, `qwen2.5:7b` (si no está descargado, `config.judge_model()` recurre al modelo de chat y el 3B se juzga a sí mismo); `datasets` descarga el test de GSM8K del Hugging Face Hub la primera vez. No entrena nada ni usa modelos de PyTorch: todo son llamadas al LLM. Tarda unos 53 minutos en la RTX 3060, de los que unos 25 se van en muestrear cinco cadenas de pensamiento para cada uno de los 80 problemas, unos 10 en el verificador y otros 10 en el modelo de razonamiento.
 - **LangSmith es opcional.** Con `LANGSMITH_TRACING=true` y `LANGSMITH_API_KEY` en `.env`, cada llamada de LangChain/LangGraph de 10–16 queda trazada. Sin clave todo funciona igual, y el notebook 15 se salta las celdas que necesitan el servidor de LangSmith e indica que las ha omitido. La ejecución publicada se hizo con LangSmith activado.
 
 | Tópico | Notebooks | Tiempo en GPU de la ejecución final |
@@ -22,12 +23,12 @@ El curso tiene dos mitades. **Los notebooks 00–06** construyen un modelo de le
 | Empieza aquí | [00](#00) | 32 s |
 | Arquitectura | [01](#01) · [02](#02) · [03](#03) · [04](#04) · [17](#17) | 5 s · 31 s · 180 s · 48 s · ≈ 15 min (≈ 19,5 min) |
 | Pre-entrenamiento e inferencia | [18](#18) · [05](#05) · [19](#19) · [06](#06) · [09](#09) | ≈ 30 min · 35 s · ≈ 5 min · 61 s · 53 s (≈ 37,5 min) |
-| Post-training | [07](#07) · [08](#08) | ≈ 14 min · 645 s (≈ 25 min) |
+| Post-training | [07](#07) · [08](#08) · [20](#20) | ≈ 25 min · 645 s · ≈ 53 min (≈ 89 min) |
 | Aplicaciones | [10](#10) · [12](#12) · [13](#13) | ≈ 19 min · ≈ 25 min · 140 s (≈ 46 min) |
 | Agentes y MCP | [11](#11) · [14](#14) · [16](#16) | 56 s · 119 s · 65 s (≈ 4 min) |
 | LLMOps | [15](#15) | 129 s |
 
-Los notebooks 07, 10 y 12 se volvieron a ejecutar en v2.1 y sus tiempos son aproximados: el 07 entrena ahora también QLoRA, el 10 usa un juez de 7B (unos 17 de sus 19 minutos son la puntuación de RAGAS) y el 12 incluye ~11 minutos de construcción de features del ranker. En total, alrededor de hora y media para los notebooks 00–16, más unos 15 minutos del 17, unos 30 del 18 y unos 5 del 19, en GPU y con Ollama sin compartir la GPU con otros trabajos. Si otro proceso usa la GPU, los tiempos de 10–16 crecen mucho (las llamadas al LLM hacen cola). Los tiempos en CPU no se midieron en esta ejecución: 00–06 funcionan bien en CPU, pero cuenta con que 07–09 sean mucho más lentos sin GPU. El 19 no funciona sin una GPU CUDA.
+Los notebooks 07, 10 y 12 se volvieron a ejecutar en v2.1 y sus tiempos son aproximados: el 07 entrena ahora también QLoRA, el 10 usa un juez de 7B (unos 17 de sus 19 minutos son la puntuación de RAGAS) y el 12 incluye ~11 minutos de construcción de features del ranker. En total, alrededor de hora y media para los notebooks 00–16, más unos 15 minutos del 17, unos 30 del 18, unos 5 del 19 y unos 53 del 20, en GPU y con Ollama sin compartir la GPU con otros trabajos. Si otro proceso usa la GPU, los tiempos de 10–16 crecen mucho (las llamadas al LLM hacen cola). Los tiempos en CPU no se midieron en esta ejecución: 00–06 funcionan bien en CPU, pero cuenta con que 07–09 sean mucho más lentos sin GPU. El 19 no funciona sin una GPU CUDA.
 
 ---
 
@@ -313,9 +314,9 @@ Se lee justo después del 05. El 05 entrena un modelo; este mira **cuánto cuest
 ## 07 · Fine-tuning con Hugging Face: SFT, LoRA y destilación
 `notebooks/03_post_training/07_finetuning_sft_lora.ipynb` · `transformers`, `peft`, `trl` · también como script: `python scripts/finetune.py sft`
 
-**Qué construyes.** Ajustas `HuggingFaceTB/SmolLM2-135M-Instruct` para que convierta una petición de reserva en JSON estricto (`name`, `restaurant`, `people` como entero, `day` en minúsculas, `time` en formato 24 h). 300 ejemplos etiquetados; 40 peticiones de test con nombres y restaurantes que no aparecen en el entrenamiento. Línea base few-shot → SFT completo → LoRA → QLoRA sobre un base de 4 bits → la trampa del "token especial nuevo" → ablación de rango → destilación desde un teacher de 360M.
+**Qué construyes.** Ajustas `HuggingFaceTB/SmolLM2-135M-Instruct` para que convierta una petición de reserva en JSON estricto (`name`, `restaurant`, `people` como entero, `day` en minúsculas, `time` en formato 24 h). 300 ejemplos etiquetados; 40 peticiones de test con nombres y restaurantes que no aparecen en el entrenamiento. Línea base few-shot → SFT completo → LoRA → QLoRA sobre un base de 4 bits → la trampa del "token especial nuevo" → ablación de rango → destilación desde un teacher de 360M → fusión de modelos (*model merging*): un segundo adaptador para otra tarea (pasar una hora a formato 24 h) se fusiona de cuatro maneras con el de reservas y se compara con un único adaptador multitarea entrenado con los dos datasets.
 
-**Herramientas.** `AutoTokenizer.apply_chat_template`, `AutoModelForCausalLM`; `trl.SFTConfig` / `SFTTrainer` con un dataset prompt/completion (pérdida solo sobre la respuesta); `peft.LoraConfig(r=16, lora_alpha=32, target_modules="all-linear")`, `get_peft_model`, `PeftModel.from_pretrained`, `merge_and_unload()`; `tokenizer.add_tokens` + `resize_token_embeddings`, y `LoraConfig(modules_to_save=["embed_tokens"], ensure_weight_tying=True)`; para QLoRA, `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)`, `peft.prepare_model_for_kbit_training` y `optim="paged_adamw_8bit"`.
+**Herramientas.** `AutoTokenizer.apply_chat_template`, `AutoModelForCausalLM`; `trl.SFTConfig` / `SFTTrainer` con un dataset prompt/completion (pérdida solo sobre la respuesta); `peft.LoraConfig(r=16, lora_alpha=32, target_modules="all-linear")`, `get_peft_model`, `PeftModel.from_pretrained`, `merge_and_unload()`; `tokenizer.add_tokens` + `resize_token_embeddings`, y `LoraConfig(modules_to_save=["embed_tokens"], ensure_weight_tying=True)`; para QLoRA, `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)`, `peft.prepare_model_for_kbit_training` y `optim="paged_adamw_8bit"`; para la fusión, `PeftModel.load_adapter` (dos adaptadores sobre un mismo base) y `add_weighted_adapter(combination_type="linear" | "cat" | "ties_svd" | "dare_ties_svd")`.
 
 **Conceptos clave**
 - Plantilla de chat y *loss masking*: las etiquetas del prompt son `-100` y la pérdida cubre la respuesta **incluido `<|im_end|>`** (en el ejemplo, 42 de 110 tokens). El notebook comprueba que TRL construye exactamente las mismas etiquetas.
@@ -324,6 +325,7 @@ Se lee justo después del 05. El 05 entrena un modelo; este mira **cuánto cuest
 - **QLoRA**: los pesos congelados se guardan en NF4 (16 niveles en los cuantiles de una normal), con doble cuantización de las escalas y un optimizador paginado; los adaptadores siguen en bf16 y cada multiplicación descuantiza primero. Ahorra memoria de pesos, no de activaciones, y el adaptador se fusiona en una copia bf16 del base.
 - **La trampa del token nuevo**: con embeddings compartidos e inicialización en la media, un token nuevo nunca puede ser el más probable si los embeddings están congelados. Solución: entrenar el embedding.
 - La pérdida de entrenamiento no dice la precisión en la tarea; las métricas por campo dicen dónde están los errores (aquí, casi siempre en `time`).
+- **Fusión de modelos**: un fine-tuning es un *task vector* $\tau = \theta_t - \theta_0$, y los ajustes de un mismo base se pueden sumar (*task arithmetic*) porque se quedan en la misma cuenca de la pérdida y dos actualizaciones sin relación son casi ortogonales. TIES y DARE se ocupan de la interferencia cuando los vectores se solapan. Con LoRA hay una trampa: sumar por separado los factores $A$ y $B$ (`linear`) añade los términos cruzados $B_1A_2 + B_2A_1$; `cat` y `svd` dan la suma exacta.
 
 **Resultados** (40 peticiones de test; cada una vale 2,5 puntos)
 
@@ -331,19 +333,39 @@ Se lee justo después del 05. El 05 entrena un modelo; este mira **cuánto cuest
 |---|---|---|---|---|---|---|---|
 | base, zero-shot | 5% | 0% | 2% | 0% | – | – | – |
 | base, few-shot (4 ejemplos) | 100% | 17,5% | 73% | 25% | – | – | – |
-| SFT completo | 100% | 35% | 85,5% | 37,5% | 134,5 M | 52 | 1,19 GB |
-| LoRA r=2 | 100% | 20% | 80,5% | 30% | 0,6 M | 37 | 1,46 GB |
-| LoRA r=16 | 100% | 32,5% | 86,5% | 32,5% | 4,9 M | 41 | 1,41 GB |
-| QLoRA r=16 (base NF4) | 100% | 37,5% | 86,5% | 45% | 4,9 M | 47 | 1,34 GB |
-| LoRA r=64 | 100% | 45% | 89% | 45% | 19,5 M | 72 | 1,25 GB |
-| teacher 360M, LoRA r=16 | 100% | **87,5%** | 97,5% | 92,5% | 8,7 M | 181 | 1,27 GB |
-| student 135M, etiquetas humanas + del teacher | 100% | **55%** | 91% | 55% | 4,9 M | 71 | 1,54 GB |
+| SFT completo | 100% | 35% | 85,5% | 37,5% | 134,5 M | 72 | 1,19 GB |
+| LoRA r=2 | 100% | 20% | 80,5% | 30% | 0,6 M | 58 | 1,46 GB |
+| LoRA r=16 | 100% | 32,5% | 86,5% | 32,5% | 4,9 M | 63 | 1,41 GB |
+| QLoRA r=16 (base NF4) | 100% | 37,5% | 86,5% | 45% | 4,9 M | 72 | 1,34 GB |
+| LoRA r=64 | 100% | 45% | 89% | 45% | 19,5 M | 109 | 1,25 GB |
+| teacher 360M, LoRA r=16 | 100% | **87,5%** | 97,5% | 92,5% | 8,7 M | 230 | 1,27 GB |
+| student 135M, etiquetas humanas + del teacher | 100% | **55%** | 91% | 55% | 4,9 M | 87 | 1,54 GB |
 
 - LoRA r=16 entrena el 3,5% de los parámetros y queda a una petición del SFT completo. El adaptador ocupa 19,6 MB (el modelo en bf16, 269 MB). Fusionado en fp32 cambia los logits como mucho 1e-4 y mantiene el mismo token greedy en todas las posiciones.
-- **QLoRA** no pierde calidad: 37,5% de exact match frente al 32,5% de LoRA, con el mismo 86,5% de campos. Son dos peticiones de 40, ruido, así que la lectura honesta es "igual", no "mejor". Los pesos en memoria bajan de 269 MB a 110 MB (210 capas lineales en 4 bits; el embedding atado de 28M parámetros se queda en bf16), pero el pico de entrenamiento apenas se mueve (1,41 → 1,34 GB): a 135M dominan las activaciones y la capa de salida de 49k tokens. Cada paso es algo más lento (47 s frente a 41 s) porque descuantiza. El ahorro decisivo llega con modelos grandes: los pesos congelados de un 7B pasan de 14 GB a 3,6 GB, los de un 13B de 26 a 6,7 GB y los de un 70B de 140 a 36,1 GB.
+- **QLoRA** no pierde calidad: 37,5% de exact match frente al 32,5% de LoRA, con el mismo 86,5% de campos. Son dos peticiones de 40, ruido, así que la lectura honesta es "igual", no "mejor". Los pesos en memoria bajan de 269 MB a 110 MB (210 capas lineales en 4 bits; el embedding atado de 28M parámetros se queda en bf16), pero el pico de entrenamiento apenas se mueve (1,41 → 1,34 GB): a 135M dominan las activaciones y la capa de salida de 49k tokens. Cada paso es algo más lento (72 s frente a 63 s) porque descuantiza. El ahorro decisivo llega con modelos grandes: los pesos congelados de un 7B pasan de 14 GB a 3,6 GB, los de un 13B de 26 a 6,7 GB y los de un 70B de 140 a 36,1 GB.
 - **Token nuevo `<|json|>`**: con embeddings congelados no se emite nunca (0% de las respuestas; puesto ~24.000 como primer token, probabilidad ≈ 0, pérdida de entrenamiento 0,30) y el modelo degenera. Con el embedding entrenable (33,2M parámetros) abre el 100% de las respuestas (p ≈ 0,93) y el exact match vuelve a 32,5%. `trainable_token_indices` falla dentro de `SFTTrainer` con un `lm_head` compartido en las versiones usadas (trl 1.17, peft 0.21).
-- **Destilación**: el teacher etiqueta 600 peticiones nuevas en 86 s, el 90% exactamente bien; el student pasa de 32,5% a 55%. Matices honestos: el student también dio 57 pasos de optimización en lugar de 38, y aprende de etiquetas que fallan un 10%.
+- **Destilación**: el teacher etiqueta 600 peticiones nuevas en 104 s, el 90% exactamente bien; el student pasa de 32,5% a 55%. Matices honestos: el student también dio 57 pasos de optimización en lugar de 38, y aprende de etiquetas que fallan un 10%.
 - Las palancas más grandes fueron el tamaño del modelo y más datos (aunque los etiquete una máquina); el rango vino después.
+
+Fusión de modelos (las dos tareas sobre el mismo modelo; reservas = exact match en las 40 peticiones, horas = acierto en 40 conversiones de hora):
+
+| Modelo | Reservas exact | Reservas campos | Conversión de horas |
+|---|---|---|---|
+| base, sin adaptador | 0% | 1% | 30% |
+| solo el adaptador de reservas | 32,5% | 86,5% | 27,5% |
+| solo el adaptador de horas | 0% | 0% | 97,5% |
+| fusión `linear` | 27,5% | 83,5% | 87,5% |
+| fusión `cat` (task arithmetic) | **32,5%** | 85% | **90%** |
+| fusión `ties_svd` | 27,5% | 83% | 80% |
+| fusión `dare_ties_svd` | 30% | 84% | 87,5% |
+| LoRA multitarea (los dos datasets) | **55%** | 89,5% | **97,5%** |
+
+- **Los dos task vectors apenas se solapan**: en las 210 matrices adaptadas la similitud coseno media es +0,012 (la mayor, 0,095), y donde las dos actualizaciones son grandes el signo no coincide el 49% de las veces, lo que dan dos direcciones sin relación. Es justo la condición para que la suma simple funcione.
+- **Task arithmetic (`cat`) es la mejor fusión**: deja la tarea de reservas donde la tenía el adaptador de reservas solo (32,5% exact) y convierte horas al 90%, frente al 97,5% del especialista y el 30% del modelo base. Las cuatro fusiones costaron 19 s de aritmética, sin datos ni entrenamiento.
+- `linear` pierde en las dos tareas: su actualización está a un 91% de la suma exacta (los términos cruzados). **TIES y DARE no ayudaron** aquí (sus actualizaciones quedan a un 37% y un 50% de la suma): no había interferencia que resolver, así que quedarse con la mitad de las coordenadas solo tiró señal.
+- **No se transfiere la habilidad**: los modelos fusionados dejan el campo `time` de las reservas en 32,5–37,5%, no mejor que el adaptador de reservas. Fusionar mete dos comportamientos en un modelo; no los combina en uno nuevo.
+- **Entrenar multitarea gana cuando tienes los dos datasets**: 55% exact, 70% en el campo `time` y 97,5% en la conversión, mejor que cualquier fusión en las dos tareas, con 76 pasos de optimización (tantos como los dos especialistas juntos).
+- El notebook termina con "Results" y una sección "In production": la receta (un conjunto de test apartado antes de entrenar, una línea base few-shot, LoRA r = 16 en todas las capas lineales, QLoRA solo si el base en bf16 no cabe, fine-tuning completo solo si LoRA se estanca); los datos pesan más que los hiperparámetros (añadir ejemplos justo de lo que falla, destilar de un modelo más fuerte y revisar una muestra de sus etiquetas); servir adaptadores (para una tarea, fusionarlo en un base bf16; para muchas, un base con muchos adaptadores en vLLM, SGLang o LoRAX; versionar cada adaptador con su base, sus datos y su evaluación); para combinar adaptadores que no se pueden reentrenar juntos, fusionar con task arithmetic (`cat` / `svd` en `peft`, o `mergekit` para modelos completos) y pasar la evaluación de cada tarea sobre la fusión; qué monitorizar (test congelado, validez del JSON, benchmarks generales para el olvido, deriva de las entradas), y los modos de fallo (LR demasiado bajo para LoRA, entrenar sobre el prompt, un token nuevo sin entrenar, fusionar en un base distinto o fusionar factores LoRA con `linear`, errores del teacher copiados por el student, fiarse de la pérdida de entrenamiento).
 
 ---
 
@@ -386,6 +408,59 @@ Aritmética (100 problemas de test, 40 pasos de GRPO):
 - Sin una sola respuesta etiquetada, GRPO pasa de 5% a 42–46% en unos 3,5 minutos. Las respuestas se acortan (~27 → ~13 tokens): la política aprende que un `96 - 20 = …` corto se premia más a menudo que una explicación que se corta a medias.
 - La recompensa densa da señal a más grupos, pero no produjo un modelo mejor: un poco más alta en su proxy y un poco más baja en exact match. Es la dirección que predice Goodhart, pero 4 problemas de 100 están dentro del ruido.
 - La VRAM pico fue como mucho 1,40 GB en todo el notebook (0,88 GB en GRPO).
+
+**Siguiente:** el [20](#20), donde el razonamiento que entrena GRPO se pone a trabajar y se mide en inferencia, y después el [09](#09).
+
+---
+
+<a id="20"></a>
+## 20 · Razonamiento y cómputo en inferencia: cadena de pensamiento, self-consistency, verificadores, modelos de razonamiento
+`notebooks/03_post_training/20_reasoning_test_time_compute.ipynb` · módulos `config`, `evaluation` · LangChain (Ollama), `datasets`, Pydantic
+
+Se lee justo después del 08. El GRPO del 08 es cómo se *entrena* el razonamiento; este notebook va de cómo se *usa* y de cuánto cuesta. Desde 2024 los modelos más capaces (o1/o3, DeepSeek-R1, Claude con extended thinking, Gemini thinking, Qwen3) gastan tokens de más pensando antes de responder. Aquí esa idea se desmonta palanca a palanca sobre 80 problemas del test de GSM8K, con `qwen2.5:3b` servido por Ollama, y cada palanca se mide en acierto (con intervalos bootstrap), tokens de salida y segundos por problema.
+
+**Qué construyes.**
+1. **Respuesta directa frente a cadena de pensamiento**: el mismo modelo con decodificación greedy, una vez con la orden de dar solo el número final (16 tokens como máximo) y otra con la de resolverlo paso a paso y poner el número en la última línea (512 tokens).
+2. **Self-consistency**: cinco cadenas de pensamiento por problema a temperatura 0,7; para cada $k$ de 1 a 5, **maj@k** (voto por mayoría entre las $k$ primeras; los empates, para la respuesta que salió antes) y **pass@k** (al menos una de las $k$ acierta: el techo de un verificador perfecto).
+3. **Best-of-5 con un verificador**: el juez (`qwen2.5:7b` si está descargado) puntúa de 1 a 10 cada una de las cinco soluciones y gana la mejor puntuada, en los 40 primeros problemas, frente al voto y al pass@5 en esos mismos 40.
+4. **Un modelo de razonamiento**: `deepseek-r1:1.5b` (Qwen2.5-Math-1.5B ajustado con las trazas de razonamiento de DeepSeek-R1), que piensa dentro de `<think>...</think>`, con hasta 2.048 tokens.
+5. **El mapa coste-acierto**: cada estrategia como un punto sobre un eje logarítmico de tokens de salida.
+6. **Evaluación comparativa**: un ranking Bradley-Terry de las estrategias a partir de "partidos" problema a problema, con intervalos bootstrap, y un juez LLM por pares que compara, en los dos órdenes, las soluciones de la cadena de pensamiento y de R1 en 30 problemas.
+
+**Herramientas.** `datasets.load_dataset("openai/gsm8k", "main", split="test")` (barajado con semilla 0, los 80 primeros); una función `final_number` que se queda con el último número tras el bloque `</think>`, si lo hay (la extracción también forma parte de la evaluación); `config.get_llm(num_predict=..., temperature=...)` y `get_llm(model="deepseek-r1:1.5b", num_predict=2048)` con `.batch(..., config={"max_concurrency": 4})`, leyendo los tokens de salida de `usage_metadata`; `config.get_judge_llm(num_predict=600).with_structured_output(..., method="json_schema", include_raw=True)` con modelos Pydantic (`Verdict`, con un `reasoning` acotado y un `score` de 1 a 10; `Choice`, con `Literal["A", "B"]`), para que un veredicto mal formado vuelva como dato y no como excepción; `evaluation.bootstrap_ci` y `paired_bootstrap_diff`; Bradley-Terry ajustado en NumPy con actualizaciones de minorización-maximización y 300 remuestreos bootstrap.
+
+**Conceptos clave**
+- **La cadena de pensamiento como cómputo en serie**: un transformer hace una cantidad fija de trabajo por token, así que escribir los pasos intermedios como tokens es lo que permite que los pasos siguientes lean los resultados anteriores. Más tokens compran más cómputo en serie.
+- **Cómputo en inferencia** (*test-time compute*): el muestreo en paralelo (self-consistency, best-of-N), el refinamiento secuencial (self-refine, *budget forcing*) y el razonamiento entrenado son formas de gastar más cómputo por problema en inferencia; Snell et al. (2024) lo tratan como un eje de escalado propio.
+- **maj@k frente a pass@k**: la distancia entre los dos es lo máximo que podría recuperar un verificador. Si es pequeña, votar ya saca casi todo.
+- **Verificadores**: un modelo de recompensa de *resultado* (ORM) puntúa la respuesta final; uno de *proceso* (PRM), cada paso. Un verificador solo ayuda si distingue lo correcto de lo incorrecto mejor que el voto.
+- **Modelos de razonamiento y destilación**: R1 aprendió a razonar en largo con RL y recompensas verificables (08); R1-Distill lo copia en modelos pequeños con SFT sobre las trazas de R1. Si eso aguanta fuera de la distribución de entrenamiento hay que medirlo, no suponerlo.
+- **Costes y modos de fallo**: el razonamiento se paga en tokens de salida, los lentos y caros (06); *overthinking*, cadenas de pensamiento que no son fieles a lo que de verdad produjo la respuesta, verificadores engañados o con reward hacking, y fallos al extraer la respuesta.
+- **Bradley-Terry y jueces por pares**: $P(i \succ j) = e^{\beta_i} / (e^{\beta_i} + e^{\beta_j})$, el modelo detrás de Chatbot Arena y de los modelos de recompensa de RLHF (08); a un juez LLM hay que medirle el sesgo de posición juzgando cada par en los dos órdenes.
+
+**Resultados**
+
+| Estrategia (`qwen2.5:3b` salvo que se indique, 80 problemas de GSM8K) | Acierto [IC 95 %] | Tokens de salida por problema | Segundos por problema |
+|---|---|---|---|
+| respuesta directa | 12,5 % [6,2, 20,0] | 3 | 0,13 |
+| cadena de pensamiento (greedy) | **85,0 %** [77,5, 92,5] | 246 | 3,63 |
+| self-consistency, 5 muestras (maj@5) | **90,0 %** [83,8, 96,2] | 1.274 | 19,05 |
+| best-of-5 con un juez de 7B (40 primeros) | 85,0 % (mayoría 90,0 %, pass@5 90,0 %) | 1.274 + juez | 33,40 |
+| DeepSeek-R1-Distill 1.5B | 63,7 % [53,8, 73,8]; 16 llegan al límite de tokens | 870 | 7,73 |
+| ranking Bradley-Terry | self-consistency > cadena de pensamiento > R1-Distill > directa, intervalos sin solaparse | | |
+| juez LLM por pares, en los dos órdenes | coherente solo en el 43 % de 30 pares | | |
+
+**Hallazgos honestos**
+- **Los tokens de razonamiento son, con diferencia, la palanca más grande.** El mismo modelo de 3B pasa del 12,5 % al 85,0 % cuando puede escribir sus pasos, con 246 tokens de salida en vez de 3 (3,63 s en vez de 0,13 s por problema). El ejemplo del notebook enseña por qué: cada paso escribe un resultado intermedio (125, luego 175) que el siguiente vuelve a leer.
+- **Votar añade unos puntos a coste lineal.** Una sola muestra a temperatura 0,7 es algo peor que greedy (78,8 % frente a 85,0 %); maj@5 llega al 90,0 %, 5,0 puntos por encima de la cadena de pensamiento greedy con un intervalo pareado de [+0,0, +11,2]: una ganancia real pero modesta, por cinco veces los tokens (unos 1.274 por problema). pass@k se queda en el 91,2 % a partir de $k = 3$, apenas por encima de maj@5: en este conjunto, votar ya saca casi todo lo que sacaría un verificador perfecto.
+- **El verificador LLM empeoró el resultado.** En los 40 primeros problemas, best-of-5 con el juez de 7B sacó un 85,0 %, frente al 90,0 % del voto y del pass@5. El juez da de media un 7,30 a las soluciones correctas y un 6,15 a las incorrectas: apenas las distingue y a menudo elige una solución incorrecta pero bien escrita. Los 200 veredictos fueron JSON válido, así que el problema es de discriminación, no de formato; y fue la estrategia más cara, con 14,3 s de juez por problema además del muestreo.
+- **El modelo de razonamiento pequeño y destilado perdió frente a un buen prompt.** R1-Distill 1.5B se quedó en el 63,7 % (frente al 85,0 % de la cadena de pensamiento con el 3B) generando 870 tokens por problema, 3,5 veces más, y tardando el doble. 16 de las 80 respuestas llegaron al límite de 2.048 tokens sin terminar y 15 acabaron sin ningún número que extraer: con 1,5B, el estilo de pensar en largo se convierte a menudo en bucles y dudas (*overthinking*). Es una medida de este modelo con este presupuesto, no un veredicto sobre los modelos de razonamiento.
+- **En la curva coste-acierto los rendimientos caen deprisa**: los primeros ~243 tokens de razonamiento compraron 72,5 puntos, los ~1.000 siguientes de self-consistency compraron 5 más, el verificador no compró nada y el modelo de razonamiento gastó más tokens para acertar menos.
+- **Bradley-Terry separa bien las estrategias**: self-consistency +3,09, cadena de pensamiento +1,14, R1-Distill −0,58 y directa −3,65, con intervalos bootstrap que no se solapan entre vecinas. Leído como probabilidad: en un problema donde difieren, la cadena de pensamiento gana a R1-Distill el 85 % de las veces.
+- **El juez por pares es la advertencia.** Los 30 pares se juzgaron en los dos órdenes y el juez solo mantuvo el veredicto el 43 % de las veces. No se inclinaba por una posición en conjunto (52 % de veredictos para la A), así que más que un sesgo de posición es ruido. Cuando fue coherente y exactamente una solución era correcta, eligió la buena el 89 % de las veces, pero fueron solo 9 casos.
+- El notebook termina con "Results" y una sección "In production": cómo elegir estrategia (empezar por la cadena de pensamiento, o por un modelo de razonamiento con el presupuesto de pensamiento limitado; añadir self-consistency, con $k$ entre 3 y 8, solo donde la mejora compense pagar $k$ veces más; usar best-of-N solo con un verificador que haya demostrado discriminar: tests unitarios, una calculadora o un solver, un validador de esquema, un modelo de recompensa entrenado); cómo servir modelos de razonamiento (`max_tokens` explícito o presupuesto de pensamiento, vigilar qué parte de las respuestas llega al límite, extraer la respuesta de forma robusta y contar los fallos de extracción como métrica propia, presupuestar por tokens de salida); cómo evaluar con jueces (los dos órdenes, informar de la coherencia, validar el juez contra la verdad conocida como en el [10](#10) y el [15](#15), acotar su razonamiento, Bradley-Terry con intervalos); qué monitorizar (tokens por petición y su cola, respuestas cortadas o imposibles de parsear, acierto frente al objetivo y latencia) y los modos de fallo.
+
+**Siguiente:** de vuelta al camino principal con el [09](#09) (cuantización), o el [14](#14) para ver el razonamiento dentro de los agentes.
 
 ---
 

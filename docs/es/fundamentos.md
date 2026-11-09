@@ -13,7 +13,7 @@
 2. [Pre-training e inferencia](#2-pre-training-e-inferencia)
    - [2.0 Datos de pre-entrenamiento](#20-datos-de-pre-entrenamiento) · [2.1 El objetivo](#21-el-objetivo-predecir-el-siguiente-token) · [2.2 Optimizador y schedule](#22-optimizador-y-plan-de-learning-rate) · [2.3 Leyes de escalado](#23-leyes-de-escalado) · [2.3b Sistemas](#23b-sistemas-memoria-precisión-kernels-y-paralelismo) · [2.4 Decodificación](#24-estrategias-de-decodificación) · [2.5 KV-cache](#25-prefill-decode-y-kv-cache) · [2.6 Batching y serving](#26-batching-y-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Cuantización](#28-cuantización)
 3. [Post-training](#3-post-training)
-   - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-y-fine-tuning-eficiente) · [3.3 Destilación](#33-destilación) · [3.4 RLHF, DPO y GRPO](#34-de-rlhf-a-dpo-y-grpo)
+   - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-y-fine-tuning-eficiente) · [3.3 Destilación](#33-destilación) · [3.3b Fusión de modelos](#33b-fusión-de-modelos) · [3.4 RLHF, DPO y GRPO](#34-de-rlhf-a-dpo-y-grpo) · [3.5 Razonamiento y cómputo en inferencia](#35-razonamiento-y-cómputo-en-inferencia)
 4. [Aplicaciones](#4-aplicaciones)
    - [4.1 RAG](#41-retrieval-augmented-generation) · [4.2 Métricas de recuperación](#42-métricas-de-recuperación) · [4.3 RAGAS y LLM-as-judge](#43-ragas-y-llm-as-judge) · [4.4 Patrones de aplicación](#44-patrones-de-aplicación) · [4.5 Recomendación](#45-sistemas-de-recomendación)
 5. [Agentes y MCP](#5-agentes-y-mcp)
@@ -566,7 +566,7 @@ Cada bit extra divide $s$ por dos y la varianza del error por cuatro. Lo que dec
 
 ## 3. Post-training
 
-Términos de esta parte: [glosario, Entrenamiento y post-training](glosario.md#entrenamiento-y-post-training).
+Términos de esta parte: [glosario, Entrenamiento y post-training](glosario.md#entrenamiento-y-post-training) y [Razonamiento y cómputo en inferencia](glosario.md#razonamiento-y-cómputo-en-inferencia).
 
 ### 3.1 Supervised fine-tuning
 
@@ -643,6 +643,43 @@ El factor $\tau^2$ compensa que el gradiente del KL suavizado escale como $1/\ta
 
 > **Notebook:** [07 · SFT, LoRA y destilación](../../notebooks/03_post_training/07_finetuning_sft_lora.ipynb) · **En el curso:** un profesor de 360M entrenado con las mismas 300 etiquetas llega al 87.5 %, etiqueta 600 peticiones nuevas con un 90 % de acierto, y el estudiante de 135M pasa del 32.5 % al 55 % de exact match (con la salvedad de que también dio más pasos de optimización).
 
+### 3.3b Fusión de modelos
+
+**Problema.** Con el tiempo acabas con varios fine-tunings del mismo base: uno por tarea, por cliente o por experimento. Quieres un solo modelo, y puede que no tengas los datos ni la GPU para entrenarlos juntos.
+
+**Idea.** Tratar un fine-tuning como un vector. Ilharco et al. (2023, *Editing Models with Task Arithmetic*) llaman a la diferencia $\tau_t = \theta_t - \theta_0$ un **task vector** y mostraron que se puede operar con ella (**task arithmetic**):
+
+$$\theta_{\text{fusionado}} = \theta_0 + \sum_t \lambda_t\, \tau_t$$
+
+Sumar dos task vectors da un modelo que hace las dos tareas, a menudo casi tan bien como cada especialista; restar uno ($\lambda < 0$) quita un comportamiento, y el artículo lo usó para hacer un modelo menos tóxico. Con LoRA, el task vector de cada matriz adaptada es simplemente $\Delta W = \frac{\alpha}{r} BA$. Fusionar es solo aritmética: ni datos ni pasos de gradiente.
+
+**Por qué funciona.** Los pesos no suelen ser sumables: si promedias dos redes entrenadas desde inicializaciones aleatorias distintas sale un modelo roto, porque sus neuronas están permutadas unas respecto a otras. Con los fine-tunings del *mismo* modelo preentrenado no pasa. Se quedan en la misma cuenca del paisaje de pérdida, unidos por un camino recto a lo largo del cual la pérdida sigue baja (**linear mode connectivity**, Frankle et al., 2020). Wortsman et al. (2022) lo aprovecharon en los **model soups**: promediar fine-tunings de una misma tarea con hiperparámetros distintos superó a la mejor ejecución individual en precisión y robustez, sin coste extra en inferencia. Para tareas *distintas*, la suma funciona cuando los task vectors interfieren poco, y en un espacio con millones de coordenadas por matriz dos actualizaciones sin relación son casi **ortogonales** (similitud coseno cercana a 0): sumar una apenas mueve el modelo en la dirección de la otra.
+
+**Cuando interfieren: TIES y DARE.** Si los task vectors se solapan, la suma simple falla de dos maneras: las coordenadas pequeñas y ruidosas se acumulan, y las coordenadas en las que las tareas tiran en sentidos opuestos se anulan o se pasan de largo.
+
+- **TIES-Merging** (Yadav et al., 2023): *recortar* cada task vector a su fracción de mayor magnitud (la *density*); *elegir* un signo por coordenada, el de mayor magnitud total; y hacer una *fusión disjunta*, promediando solo los valores que coinciden con ese signo.
+- **DARE** (Yu et al., 2024, *Language Models are Super Mario*): *descartar* al azar una fracción $p$ de las coordenadas de cada task vector y *reescalar* el resto por $1/(1-p)$, para que la actualización esperada no cambie. Las actualizaciones del fine-tuning son tan redundantes que se puede descartar el 90 % o más. Se suele combinar con la elección de signo de TIES (`dare_ties`).
+- **SLERP** interpola dos modelos sobre la esfera en lugar de en línea recta, lo que conserva la norma de los pesos; solo sirve para dos modelos. **LoraHub** (Huang et al., 2023) aprende los pesos de mezcla $\lambda_t$ de muchos adaptadores LoRA a partir de unos pocos ejemplos de una tarea nueva.
+
+La herramienta de referencia para modelos completos es **MergeKit** (Goddard et al., 2024), que está detrás de muchos de los modelos abiertos fusionados de los leaderboards públicos; para adaptadores, `add_weighted_adapter` de `peft`.
+
+**La trampa de los factores de LoRA.** Un adaptador guarda $B$ y $A$, no $\Delta W$, y
+
+$$\big(B_1 + B_2\big)\big(A_1 + A_2\big) = B_1 A_1 + B_2 A_2 + \underbrace{B_1 A_2 + B_2 A_1}_{\text{términos cruzados}}$$
+
+así que sumar los factores añade dos términos que ninguna tarea pidió. En `peft`, `combination_type="linear"` hace justo eso (su documentación lo llama una aproximación muy burda); `cat` concatena los factores en un adaptador de rango $r_1 + r_2$ cuyo $\Delta W$ es la suma ponderada exacta, es decir, task arithmetic; `svd` forma la suma exacta y la comprime a un rango elegido (es exacta si `svd_rank` es al menos el rango de la suma); `ties_svd` y `dare_ties_svd` aplican TIES o DARE sobre el $\Delta W$ completo y después una SVD.
+
+| | Fusionar | Entrenar multitarea |
+|---|---|---|
+| Necesita | los pesos o adaptadores ya ajustados, del mismo base | todos los datasets a la vez |
+| Coste | segundos de aritmética | un entrenamiento con todos los datos |
+| Qué obtienes | los comportamientos uno al lado del otro, cada uno algo por debajo de su especialista | normalmente lo mejor en cada tarea, y las habilidades se pueden combinar |
+| Cuándo | los adaptadores vienen de otros equipos o del Hub, ya no están los datos, no hay presupuesto para reentrenar | tienes todos los datos |
+
+**Modos de fallo.** Fusionar fine-tunings de bases distintos (o un adaptador en un base con el que no se entrenó); fusionar factores LoRA con `linear`; usar TIES o DARE donde no hay interferencia, con lo que recortar solo tira señal; esperar que la fusión *combine* habilidades, cuando solo las pone una al lado de la otra; y evaluar la fusión en una sola tarea, cuando puede romper otra sin avisar. Hay que pasar la evaluación de cada tarea sobre el modelo fusionado.
+
+> **Notebook:** [07 · SFT, LoRA y destilación](../../notebooks/03_post_training/07_finetuning_sft_lora.ipynb) (sección 8) · **En el curso:** un segundo adaptador LoRA aprende a pasar horas a formato 24 h y se fusiona con el de reservas. Los dos task vectors son casi ortogonales (coseno medio +0.012 en 210 matrices, 49 % de conflictos de signo donde las dos actualizaciones son grandes). Task arithmetic (`cat`) mantiene las reservas en 32.5 % de exact match, lo mismo que el adaptador de reservas solo, y convierte horas al 90 % (el especialista, 97.5 %); `linear` se queda en 27.5 % / 87.5 %, `ties_svd` en 27.5 % / 80 % y `dare_ties_svd` en 30 % / 87.5 %. Ninguna fusión lleva la habilidad de conversión al campo `time` de las reservas. Un único adaptador multitarea entrenado con los dos datasets (76 pasos) llega al 55 % de exact match y al 97.5 %, mejor que cualquier fusión en las dos tareas.
+
 ### 3.4 De RLHF a DPO y GRPO
 
 **Problema.** SFT no dice *cuánto* de mala es una respuesta y solo muestra buen comportamiento en estados tomados de los datos. Además, a menudo es más fácil **comparar** dos respuestas que **escribir** la ideal.
@@ -690,6 +727,45 @@ con el ratio recortado de PPO y un KL a la referencia. Consecuencias: no hay cr�
 **Papers clave.** Christiano et al. (2017); Schulman et al. (2017, PPO); Ouyang et al. (2022); Rafailov et al. (2023); Azar et al. (2023, IPO); Shao et al. (2024, DeepSeekMath); DeepSeek-AI (2025, R1); Razin et al. (2024); Gao et al. (2023).
 
 > **Notebook:** [08 · DPO y GRPO](../../notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb) · **En el curso:** DPO puro gana en sus propias métricas de entrenamiento pero hunde el exact match de 30 % a 7.5 % (la log-prob de la respuesta correcta cae de −1.91 a −5.63); DPO+NLL la mantiene (−1.91 → −2.01) y no rompe nada, aunque solo sube a 32.5 %; GRPO lleva la aritmética de 5 % a 46 % (recompensa exacta) y 42 % (densa) en 40 pasos, sin etiquetas, y la recompensa densa baja la fracción de grupos de varianza cero de 60-80 % a ~5-25 %.
+
+### 3.5 Razonamiento y cómputo en inferencia
+
+**Problema.** Hay problemas que piden varios pasos encadenados ("primero los huevos que sobran, luego cuánto se sacan por ellos"), y un transformer hace una cantidad fija de cómputo por token: $L$ capas, sea cual sea la pregunta. Si los pasos no caben en un solo forward, el modelo no puede acertar soltando la respuesta de golpe, por mucho que sepa.
+
+**Cadena de pensamiento: los tokens como cómputo en serie.** Escribir los pasos intermedios como tokens convierte la salida en un borrador: cada token nuevo atiende a los resultados escritos antes, así que **más tokens compran más cómputo en serie**. Wei et al. (2022) mostraron que unos pocos ejemplos resueltos en el prompt desbloquean el razonamiento en varios pasos de los modelos grandes (CoT few-shot); Kojima et al. (2022), que "Let's think step by step" basta para buena parte de ello (CoT zero-shot). También hay una base teórica: con pasos intermedios, un transformer resuelve problemas que se puede demostrar que no resuelve en una sola pasada (Feng et al., 2023; Merrill y Sabharwal, 2024). La cadena escrita no es necesariamente el cómputo que produjo la respuesta: puede ser **infiel** (Turpin et al., 2023), así que leerla no equivale a una explicación.
+
+**Gastar más cómputo en inferencia.** Una vez que el modelo sabe razonar, hay tres formas de gastar más cómputo en un mismo problema:
+
+- **Muestreo en paralelo y self-consistency** (Wang et al., 2022; ICLR 2023). Se muestrean $k$ caminos de razonamiento a temperatura $> 0$ y se devuelve la respuesta final más frecuente: los caminos correctos tienden a coincidir y los erróneos se dispersan. Su acierto es **maj@k**. El techo es **pass@k**, la probabilidad de que al menos una de las $k$ muestras acierte, que es lo que alcanzaría un verificador perfecto. Con $n$ muestras de las que $c$ son correctas, el estimador sin sesgo es (Chen et al., 2021)
+
+  $$\text{pass@}k = 1 - \binom{n-c}{k}\Big/\binom{n}{k}$$
+
+  La distancia entre pass@k y maj@k es lo máximo que puede añadir cualquier verificador sobre el voto.
+- **Best-of-N con un verificador.** Un segundo modelo puntúa cada candidata y se devuelve la mejor. Un **modelo de recompensa de resultado** (ORM) puntúa la respuesta final; Cobbe et al. (2021), que crearon GSM8K para esto, entrenaron uno y vieron que muestrear muchas soluciones y dejar que el verificador eligiera superaba al fine-tuning solo. Un **modelo de recompensa de proceso** (PRM) puntúa cada paso; Lightman et al. (2023, *Let's Verify Step by Step*) encontraron que supervisar el proceso es claramente mejor que supervisar solo el resultado en MATH. La trampa está en la **capacidad de discriminar** del verificador: si no separa lo correcto de lo incorrecto mejor que el voto, añade coste y no acierto, y con suficientes candidatas la búsqueda acaba encontrando las respuestas que lo engañan (*reward hacking* en inferencia, el mismo efecto Goodhart de la [sección 3.4](#34-de-rlhf-a-dpo-y-grpo)). Los verificadores programáticos (tests unitarios, una calculadora, un solver, un esquema) no tienen ninguno de estos problemas, allí donde existen.
+- **Refinamiento secuencial.** Revisar una misma respuesta varias veces (self-refine, la reflexión de la [sección 5.3](#53-react-plan-and-execute-y-reflexión)) u obligar al modelo a seguir pensando (*budget forcing*, s1; Muennighoff et al., 2025).
+
+Snell et al. (2024) mostraron que, con un presupuesto fijo, gastar el cómputo en inferencia de forma adaptativa (más muestras o revisiones en los prompts difíciles) puede ganar a un modelo varias veces mayor en problemas de la dificultad adecuada: **el cómputo en inferencia es un eje de escalado propio**, junto a los parámetros y los datos ([sección 2.3](#23-leyes-de-escalado)). No los sustituye: en los problemas más difíciles, un modelo base mejor sigue ganando.
+
+**Modelos de razonamiento.** En lugar de pedirlo en el prompt, el razonamiento se puede **entrenar**. DeepSeek-AI (2025, *DeepSeek-R1*) aplicó RL a gran escala con recompensas verificables (GRPO, [sección 3.4](#34-de-rlhf-a-dpo-y-grpo)) y obtuvo cadenas de pensamiento largas, con autocomprobación y vuelta atrás; o1 de OpenAI hizo algo parecido con una receta no publicada. El pensamiento se emite como tokens (a menudo entre etiquetas `<think>`) y se paga como cualquier otra salida. La **destilación** lo transfiere barato: los modelos R1-Distill son modelos pequeños de Qwen y Llama ajustados (SFT normal, [sección 3.3](#33-destilación)) con las trazas de razonamiento de R1. Si los modelos pequeños destilados razonan de forma robusta fuera de su distribución de entrenamiento es una pregunta abierta. El fallo conocido es el **overthinking**: razonamientos largos y en bucle en problemas fáciles, o que agotan el presupuesto antes de responder.
+
+**El coste.** El razonamiento se paga en tokens de salida, los lentos y caros ([sección 2.5](#25-prefill-decode-y-kv-cache)): diez veces los tokens son, más o menos, diez veces la latencia y el precio, y los modelos de razonamiento tienen colas largas. Vienen con dos trampas prácticas: respuestas cortadas por `max_tokens` y errores al extraer la respuesta, que convierten en silencio una solución correcta en un fallo.
+
+**Comparar estrategias: Bradley-Terry y jueces por pares.** Muchas evaluaciones comparan dos sistemas sobre la misma entrada en lugar de puntuar cada uno por separado. El modelo de **Bradley-Terry** (Bradley y Terry, 1952), el mismo de los modelos de recompensa de RLHF de la [sección 3.4](#34-de-rlhf-a-dpo-y-grpo), convierte esos resultados en puntuaciones:
+
+$$P(i \succ j) = \frac{e^{\beta_i}}{e^{\beta_i} + e^{\beta_j}} = \sigma(\beta_i - \beta_j)$$
+
+con las $\beta$ ajustadas por máxima verosimilitud (Chatbot Arena lo hace con millones de votos humanos; Elo es una aproximación online de la misma idea) y los intervalos sacados con bootstrap sobre las entradas. Cuando el juez es un LLM hay que medir sus sesgos (Zheng et al., 2023, *Judging LLM-as-a-Judge*): el **sesgo de posición** (preferir la primera o la segunda respuesta sin mirar el contenido), el de verbosidad y la autopreferencia. La defensa estándar es **juzgar cada par en los dos órdenes**, informar de cuántas veces el veredicto sobrevive al cambio y quedarse solo con los coherentes; y validar el juez contra la verdad conocida antes de fiarse de él ([sección 4.3](#43-ragas-y-llm-as-judge)).
+
+| Estrategia | Coste extra | Ayuda cuando | Fallo típico |
+|---|---|---|---|
+| cadena de pensamiento | muchos más tokens de salida que la respuesta directa | problemas de varios pasos | razonamiento infiel o demasiado largo |
+| self-consistency (maj@k) | $k$ veces la cadena de pensamiento | las respuestas se pueden comparar exactamente | se satura enseguida; no sirve para texto abierto |
+| best-of-N con verificador | $k$ veces + la verificación | el verificador discrimina (tests, solvers, PRMs entrenados) | un verificador débil o hackeable elige respuestas incorrectas bien escritas |
+| modelo de razonamiento | pensamiento largo, cobrado como salida | problemas difíciles con respuesta comprobable | overthinking, truncado, colas de coste |
+
+**Papers clave.** Wei et al. (2022), *Chain-of-Thought Prompting Elicits Reasoning in Large Language Models*; Kojima et al. (2022), *Large Language Models are Zero-Shot Reasoners*; Wang et al. (2022), *Self-Consistency Improves Chain of Thought Reasoning*; Cobbe et al. (2021), *Training Verifiers to Solve Math Word Problems* (GSM8K); Chen et al. (2021), *Evaluating Large Language Models Trained on Code* (pass@k); Lightman et al. (2023), *Let's Verify Step by Step*; Turpin et al. (2023), *Language Models Don't Always Say What They Think*; Snell et al. (2024), *Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling Model Parameters*; DeepSeek-AI (2025), *DeepSeek-R1*; Muennighoff et al. (2025), *s1: Simple test-time scaling*; Zheng et al. (2023), *Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena*; Bradley y Terry (1952).
+
+> **Notebook:** [20 · Razonamiento y cómputo en inferencia](../../notebooks/03_post_training/20_reasoning_test_time_compute.ipynb) (se lee después del 08) · **En el curso:** sobre 80 problemas de GSM8K con `qwen2.5:3b`, la respuesta directa acierta el 12.5 % y la cadena de pensamiento greedy el 85.0 % (246 tokens de salida frente a 3); la self-consistency con 5 muestras llega al 90.0 % (+5.0 puntos, intervalo pareado [+0.0, +11.2]) por unos 1.274 tokens por problema, mientras que pass@k se queda en el 91.2 %, así que votar ya saca casi todo lo que sacaría un verificador perfecto; best-of-5 con el juez de 7B como verificador saca un 85.0 % en los 40 primeros problemas, frente al 90.0 % del voto, porque da de media un 7.30 a las soluciones correctas y un 6.15 a las incorrectas; DeepSeek-R1-Distill 1.5B llega al 63.7 % con 870 tokens por problema, y 16 de sus 80 respuestas tocan el límite de 2.048 tokens; Bradley-Terry ordena self-consistency (+3.09) > cadena de pensamiento (+1.14) > R1-Distill (−0.58) > directa (−3.65) con intervalos que no se solapan; y el juez de 7B por pares, preguntado en los dos órdenes, mantiene el veredicto solo en el 43 % de 30 pares (el 52 % de sus veredictos van a la posición A, así que es más ruido que una preferencia fija).
 
 ---
 

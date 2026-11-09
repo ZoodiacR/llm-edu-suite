@@ -6,7 +6,7 @@
 
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-- **20 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
+- **21 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
 - **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free).
 - **Honest results**: when a technique does not help in our setup, the notebook shows it and explains why
 - **Tested**: fast tests with fake LLMs in CI on every push, integration tests against the local models
@@ -32,8 +32,9 @@ The number is the suggested study order; the folder is the topic.
 | | [19 · systems](notebooks/02_pretraining_and_inference/19_systems_memory_and_parallelism.ipynb) | memory anatomy, bf16, activation checkpointing, fused attention kernels, profiling, CUDA graphs, MFU, real DDP, ZeRO/FSDP | PyTorch, `torch.distributed` |
 | | [06 · inference & serving](notebooks/02_pretraining_and_inference/06_inference_serving.ipynb) | sampling, KV-cache, speculative decoding, batching, TTFT; loading SmolLM2's real weights into our model | PyTorch (from scratch), `transformers` |
 | | [09 · quantization](notebooks/02_pretraining_and_inference/09_quantization.ipynb) | int8 / float8 / int4 / int2 on a real model, measured with KL and top-1 agreement | `optimum-quanto` |
-| **Post-training** | [07 · SFT, LoRA, distillation](notebooks/03_post_training/07_finetuning_sft_lora.ipynb) | chat templates and loss masking, full SFT vs LoRA vs QLoRA (4-bit NF4), the new-token trap, rank ablation, teacher → student | `transformers`, `peft`, `trl`, `bitsandbytes` |
+| **Post-training** | [07 · SFT, LoRA, distillation](notebooks/03_post_training/07_finetuning_sft_lora.ipynb) | chat templates and loss masking, full SFT vs LoRA vs QLoRA (4-bit NF4), the new-token trap, rank ablation, teacher → student, model merging (task arithmetic, TIES, DARE) | `transformers`, `peft`, `trl`, `bitsandbytes` |
 | | [08 · DPO & GRPO](notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb) | preference tuning, likelihood displacement, DPO + NLL, RL with verifiable rewards | `trl` |
+| | [20 · reasoning & test-time compute](notebooks/03_post_training/20_reasoning_test_time_compute.ipynb) | chain of thought, self-consistency (maj@k / pass@k), best-of-N with an LLM verifier, a distilled reasoning model, Bradley-Terry rankings, judge position bias | LangChain, Ollama |
 | **Applications** | [10 · RAG](notebooks/04_applications/10_rag.ipynb) | loaders, splitters, FAISS, BM25, hybrid RRF, LCEL chains with citations, RAGAS | LangChain, RAGAS |
 | | [12 · recommender systems](notebooks/04_applications/12_recommender_systems.ipynb) | the industry funnel on MovieLens-1M: SASRec, two-tower + FAISS, LambdaMART ranker, exploration and diversity, LLM requests and explanations | PyTorch, FAISS, LightGBM, LangChain |
 | | [13 · LLM application patterns](notebooks/04_applications/13_modern_llm_applications.ipynb) | extraction, classification, map-reduce summarization, caching, prompt-injection defense, batch jobs | LangChain |
@@ -59,7 +60,9 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 07 · SFT & LoRA (SmolLM2-135M) | few-shot 17.5% → **full SFT 35%**, LoRA r=16 32.5% training 3.5% of the parameters, r=64 45%. A new special token with frozen embeddings is **never emitted (0%)**; with `modules_to_save` it is emitted **100%** of the time |
 | 07 · QLoRA | the same LoRA on a 4-bit NF4 base: **no loss of quality** (37.5% vs 32.5% exact, same 86.5% of fields), weights 269 → 110 MB; for a 7B model the frozen weights drop from 14 GB to 3.6 GB |
 | 07 · distillation | a 360M teacher (87.5%) labels 600 extra prompts; the 135M student rises from 35% to **55%** |
+| 07 · model merging | two LoRA adapters with nearly orthogonal task vectors (cosine 0.01): task arithmetic keeps the booking task at 32.5% and converts times at **90%** (specialist 97.5%) with no training; `linear`, TIES and DARE do worse; multi-task training beats every merge (55% + 97.5%) |
 | 08 · DPO & GRPO | plain DPO wins its training metric but **drops exact match from 30% to 7.5%** (likelihood displacement); DPO + NLL holds 32.5%. **GRPO lifts arithmetic from 5% to 46% in 40 steps** with no labels, only a verifier |
+| 20 · reasoning (GSM8K, `qwen2.5:3b`) | chain of thought lifts accuracy **12.5% → 85%**; self-consistency with 5 votes **90%** at 5× the tokens; best-of-5 with a 7B judge (85%) does **worse than the vote**; DeepSeek-R1-Distill 1.5B 63.7% with 16/80 answers cut off; a pairwise judge agrees with itself only 43% when the order is swapped |
 | 09 · quantization (SmolLM2-360M) | int8 and float8 keep ~96% top-1 agreement at 0.41 GB; int4 drops to 73% (KL 0.27); int2 breaks the model. Perplexity hides what KL shows |
 | 10 · RAG + RAGAS | hybrid BM25 + dense retrieval: **evidence MRR 0.84** vs 0.73 dense-only. RAGAS with a 7B judge and bootstrap intervals: the one clear gain is **context precision 0.79 → 0.92**; the faithfulness "gain" a 3B judge reported (0.38 → 0.54) was the judge's noise |
 | 11 · tool calling | 79% tool selection and 86% valid arguments on 14 labelled requests; `function_calling` / `json_mode` 98% field accuracy vs 85% for `json_schema` on Ollama |
@@ -105,7 +108,7 @@ Switching the whole course to a hosted model is a `.env` change (`LLM_PROVIDER=o
 
 ```
 llm-edu-suite/
-├── notebooks/                 20 notebooks, one folder per topic
+├── notebooks/                 21 notebooks, one folder per topic
 │   ├── 00_start_here/  01_architecture/  02_pretraining_and_inference/
 │   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/
 ├── llm_edu_suite/             the from-scratch model (tokenizer, layers, model, training, inference, recsys,
@@ -136,6 +139,7 @@ llm-edu-suite/
 | [v2.1](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.1) | Theory sections in every notebook and a bilingual foundations guide; the recommender rebuilt on MovieLens-1M as an industry funnel; QLoRA; a stronger LLM judge with confidence intervals. |
 | [v2.2](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.2) | From scratch to real models: SmolLM2's published weights run in the from-scratch transformer with identical output; a new notebook on encoders and encoder-decoders (masked LM from scratch, ModernBERT vs embeddings vs LLM for classification, Flan-T5); every new notebook closes with *Results* and *In production*. |
 | [v2.3](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.3) | Training at scale: a data-engineering notebook (MinHash/LSH deduplication from scratch, quality filters, decontamination, raw vs clean training) and a systems notebook (memory anatomy, mixed precision, checkpointing, fused attention, profiling, CUDA graphs, MFU, real DDP, ZeRO/FSDP). |
+| [v2.4](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.4) | Reasoning and adaptation: a notebook on test-time compute (chain of thought, self-consistency, best-of-N with an LLM verifier, a distilled reasoning model, Bradley-Terry rankings and judge position bias) and a model-merging section (task arithmetic, TIES, DARE vs multi-task training); notebook 07 closes with *Results* and *In production*. |
 
 ## Roadmap
 

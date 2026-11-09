@@ -15,7 +15,7 @@ The examples for modules 1–9 use tiny configurations and run on CPU in seconds
 The course has two halves, and the package only holds code for one of them.
 
 - **First half (notebooks 00–06): the model built from scratch in PyTorch.** Seeing attention, RoPE, MoE or a KV-cache written out line by line is the best way to understand them. Modules 1–9 of this reference (`utils`, `tokenizer`, `layers`, `model`, `data`, `training`, `inference`, `recsys` and `evaluation`) are that model and its tooling. Notebook 12 (recommenders) uses them too: it reuses `TransformerLM` as a sequential recommender and loads MovieLens-1M with `recsys`, and adds FAISS, LightGBM and LangChain on top. So does notebook 17 (encoders and encoder-decoders): it trains the same `TransformerLM` with `ModelConfig(causal=False)` as an encoder, then moves on to ModernBERT and Flan-T5 with `transformers`. Notebook 18 (data engineering) trains two `TransformerLM`s with the SmolLM2 tokenizer, one on raw data and one on clean data, and uses `config.get_llm` to generate synthetic data; deduplication, filtering and decontamination are written in the notebook itself.
-- **Second half (notebooks 07–16): the tools the industry uses.** Fine-tuning, quantization, RAG, agents, LLMOps and MCP are taught with real frameworks: Hugging Face `transformers` / `peft` / `trl` / `optimum-quanto`, LangChain, LangGraph, LangSmith, RAGAS and the official MCP SDK with `langchain-mcp-adapters`. For this half the package provides [`config`](#10-config), the one place where the chat model, the judge, the embedding model and tracing are chosen, and the bootstrap intervals in [`evaluation`](#9-evaluation) that notebook 10 uses to compare configurations.
+- **Second half (notebooks 07–16): the tools the industry uses.** Fine-tuning, quantization, RAG, agents, LLMOps and MCP are taught with real frameworks: Hugging Face `transformers` / `peft` / `trl` / `optimum-quanto`, LangChain, LangGraph, LangSmith, RAGAS and the official MCP SDK with `langchain-mcp-adapters`. For this half the package provides [`config`](#10-config), the one place where the chat model, the judge, the embedding model and tracing are chosen, and the bootstrap intervals in [`evaluation`](#9-evaluation) that notebook 10 uses to compare configurations. Notebook 20 (reasoning and test-time compute, read after 08) uses only those two: `config` for the chat model, the judge and `deepseek-r1:1.5b`, and `evaluation` for the intervals; self-consistency, the verifier and Bradley-Terry are written in the notebook itself.
 
 ### Where did it go? (modules removed in v2)
 
@@ -23,7 +23,7 @@ Version 1 of the package had its own implementations of these topics. In v2 they
 
 | Topic (v1 module) | Where it is taught | Framework and classes used |
 |---|---|---|
-| SFT, LoRA, distillation (`finetune`) | 07 · `notebooks/03_post_training/07_finetuning_sft_lora.ipynb` | `transformers`: `AutoTokenizer` (`apply_chat_template`), `AutoModelForCausalLM`; `peft`: `LoraConfig`, `get_peft_model`, `PeftModel` (`merge_and_unload`); `trl`: `SFTConfig`, `SFTTrainer` (masking via `completion_only_loss` / `assistant_only_loss`); `datasets.Dataset` |
+| SFT, LoRA, distillation (`finetune`) | 07 · `notebooks/03_post_training/07_finetuning_sft_lora.ipynb` | `transformers`: `AutoTokenizer` (`apply_chat_template`), `AutoModelForCausalLM`; `peft`: `LoraConfig`, `get_peft_model`, `PeftModel` (`merge_and_unload`; `load_adapter` + `add_weighted_adapter` for model merging); `trl`: `SFTConfig`, `SFTTrainer` (masking via `completion_only_loss` / `assistant_only_loss`); `datasets.Dataset` |
 | DPO and GRPO (`finetune`) | 08 · `notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb` | `trl`: `DPOConfig`, `DPOTrainer`, `GRPOConfig`, `GRPOTrainer` (verifiable reward); `peft.LoraConfig` |
 | Chat template, loss masking, preference pairs (`data.ChatFormat`, `make_reverse_task`, `make_reverse_preferences`) | 07 and 08 | `tokenizer.apply_chat_template` and TRL's `prompt` / `completion` (SFT) or `prompt` / `chosen` / `rejected` (DPO) datasets |
 | Absmax, block-wise and NF4 quantization (`quant`) | 09 · `notebooks/02_pretraining_and_inference/09_quantization.ipynb` | Section 1 does absmax, blocks and NF4 by hand; then `optimum.quanto`: `quantize`, `freeze`, `qint8`, `qint4`, `qint2`, `qfloat8` |
@@ -35,7 +35,7 @@ Version 1 of the package had its own implementations of these topics. In v2 they
 | Traces, PII redaction, percentiles, SLOs, evaluation (`observability`) | 15 · `notebooks/06_llmops/15_observability_llmops.ipynb` | LangSmith: `@traceable`, `tracing_context`, `Client` (`create_feedback`, `create_dataset`, `create_examples`), `evaluate`, `create_anonymizer`; LangChain's `wait_for_all_tracers` |
 | MCP server and client, transports (`mcp`) | 16 · `notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb` | The official `mcp` SDK: `FastMCP`, `ToolAnnotations`, `ClientSession`, `StdioServerParameters`, `stdio_client`, `create_connected_server_and_client_session`, `McpError`, `CallToolResult`; `langchain-mcp-adapters`: `MultiServerMCPClient`, `load_mcp_tools`. Also the [`mcp_server.py`](cli_scripts.md#mcp_serverpy) script |
 | LLM re-ranking and explanation (`recsys.llm_rerank`, `explain_recommendation`) | 12 · `notebooks/04_applications/12_recommender_systems.ipynb`, section 8 | Since v2.1 the LLM no longer re-orders the list (it made it worse): it turns requests into filters with `get_llm().with_structured_output(..., method="function_calling", include_raw=True)` and writes explanations grounded in the history with `ChatPromptTemplate`. The rest of the funnel uses PyTorch (SASRec, two-tower), FAISS (an HNSW index) and LightGBM (`objective="lambdarank"`) |
-| LLM-as-judge (`evaluation.pairwise_judge`, `rubric_score`) | 10 and 15 | RAGAS metrics with the judge from [`config.judge_model()`](#10-config) and intervals from `evaluation.bootstrap_ci` / `paired_bootstrap_diff` (10); LangSmith evaluators with a judge built on `.with_structured_output()` (15) |
+| LLM-as-judge (`evaluation.pairwise_judge`, `rubric_score`) | 10, 15 and 20 | RAGAS metrics with the judge from [`config.judge_model()`](#10-config) and intervals from `evaluation.bootstrap_ci` / `paired_bootstrap_diff` (10); LangSmith evaluators with a judge built on `.with_structured_output()` (15); a 7B verifier for best-of-N and a pairwise judge asked in both orders, with a Bradley-Terry ranking (20) |
 
 `perplexity_on_examples` was removed as well: in 07 and 08 the Hugging Face models are evaluated with task metrics (valid JSON, exact match, correct fields), not with perplexity.
 
@@ -53,8 +53,8 @@ Version 1 of the package had its own implementations of these topics. In v2 they
 | 6 | [`training`](#6-training) | LR schedules, grouped AdamW, training loop, checkpoints | yes | 02–06, 17 |
 | 7 | [`inference`](#7-inference) | speculative decoding, batched generation, KV-cache sizing | yes | 06 |
 | 8 | [`recsys`](#8-recsys) | MovieLens-1M (download, loading, time-ordered split with cold items, full-ranking ranks and metrics); synthetic catalog, small SASRec and embedding rankers | partial | 12 |
-| 9 | [`evaluation`](#9-evaluation) | perplexity, exact match, F1/ROUGE-L, recall/nDCG/MRR, bootstrap intervals, faithfulness proxy, latency, classification | partial | 02, 04, 05, 06, 10, 12, 17 |
-| 10 | [`config`](#10-config) | `get_llm`, `get_judge_llm`, `get_embeddings`, `setup`: models and services for notebooks 10–16, read from `.env` | no | 10–18 |
+| 9 | [`evaluation`](#9-evaluation) | perplexity, exact match, F1/ROUGE-L, recall/nDCG/MRR, bootstrap intervals, faithfulness proxy, latency, classification | partial | 02, 04, 05, 06, 10, 12, 17, 20 |
+| 10 | [`config`](#10-config) | `get_llm`, `get_judge_llm`, `get_embeddings`, `setup`: models and services for notebooks 10–16, read from `.env` | no | 10–18, 20 |
 
 "Partial" means the module imports `torch` optionally (`try/except ImportError`): the pure metrics and the synthetic data work without PyTorch, anything that touches a model does not. `config` does not need `torch`, but it does need `langchain-ollama` (or `langchain-openai` / `langchain-anthropic`, depending on the provider) and, optionally, `python-dotenv`.
 
@@ -67,7 +67,7 @@ Notebooks 07, 08 and 09 import nothing from `llm_edu_suite`: they work with Hugg
 | `notebooks/00_start_here/` | 00 (a complete mini LLM from start to finish) |
 | `notebooks/01_architecture/` | 01–04, 17 (read after 04) |
 | `notebooks/02_pretraining_and_inference/` | 18 (read before 05), 05, 19 (read after 05), 06, 09 |
-| `notebooks/03_post_training/` | 07, 08 |
+| `notebooks/03_post_training/` | 07, 08, 20 (read after 08) |
 | `notebooks/04_applications/` | 10, 12, 13 |
 | `notebooks/05_agents_and_mcp/` | 11, 14, 16 |
 | `notebooks/06_llmops/` | 15 |
@@ -666,7 +666,7 @@ print(paired_bootstrap_diff(dense, hybrid))    # (0.3, 0.1, 0.5): hybrid - dense
 
 **In production:** `lm-evaluation-harness` (EleutherAI), `lighteval`, HELM; RAGAS / TruLens / DeepEval for RAG; LangSmith (datasets, experiments and evaluators) for applications; `ranx` / `pytrec_eval` for IR; MT-Bench / AlpacaEval / Arena-Hard as LLM judges; `vllm bench` / GuideLLM / `genai-perf` for latency and *throughput*.
 
-**Notebooks:** 02, 04 and 05 (`perplexity`), 06 (`benchmark_generation`), 10 (`bootstrap_ci` and `paired_bootstrap_diff` on the RAGAS scores) and 12 (`bootstrap_ci` and `paired_bootstrap_diff` for every comparison between recommender stages; the per-user metrics come from `recsys.rank_metrics`) and 17 (`bootstrap_ci` and `paired_bootstrap_diff` to compare the Banking77 classifiers with the LLM on the same 231-message sample). The [`train.py`](cli_scripts.md#trainpy) script uses `perplexity`.
+**Notebooks:** 02, 04 and 05 (`perplexity`), 06 (`benchmark_generation`), 10 (`bootstrap_ci` and `paired_bootstrap_diff` on the RAGAS scores) and 12 (`bootstrap_ci` and `paired_bootstrap_diff` for every comparison between recommender stages; the per-user metrics come from `recsys.rank_metrics`) and 17 (`bootstrap_ci` and `paired_bootstrap_diff` to compare the Banking77 classifiers with the LLM on the same 231-message sample) and 20 (`bootstrap_ci` for the accuracy of every reasoning strategy on the 80 GSM8K problems and `paired_bootstrap_diff` for self-consistency against greedy chain of thought). The [`train.py`](cli_scripts.md#trainpy) script uses `perplexity`.
 
 ---
 
@@ -751,12 +751,12 @@ Before using Ollama, pull the models: `ollama pull qwen2.5:3b` and `ollama pull 
 
 **In production:** the same idea, with a secrets manager instead of `.env`; LangChain's `init_chat_model` to pick a provider by name; a model gateway (LiteLLM, for example) when there are many teams and providers.
 
-**Notebooks:** 10, 11, 13, 14, 15 and 16 (`setup`, `get_llm`, `get_embeddings` in the setup cell; 10 takes the RAGAS judge from `setup()["judge_model"]`), 12 (`setup`, `get_embeddings` for the movie texts and `get_llm` for the request and explanation layer), 15 (`langsmith_enabled`), 17 (`get_embeddings` for the `nomic-embed-text` embeddings and `get_llm` to classify with `qwen2.5:3b`) and 18 (`get_llm(temperature=0.8, num_predict=220)` to write the synthetic passages with `.batch`). The [`rag_demo.py`](cli_scripts.md#rag_demopy) script uses it too.
+**Notebooks:** 10, 11, 13, 14, 15 and 16 (`setup`, `get_llm`, `get_embeddings` in the setup cell; 10 takes the RAGAS judge from `setup()["judge_model"]`), 12 (`setup`, `get_embeddings` for the movie texts and `get_llm` for the request and explanation layer), 15 (`langsmith_enabled`), 17 (`get_embeddings` for the `nomic-embed-text` embeddings and `get_llm` to classify with `qwen2.5:3b`) and 18 (`get_llm(temperature=0.8, num_predict=220)` to write the synthetic passages with `.batch`) and 20 (`get_llm` with different `num_predict` and `temperature` for the direct answer, chain of thought and self-consistency, `get_llm(model="deepseek-r1:1.5b", num_predict=2048)` for the reasoning model, and `get_judge_llm` with `judge_model()` for the verifier and the pairwise judge). The [`rag_demo.py`](cli_scripts.md#rag_demopy) script uses it too.
 
 ---
 
 ## See also
 
 - [Command-line scripts](cli_scripts.md): `train.py`, `sample.py`, `finetune.py`, `rag_demo.py`, `mini_llm.py`, `mcp_server.py`, `generate_item_keywords.py`.
-- [Notebooks guide](notebooks_guide.md): the course path through all 20 notebooks (00 to 19).
+- [Notebooks guide](notebooks_guide.md): the course path through all 21 notebooks (00 to 20).
 - [Glossary](glossary.md): short definitions of the terms used here.

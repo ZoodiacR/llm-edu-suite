@@ -13,7 +13,7 @@
 2. [Pre-training and inference](#2-pre-training-and-inference)
    - [2.0 Pre-training data](#20-pre-training-data) · [2.1 The objective](#21-the-objective-next-token-prediction) · [2.2 Optimizer and schedule](#22-optimizer-and-learning-rate-schedule) · [2.3 Scaling laws](#23-scaling-laws) · [2.3b Systems](#23b-systems-memory-precision-kernels-and-parallelism) · [2.4 Decoding](#24-decoding-strategies) · [2.5 KV-cache](#25-prefill-decode-and-the-kv-cache) · [2.6 Batching and serving](#26-batching-and-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Quantization](#28-quantization)
 3. [Post-training](#3-post-training)
-   - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-and-parameter-efficient-fine-tuning) · [3.3 Distillation](#33-distillation) · [3.4 RLHF, DPO and GRPO](#34-from-rlhf-to-dpo-and-grpo)
+   - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-and-parameter-efficient-fine-tuning) · [3.3 Distillation](#33-distillation) · [3.3b Model merging](#33b-model-merging) · [3.4 RLHF, DPO and GRPO](#34-from-rlhf-to-dpo-and-grpo) · [3.5 Reasoning and test-time compute](#35-reasoning-and-test-time-compute)
 4. [Applications](#4-applications)
    - [4.1 RAG](#41-retrieval-augmented-generation) · [4.2 Retrieval metrics](#42-retrieval-metrics) · [4.3 RAGAS and LLM-as-judge](#43-ragas-and-llm-as-judge) · [4.4 Application patterns](#44-application-patterns) · [4.5 Recommendation](#45-recommender-systems)
 5. [Agents and MCP](#5-agents-and-mcp)
@@ -566,7 +566,7 @@ Each extra bit halves $s$ and divides the error variance by four. What makes or 
 
 ## 3. Post-training
 
-Terms for this part: [glossary, Training and post-training](glossary.md#training-and-post-training).
+Terms for this part: [glossary, Training and post-training](glossary.md#training-and-post-training) and [Reasoning and test-time compute](glossary.md#reasoning-and-test-time-compute).
 
 ### 3.1 Supervised fine-tuning
 
@@ -643,6 +643,43 @@ The $\tau^2$ factor compensates for the softened KL's gradient scaling as $1/\ta
 
 > **Notebook:** [07 · SFT, LoRA and distillation](../../notebooks/03_post_training/07_finetuning_sft_lora.ipynb) · **In the course:** a 360M teacher trained on the same 300 labels reaches 87.5 %, labels 600 new requests with 90 % exactly right, and the 135M student goes from 32.5 % to 55 % exact match (with the caveat that it also took more optimizer steps).
 
+### 3.3b Model merging
+
+**Problem.** After a while you have several fine-tunes of the same base: one per task, per customer or per experiment. You want one model, and you may not have the data or the GPU budget to train them together.
+
+**Core idea.** Treat a fine-tune as a vector. Ilharco et al. (2023, *Editing Models with Task Arithmetic*) call the difference $\tau_t = \theta_t - \theta_0$ a **task vector** and showed that you can do arithmetic with it (**task arithmetic**):
+
+$$\theta_{\text{merged}} = \theta_0 + \sum_t \lambda_t\, \tau_t$$
+
+Adding two task vectors gives a model that does both tasks, often nearly as well as each specialist; subtracting one ($\lambda < 0$) removes a behaviour, which the paper used to make a model less toxic. With LoRA, the task vector of each adapted matrix is just $\Delta W = \frac{\alpha}{r} BA$. Merging is arithmetic only: no data, no gradient steps.
+
+**Why it works at all.** Weights are not normally additive: average two networks trained from different random initializations and you get a broken model, because their neurons are permuted relative to each other. Fine-tunes of the *same* pretrained model are different. They stay in one basin of the loss landscape, joined by a straight path along which the loss stays low (**linear mode connectivity**, Frankle et al., 2020). Wortsman et al. (2022) used this for **model soups**: averaging fine-tunes of one task trained with different hyperparameters beat the best single run in accuracy and robustness, at no extra inference cost. For *different* tasks, addition works when the task vectors interfere little, and in a space with millions of coordinates per matrix two unrelated updates are nearly **orthogonal** (cosine similarity close to 0): adding one barely moves the model along the direction of the other.
+
+**When they interfere: TIES and DARE.** When task vectors overlap, plain addition goes wrong in two ways: small, noisy coordinates add up, and coordinates where the tasks pull in opposite directions cancel out or overshoot.
+
+- **TIES-Merging** (Yadav et al., 2023): *trim* each task vector to its largest-magnitude fraction (the *density*); *elect* a sign per coordinate, the one with the larger total magnitude; then a *disjoint merge*, averaging only the values that agree with that sign.
+- **DARE** (Yu et al., 2024, *Language Models are Super Mario*): randomly *drop* a fraction $p$ of each task vector's coordinates and *rescale* the rest by $1/(1-p)$, so the expected update stays the same. Fine-tuning updates are so redundant that 90 % or more can be dropped. It is usually combined with TIES' sign election (`dare_ties`).
+- **SLERP** interpolates two models along the sphere instead of a straight line, which keeps the norm of the weights; it only works for two models. **LoraHub** (Huang et al., 2023) learns the mixing weights $\lambda_t$ of many LoRA adapters from a few examples of a new task.
+
+The standard tool for full models is **MergeKit** (Goddard et al., 2024), behind many of the merged open-weight models on public leaderboards; for adapters, `peft`'s `add_weighted_adapter`.
+
+**The LoRA factor trap.** An adapter stores $B$ and $A$, not $\Delta W$, and
+
+$$\big(B_1 + B_2\big)\big(A_1 + A_2\big) = B_1 A_1 + B_2 A_2 + \underbrace{B_1 A_2 + B_2 A_1}_{\text{cross terms}}$$
+
+so summing the factors adds two terms neither task asked for. In `peft`, `combination_type="linear"` does exactly that (its docs call it a very rough approximation); `cat` concatenates the factors into an adapter of rank $r_1 + r_2$ whose $\Delta W$ is the exact weighted sum, that is, task arithmetic; `svd` forms the exact sum and compresses it back to a chosen rank (exact if `svd_rank` is at least the rank of the sum); `ties_svd` and `dare_ties_svd` apply TIES or DARE to the full $\Delta W$ and then an SVD.
+
+| | Merging | Multi-task training |
+|---|---|---|
+| Needs | the fine-tuned weights or adapters, from the same base | every dataset at once |
+| Cost | seconds of arithmetic | a training run over all the data |
+| What you get | the behaviours side by side, each a little below its specialist | usually the best on every task, and skills can combine |
+| Use it when | the adapters come from other teams or the Hub, the data is gone, there is no budget to retrain | you own all the data |
+
+**Failure modes.** Merging fine-tunes of different bases (or an adapter into a base it was not trained on); merging LoRA factors with `linear`; using TIES or DARE where there is no interference, so trimming only throws signal away; expecting the merge to *combine* skills, when it only puts them next to each other; and evaluating the merge on one task, when it can silently break another. Run every task's evaluation on the merged model.
+
+> **Notebook:** [07 · SFT, LoRA and distillation](../../notebooks/03_post_training/07_finetuning_sft_lora.ipynb) (section 8) · **In the course:** a second LoRA adapter learns to convert times to 24-hour format and is merged with the booking adapter. The two task vectors are nearly orthogonal (mean cosine +0.012 over 210 matrices, 49 % sign conflicts where both updates are large). Task arithmetic (`cat`) keeps booking at 32.5 % exact, the same as the booking adapter alone, and converts times at 90 % (specialist 97.5 %); `linear` gets 27.5 % / 87.5 %, `ties_svd` 27.5 % / 80 % and `dare_ties_svd` 30 % / 87.5 %. No merge carries the conversion skill into the booking `time` field. One multi-task adapter trained on both datasets (76 steps) reaches 55 % exact and 97.5 %, better than every merge on both tasks.
+
 ### 3.4 From RLHF to DPO and GRPO
 
 **Problem.** SFT does not say *how bad* an answer is and only shows good behaviour in states taken from the data. Also, it is often easier to **compare** two answers than to **write** the ideal one.
@@ -690,6 +727,45 @@ with PPO's clipped ratio and a KL to the reference. Consequences: no critic; a g
 **Key papers.** Christiano et al. (2017); Schulman et al. (2017, PPO); Ouyang et al. (2022); Rafailov et al. (2023); Azar et al. (2023, IPO); Shao et al. (2024, DeepSeekMath); DeepSeek-AI (2025, R1); Razin et al. (2024); Gao et al. (2023).
 
 > **Notebook:** [08 · DPO and GRPO](../../notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb) · **In the course:** plain DPO wins on its own training metrics but drops exact match from 30 % to 7.5 % (the correct answer's log-probability falls from −1.91 to −5.63); DPO+NLL holds it (−1.91 → −2.01) and breaks nothing, though it only reaches 32.5 %; GRPO takes arithmetic from 5 % to 46 % (exact reward) and 42 % (dense) in 40 steps with no labels, and the dense reward cuts the share of zero-variance groups from 60-80 % to ~5-25 %.
+
+### 3.5 Reasoning and test-time compute
+
+**Problem.** Some problems need several dependent steps ("first the eggs left over, then what they sell for"), and a transformer does a fixed amount of computation per token: $L$ layers, whatever the question. If the steps do not fit in one forward pass, the model cannot get the answer right by producing it straight away, however much it knows.
+
+**Chain of thought: tokens as serial computation.** Writing the intermediate steps as tokens turns the output into a scratchpad: every new token attends to the results written before it, so **more tokens buy more serial computation**. Wei et al. (2022) showed that a few worked examples in the prompt unlock multi-step reasoning in large models (few-shot CoT); Kojima et al. (2022), that "Let's think step by step" alone does much of it (zero-shot CoT). There is a theoretical side too: with intermediate steps, transformers can solve problems they provably cannot solve in a single pass (Feng et al., 2023; Merrill and Sabharwal, 2024). The written chain is not necessarily the computation that produced the answer: it can be **unfaithful** (Turpin et al., 2023), so reading it is not an explanation.
+
+**Spending more compute at inference.** Once a model can reason, there are three ways to spend more compute on one problem:
+
+- **Parallel sampling and self-consistency** (Wang et al., 2022; ICLR 2023). Sample $k$ reasoning paths at temperature $> 0$ and return the most frequent final answer: correct paths tend to agree, wrong ones scatter. Its accuracy is **maj@k**. The ceiling is **pass@k**, the probability that at least one of the $k$ samples is right, which is what a perfect verifier would reach. With $n$ samples of which $c$ are correct, the unbiased estimate is (Chen et al., 2021)
+
+  $$\text{pass@}k = 1 - \binom{n-c}{k}\Big/\binom{n}{k}$$
+
+  The gap between pass@k and maj@k is the most any verifier can add on top of voting.
+- **Best-of-N with a verifier.** A second model scores each candidate and the best one is returned. An **outcome reward model** (ORM) scores the final answer; Cobbe et al. (2021), who introduced GSM8K for this, trained one and found that sampling many solutions and letting the verifier pick beat fine-tuning alone. A **process reward model** (PRM) scores every step; Lightman et al. (2023, *Let's Verify Step by Step*) found process supervision clearly better than outcome supervision on MATH. The catch is the verifier's **discrimination**: if it cannot tell right from wrong better than the vote, it adds cost and no accuracy, and with enough candidates the search finds the answers that fool it (*reward hacking* at inference time, the same Goodhart effect as in [section 3.4](#34-from-rlhf-to-dpo-and-grpo)). Programmatic verifiers (unit tests, a calculator, a solver, a schema) have none of these problems where they exist.
+- **Sequential refinement.** Revise one answer several times (self-refine, the reflection of [section 5.3](#53-react-plan-and-execute-and-reflection)) or force the model to keep thinking (*budget forcing*, s1; Muennighoff et al., 2025).
+
+Snell et al. (2024) showed that, for a fixed budget, spending compute at test time adaptively (more samples or revisions on harder prompts) can beat a model several times larger on problems of the right difficulty: **test-time compute is a scaling axis of its own**, next to parameters and data ([section 2.3](#23-scaling-laws)). It does not replace them: on the hardest problems, a better base model still wins.
+
+**Reasoning models.** Instead of prompting for it, reasoning can be **trained**. DeepSeek-AI (2025, *DeepSeek-R1*) applied large-scale RL with verifiable rewards (GRPO, [section 3.4](#34-from-rlhf-to-dpo-and-grpo)) and got long chains of thought with self-checking and backtracking; OpenAI's o1 did something similar with an undisclosed recipe. The thinking is emitted as tokens (often between `<think>` tags) and paid for like any other output. **Distillation** transfers it cheaply: R1-Distill models are small Qwen and Llama models fine-tuned (plain SFT, [section 3.3](#33-distillation)) on R1's reasoning traces. Whether small distilled models reason robustly outside their training distribution is an open question. The known failure is **overthinking**: long, looping reasoning on easy problems, or reasoning that runs out of budget before it answers.
+
+**The cost.** Reasoning is paid in output tokens, the slow and expensive ones ([section 2.5](#25-prefill-decode-and-the-kv-cache)): ten times the tokens is roughly ten times the latency and the price, and reasoning models have long tails. Two practical traps come with it: answers truncated by `max_tokens`, and answer-extraction errors that silently turn a right solution into a wrong score.
+
+**Comparing strategies: Bradley-Terry and pairwise judges.** Many evaluations compare two systems on the same input instead of scoring each one alone. The **Bradley-Terry** model (Bradley and Terry, 1952), the same one behind RLHF reward models in [section 3.4](#34-from-rlhf-to-dpo-and-grpo), turns such outcomes into scores:
+
+$$P(i \succ j) = \frac{e^{\beta_i}}{e^{\beta_i} + e^{\beta_j}} = \sigma(\beta_i - \beta_j)$$
+
+with the $\beta$ fitted by maximum likelihood (Chatbot Arena does it with millions of human votes; Elo is an online approximation of the same idea), and intervals from bootstrapping the inputs. When the judge is an LLM, its biases have to be measured (Zheng et al., 2023, *Judging LLM-as-a-Judge*): **position bias** (preferring the first or the second answer regardless of content), verbosity bias and self-preference. The standard defence is to **judge every pair in both orders**, report how often the verdict survives the swap, and keep only consistent verdicts; and to validate the judge against ground truth before trusting it ([section 4.3](#43-ragas-and-llm-as-judge)).
+
+| Strategy | Extra cost | Helps when | Typical failure |
+|---|---|---|---|
+| chain of thought | many more output tokens than a direct answer | multi-step problems | unfaithful or overlong reasoning |
+| self-consistency (maj@k) | $k$× the chain of thought | answers that can be compared exactly | saturates fast; useless for open-ended text |
+| best-of-N with a verifier | $k$× + verification | the verifier discriminates (tests, solvers, trained PRMs) | a weak or hackable verifier picks fluent wrong answers |
+| reasoning model | long thinking, billed as output | hard problems with checkable answers | overthinking, truncation, cost tails |
+
+**Key papers.** Wei et al. (2022), *Chain-of-Thought Prompting Elicits Reasoning in Large Language Models*; Kojima et al. (2022), *Large Language Models are Zero-Shot Reasoners*; Wang et al. (2022), *Self-Consistency Improves Chain of Thought Reasoning*; Cobbe et al. (2021), *Training Verifiers to Solve Math Word Problems* (GSM8K); Chen et al. (2021), *Evaluating Large Language Models Trained on Code* (pass@k); Lightman et al. (2023), *Let's Verify Step by Step*; Turpin et al. (2023), *Language Models Don't Always Say What They Think*; Snell et al. (2024), *Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling Model Parameters*; DeepSeek-AI (2025), *DeepSeek-R1*; Muennighoff et al. (2025), *s1: Simple test-time scaling*; Zheng et al. (2023), *Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena*; Bradley and Terry (1952).
+
+> **Notebook:** [20 · Reasoning and test-time compute](../../notebooks/03_post_training/20_reasoning_test_time_compute.ipynb) (read after 08) · **In the course:** on 80 GSM8K problems with `qwen2.5:3b`, a direct answer gets 12.5 % and greedy chain of thought 85.0 % (246 output tokens against 3); self-consistency with 5 samples reaches 90.0 % (+5.0 points, paired interval [+0.0, +11.2]) for about 1,274 tokens per problem, while pass@k stops at 91.2 %, so voting already takes almost everything a perfect verifier could; best-of-5 with the 7B judge as verifier scores 85.0 % on the first 40 problems, against 90.0 % for the vote, because it gives correct solutions 7.30 on average and wrong ones 6.15; DeepSeek-R1-Distill 1.5B reaches 63.7 % with 870 tokens per problem, and 16 of its 80 answers hit the 2,048-token limit; Bradley-Terry ranks self-consistency (+3.09) > chain of thought (+1.14) > R1-Distill (−0.58) > direct (−3.65) with non-overlapping intervals; and the pairwise 7B judge, asked in both orders, keeps its verdict on only 43 % of 30 pairs (52 % of its verdicts go to position A, so it is noise more than a fixed preference).
 
 ---
 
