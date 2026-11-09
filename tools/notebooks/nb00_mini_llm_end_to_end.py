@@ -35,6 +35,51 @@ The other notebooks take each piece apart in depth (01 tokenization → 02 atten
 **Runtime:** about a minute on a laptop GPU (RTX 3060), 3–5 minutes on a CPU. The code picks the GPU automatically when PyTorch sees one.
 ''')
 nb.md(r'''
+## Background: what a language model is, end to end
+
+A causal language model is a probability distribution over token sequences, built from the chain rule of probability:
+
+$$p(x_1, \dots, x_T) = \prod_{t=1}^{T} p(x_t \mid x_1, \dots, x_{t-1})$$
+
+The network never models whole sentences at once. Its only job is, given a prefix, to output a distribution over the next token. Training maximizes the likelihood of real text, which is the same as minimizing the average cross-entropy of the true next token:
+
+$$\mathcal{L}(\theta) = -\frac{1}{T}\sum_{t=1}^{T} \log p_\theta(x_t \mid x_{<t})$$
+
+This objective is **self-supervised**: the targets are the input shifted by one position, so any text is training data and no labels are needed. That is the property that let language models scale to trillions of tokens. Everything in this notebook exists to serve this one objective:
+
+```
+ raw text ─► tokenizer ─► ids ─► transformer ─► logits (T × V) ─► softmax ─► p(next token)
+                                                                       │
+             training:   cross-entropy against the ids shifted by one ◄┤
+             generation: sample one token, append it, run again      ◄┘
+```
+
+| stage | what it does | the key idea | goes deeper in |
+|---|---|---|---|
+| tokenizer | text to integers and back | byte-level BPE: no unknown tokens, frequent strings get one id | 01 |
+| embedding + blocks | turn ids into contextual vectors | attention mixes information across positions, the FFN transforms each position | 02, 03, 04 |
+| LM head | vector to $V$ logits | a linear layer, here sharing weights with the embedding | 02 |
+| training | fit $\theta$ | cross-entropy, AdamW, LR schedule | 05 |
+| generation | turn the distribution into text | repeated sampling, with a KV-cache in practice | 06 |
+
+### Why this architecture
+
+Before transformers, language models were n-gram counts and then recurrent networks (LSTMs), which read text one token at a time. Recurrence makes training sequential and makes it hard for gradients to connect distant tokens. The Transformer (Vaswani et al., 2017, "Attention Is All You Need") replaced recurrence with attention, where every position looks at every earlier position directly. Thanks to the causal mask, a single forward pass computes all $T$ next-token predictions in parallel during training ("teacher forcing"); generation is still sequential, one token per step.
+
+The decoder-only variant was popularized by the GPT series (Radford et al., 2018 and 2019; Brown et al., 2020, "Language Models are Few-Shot Learners"). It won over encoder-decoder and encoder-only designs for general-purpose models because one simple objective covers every task that can be phrased as text continuation, and because its performance improves predictably with scale (Kaplan et al., 2020; Hoffmann et al., 2022, the "Chinchilla" paper).
+
+The model below is not GPT-2, though. It follows the recipe consolidated by Llama (Touvron et al., 2023), which replaced several GPT-2 components:
+
+| component | GPT-2 (2019) | modern recipe (this notebook) | why it changed |
+|---|---|---|---|
+| position | learned absolute embeddings | RoPE (Su et al., 2021) | relative positions, no length-limited table |
+| normalization | LayerNorm | RMSNorm (Zhang & Sennrich, 2019) | cheaper, equally stable |
+| FFN | GELU MLP | SwiGLU (Shazeer, 2020) | better quality at the same parameter count |
+| biases | in linear layers | mostly removed | simpler, no measurable benefit at scale |
+
+Each of these is explained in the notebook listed above. Here the aim is to see the whole loop work once, with nothing hidden.
+''')
+nb.md(r'''
 ## 0. Configuration
 All the knobs in one place. Doubling `d_model`/`n_layers` or `steps` gives better text at the cost of time.
 ''')
@@ -295,6 +340,8 @@ nb.md(r'''
 - **Warmup + cosine decay** of the learning rate: large steps early are unstable, small steps late fine-tune.
 - **Gradient clipping** at norm 1.0 protects against rare loss spikes.
 - We evaluate on held-out data every `eval_every` steps — the gap between train and val loss reveals overfitting.
+
+**The optimizer in brief.** Adam (Kingma & Ba, 2015) keeps running averages of each parameter's gradient and squared gradient, and divides one by the square root of the other, so every parameter gets its own effective step size. AdamW (Loshchilov & Hutter, 2019, "Decoupled Weight Decay Regularization") applies weight decay directly to the weights instead of folding it into the gradient, where Adam's rescaling would distort it; this is the default optimizer for transformers. Warmup exists because Adam's squared-gradient estimate is unreliable for the first steps, and large updates on a random network can push it into a bad region. Cosine decay (from Loshchilov & Hutter's SGDR, 2017) lowers the step size gradually so the end of training settles into a minimum rather than bouncing around it. Notebook 05 compares schedules and covers scaling laws.
 ''')
 code(r'''
 decay = [p for n, p in model.named_parameters() if p.dim() >= 2]
@@ -368,6 +415,8 @@ Generation is a loop: run the model on the context, take the logits of the **las
 - `top_k` keeps only the k most likely tokens; `top_p` keeps the smallest set whose probability reaches p
 
 (For speed, real implementations keep a **KV-cache** so each step only processes the new token — see notebook 06.)
+
+**Decoding strategies.** Given logits $z$, temperature $\tau$ defines $p_i \propto \exp(z_i / \tau)$: $\tau \to 0$ approaches greedy decoding (always the most likely token), $\tau = 1$ is the model's own distribution. Greedy and beam search maximize likelihood, which suits tasks with one right answer (translation, extraction), but for open-ended text they tend to produce bland, repetitive loops. Pure sampling has the opposite problem: the long tail of individually unlikely tokens adds up to a real chance of picking nonsense. Truncation fixes the tail: top-k (Fan et al., 2018) keeps a fixed number of candidates, and top-p or nucleus sampling (Holtzman et al., 2020, "The Curious Case of Neural Text Degeneration") keeps a variable number that adapts to how confident the model is. Note that none of this changes the model; it only changes how we read its distribution.
 ''')
 code(r'''
 @torch.no_grad()

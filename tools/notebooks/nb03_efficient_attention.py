@@ -17,11 +17,45 @@ same interface `forward(x, freqs_cis) -> (B, T, C)` so they drop into the same m
 | dense causal | everything in the past | O(T²) | default; FlashAttention makes it memory-efficient |
 | sliding window (SWA) | last `w` tokens | O(T·w) | Mistral, Gemma local layers, gpt-oss |
 | Longformer | window + global tokens | O(T·(w+g)) | 2020 encoders; ancestor of hybrids |
-| block-sparse (NSA/DSA) | top-k blocks chosen *by content* + local | O(T·k·b) | DeepSeek-V3.2, Kimi |
+| content-based sparse (NSA, DSA) | top-k blocks (NSA) or top-k tokens (DSA) chosen *by content* + local | O(T·k·b) | DeepSeek-V3.2, Kimi |
 | linear | recurrent state, no softmax | O(T) | hybrids: Qwen3-Next, Kimi Linear, MiniMax |
 | hybrid | mostly cheap layers + few dense | ~O(T) | Gemma 3 (5:1), Qwen3-Next (3:1) |
 
 **Source:** `llm_edu_suite/layers.py`.
+''')
+nb.md(r'''
+## Background: the quadratic wall
+
+### Where the cost comes from
+
+For one layer with model width $C$ and sequence length $T$, the work splits into two parts:
+
+- **Projections and FFN**, which act on each token independently. With the usual 4x FFN, that is roughly $24\,C^2$ FLOPs per token (Q, K, V, O projections plus the two FFN matrices, counting a multiply-add as 2 FLOPs). This grows linearly in $T$.
+- **The attention mixing itself**, $QK^\top$ and the weighted sum with $V$, which is about $4\,T\,C$ FLOPs per token for full attention (half of that with a causal mask). Summed over the sequence this grows as $T^2$.
+
+So attention overtakes the rest of the layer once $T$ is roughly an order of magnitude larger than $C$. For a model with $C = 4096$ that happens in the tens of thousands of tokens. Below that point, making attention cheaper barely changes total cost; above it, attention dominates and keeps growing. (These are back-of-the-envelope counts; exact constants depend on the architecture.)
+
+Inference has a second wall. Each generated token must read the whole KV-cache, which grows linearly with $T$, so generating at long context is limited by memory capacity (how many sequences fit) and memory bandwidth (how fast each step is). Notebook 02 shrank the cache *per token* (GQA, MLA). This notebook shrinks *how many tokens* each query looks at.
+
+### What FlashAttention does and does not solve
+
+FlashAttention (Dao et al., 2022) is often mentioned in the same breath as efficient attention, but it is a different kind of fix. It computes **exact** dense attention while never storing the $T \times T$ matrix, by tiling and an online softmax. That removes the $O(T^2)$ *memory* problem and makes dense attention much faster in practice, which is a big reason dense attention is still the default up to fairly long contexts. It does not remove the $O(T^2)$ *compute*, and it does not shrink the KV-cache. Everything else in this notebook changes the computation itself, and therefore changes what the model can represent.
+
+### The families of solutions
+
+| family | key idea | representative papers | what you give up |
+|---|---|---|---|
+| fixed sparse patterns | each query attends to a predefined subset (local window, strided positions, a few global tokens) | Sparse Transformer (Child et al., 2019); Longformer (Beltagy, Peters & Cohan, 2020); BigBird (Zaheer et al., 2020); Mistral 7B (Jiang et al., 2023) | direct access to tokens outside the pattern |
+| content-based sparse | the subset is chosen per query by a cheap scoring step | Reformer (Kitaev et al., 2020); Routing Transformer (Roy et al., 2021); NSA (Yuan et al., DeepSeek, 2025); MoBA (Lu et al., Moonshot, 2025); DSA (DeepSeek-V3.2, 2025) | some recall if the selector misses; complex kernels |
+| low-rank / kernel approximations | approximate the softmax matrix by a product of thinner matrices | Linformer (Wang et al., 2020); Performer (Choromanski et al., 2021); Linear Transformers (Katharopoulos et al., 2020) | the sharpness of softmax |
+| recurrent / state-space | compress the past into a fixed-size state updated per token | RetNet (Sun et al., 2023); Mamba (Gu & Dao, 2023); Mamba-2 (Dao & Gu, 2024); Gated DeltaNet (Yang et al., 2025) | exact recall of arbitrary past tokens |
+| hybrids | mostly cheap layers, a few dense ones | Jamba (Lieber et al., 2024); Griffin (De et al., 2024); Gemma 2/3; Qwen3-Next; MiniMax-01 | a few dense layers still pay $O(T^2)$ |
+
+The history is instructive. Between 2019 and 2021 dozens of "efficient transformers" were proposed, mostly evaluated on encoders and synthetic benchmarks. Few were adopted for large decoders, for two reasons: FlashAttention made dense attention fast enough for the context lengths of the time, and many approximations lost quality on exactly the tasks LLMs care about (in-context retrieval and copying). What survived in production is simple local windows (cheap, kernel-friendly, predictable), and, more recently, learned content-based sparsity and gated linear recurrences, almost always **mixed with some full-attention layers**. The hybrid ratio is the main design knob today, and what the best ratio is remains an open empirical question.
+
+### The capability at stake: retrieval from context
+
+The reason dense attention is hard to replace is that it can retrieve any past token exactly, in one step, by content. Many in-context abilities rest on that: copying a name from the prompt, following a variable through code, answering from a retrieved document. Arora et al. (2023, "Zoology") showed that the quality gap between attention and efficient alternatives on real language is largely explained by **associative recall**, and Jelassi et al. (2024, "Repeat After Me: Transformers are Better than State Space Models at Copying") proved and measured that fixed-state models cannot copy long strings the way attention can. The evaluation at the end of this notebook is a small version of that test.
 ''')
 nb.code(SETUP)
 nb.code(r'''
@@ -35,9 +69,29 @@ show_mask(longformer_mask(T, 5, [0, 10]), "Longformer, w=5, global={0,10}")
 nb.md(r'''
 ## Sliding window: receptive field grows with depth
 
-With `L` layers, information can travel `L·w` tokens (token *i* in layer 2 sees *i−w*, which in layer 1 saw *i−2w*…), like a CNN's receptive field. Exact retrieval of a far token degrades, which is why global layers are interleaved. Two bonus properties: the KV-cache can be a ring buffer of size `w`, and the model generalizes to lengths never seen in training (no token ever sees more than `w` positions).
+With `L` layers, information can travel `L·w` tokens (token *i* in layer 2 sees *i−w*, which in layer 1 saw *i−2w*…), like a CNN's receptive field. Exact retrieval of a far token degrades, which is why global layers are interleaved. Two bonus properties: the KV-cache can be a ring buffer of size `w`, and no single attention step ever spans more than `w` positions, which helps when running past the training length (whether the model really generalizes also depends on how positions are encoded and on what information gets relayed across layers).
 
 A boolean mask in SDPA still computes the full T×T scores and discards — the real saving needs a kernel that skips blocks (**FlexAttention**, PyTorch ≥ 2.5) or the ring-buffer cache at inference.
+
+### Sliding-window attention in detail
+
+Formally, query $i$ may attend to key $j$ only if $i - w < j \le i$. Each row of the attention matrix has at most $w$ non-zero entries, so cost per layer is $O(T\,w\,C)$ instead of $O(T^2 C)$, and the KV-cache needs only the last $w$ positions per layer: memory is $O(w)$ regardless of how long generation runs.
+
+**Stacking.** After $L$ layers a token can be influenced by tokens up to $L(w-1)$ positions back, the same receptive-field argument as for stacked convolutions. The catch is that distant information has to be *relayed*: it is summarized into intermediate tokens at each hop, and those intermediate tokens have their own work to do. The theoretical receptive field says what is reachable, not what is preserved; exact recall of a specific distant token is much harder than with direct access. This is why production models do not use sliding windows alone.
+
+**Where it is used.** Mistral 7B (Jiang et al., 2023) used a 4,096-token window in every layer. Gemma 2 alternated local and global layers one to one, and Gemma 3 moved to five local layers per global one with a short local window, precisely to cut the KV-cache at long context while keeping some layers with full reach. The pattern is attractive because it is simple, works with standard kernels that skip masked blocks, and its quality cost is predictable.
+
+**Failure modes.** Two are worth knowing. First, retrieval of facts beyond the window degrades, sometimes silently, so long-context evaluations (needle-in-a-haystack, RULER) are essential. Second, if a model trained with dense attention is run with a window at inference time by evicting old cache entries, quality collapses once the first tokens fall out, because trained models park a lot of attention on the initial tokens ("attention sinks", Xiao et al., 2023, "Efficient Streaming Language Models with Attention Sinks"). Keeping a handful of initial tokens permanently in the cache fixes most of the damage.
+
+### Longformer: window plus global tokens
+
+Longformer (Beltagy, Peters & Cohan, 2020) adds a small set $G$ of **global** positions to the window. A global token attends to every position, and every position attends to it:
+
+$$\text{allowed}(i, j) = \big(|i - j| < w\big) \ \lor\ i \in G \ \lor\ j \in G \quad (\text{intersected with the causal mask for a decoder})$$
+
+The global tokens act as hubs: any two tokens are at most two hops apart through them, regardless of distance. Cost is $O(T(w + |G|))$. BigBird (Zaheer et al., 2020) added a few random connections per query and proved that window + global + random sparse attention keeps the theoretical expressiveness of full attention (universal approximation and Turing completeness).
+
+The weakness is that **someone has to choose the global positions**. In Longformer they were task-specific (the `[CLS]` token for classification, the question tokens for QA). That works for encoders fine-tuned on one task, but a general-purpose decoder does not know in advance which tokens will matter. This is the gap content-based selection fills: let the model choose its "global" tokens per query, from the data.
 ''')
 nb.code(r'''
 C, H = 128, 8
@@ -57,9 +111,25 @@ except Exception as e:
     print("FlexAttention unavailable here:", type(e).__name__)
 ''')
 nb.md(r'''
-## Block-sparse attention chosen by content (NSA / DSA simplified)
+## Block-sparse attention chosen by content (NSA-style, simplified)
 
-1. Group keys in blocks of `block` tokens. 2. A cheap indexer scores each block per query (here `q · mean(k_block)`). 3. Attend only the top-`k` blocks + a local window, causally. The pattern is **dynamic** — different per query and per head — and block-structured so GPUs can gather efficiently. DeepSeek-V3.2 attends ~2k of 128k tokens this way with no measurable loss.
+1. Group keys in blocks of `block` tokens. 2. A cheap indexer scores each block per query (here `q · mean(k_block)`). 3. Attend only the top-`k` blocks + a local window, causally. The pattern is **dynamic** — different per query and per head — and block-structured so GPUs can gather efficiently. DeepSeek-V3.2's DSA goes one step finer: a lightweight indexer picks the top ~2k individual *tokens* out of a 128k context, and DeepSeek reports benchmark quality roughly on par with its dense predecessor (V3.1-Terminus).
+
+### Content-based sparse attention in detail
+
+The idea is to approximate softmax attention by keeping only its largest terms. Softmax weights are typically concentrated: for a given query, a small number of keys receive most of the mass. If we can find those keys cheaply, the rest can be skipped with little error. The design questions are how to find them, at what granularity, and how to train the selector.
+
+**Finding them.** Early attempts hashed queries and keys so that similar vectors land in the same bucket (Reformer, Kitaev et al., 2020, with locality-sensitive hashing) or clustered them (Routing Transformer, Roy et al., 2021). Current designs use a learned, cheap scorer. Our simplified version scores block $b$ for query $q$ as
+
+$$s_b = q^\top \bar{k}_b, \qquad \bar{k}_b = \frac{1}{|b|}\sum_{j \in b} k_j$$
+
+and keeps the top-$k$ blocks plus the local window. Cost per query is $O(T/\text{block})$ for scoring plus $O((k \cdot \text{block} + w) D_h)$ for the attention itself. Scoring is still linear in $T$ per query, so the overall cost is still quadratic, but with a constant divided by the block size; the expensive part has become sparse.
+
+**Granularity.** Selecting whole blocks of contiguous keys is not just a simplification: GPUs load memory in contiguous tiles, and a block-sparse pattern lets a kernel skip whole tiles. Selecting arbitrary individual tokens is more precise but needs gather operations that are harder to make fast.
+
+**Training the selector.** Top-$k$ is not differentiable, so the selector must learn some other way. **NSA** (Native Sparse Attention, Yuan et al., 2025) runs three branches per query: attention over compressed block summaries, attention over the top-$k$ selected blocks (chosen using the compressed branch's scores, so the selection is guided by a quantity that does receive gradients), and a sliding window. A learned gate mixes the three. It is trained sparse from the start ("natively"), so the model learns to work with its own selection. **DSA** (DeepSeek Sparse Attention, in DeepSeek-V3.2, 2025) instead uses a separate small "lightning indexer" with few heads and low precision to score preceding tokens, selects the top 2,048 *tokens* (not blocks) per query, and was trained by first distilling the indexer from the dense model's attention, then continuing training with sparse attention. **MoBA** (Moonshot, 2025) applies a mixture-of-experts style router over key blocks.
+
+**Trade-offs.** Content-based sparsity keeps direct, one-hop access to any distant token, which local windows lack, so it degrades much less on retrieval. The costs are engineering (custom kernels, an extra scorer, extra hyperparameters) and a residual risk: if the selector misses the relevant block, that information is simply not seen in this layer.
 ''')
 nb.code(r'''
 bsa = BlockSparseAttention(C, H, block=4, top_blocks=2, local_window=4)
@@ -75,6 +145,31 @@ Replace softmax with a positive feature map φ:
 $$o_t = \frac{\phi(q_t)^\top S_t}{\phi(q_t)^\top z_t}, \qquad S_t = S_{t-1} + \phi(k_t)v_t^\top,\quad z_t = z_{t-1} + \phi(k_t)$$
 
 `S_t` is `Dh × Dh` — constant in `T`. Training uses the parallel (cumsum) form; inference uses `step()` with O(1) memory. We check both forms agree. The price: no sharp "exact lookup", hence hybrids.
+
+### Linear attention in detail
+
+Write causal softmax attention for one query as a similarity-weighted average:
+
+$$o_t = \frac{\sum_{j \le t} \text{sim}(q_t, k_j)\, v_j}{\sum_{j \le t} \text{sim}(q_t, k_j)}, \qquad \text{sim}(q,k) = \exp\!\big(q^\top k / \sqrt{D_h}\big)$$
+
+Katharopoulos et al. (2020, "Transformers are RNNs") replaced the exponential with a kernel that factorizes, $\text{sim}(q,k) = \phi(q)^\top \phi(k)$, for a positive feature map $\phi$ (they used $\text{elu}(x) + 1$). Then $\phi(q_t)$ can be pulled out of the sum:
+
+$$o_t = \frac{\phi(q_t)^\top \sum_{j \le t} \phi(k_j) v_j^\top}{\phi(q_t)^\top \sum_{j \le t} \phi(k_j)} = \frac{\phi(q_t)^\top S_t}{\phi(q_t)^\top z_t}$$
+
+This is just associativity of matrix products, $(\phi(Q)\phi(K)^\top)V = \phi(Q)(\phi(K)^\top V)$: computing the right-hand side first never forms the $T \times T$ matrix. Cost drops from $O(T^2 D_h)$ to $O(T D_h^2)$, and at inference the model is an RNN whose state $(S_t, z_t)$ has fixed size. Performer (Choromanski et al., 2021) took a different route to the same structure, using random features whose dot product approximates the softmax kernel in expectation.
+
+**Why it falls short of softmax.** The state $S_t$ is a $D_h \times D_h$ matrix storing a sum of outer products $\phi(k_j) v_j^\top$; reading it with $\phi(q)$ retrieves $\sum_j (\phi(q)^\top \phi(k_j))\, v_j$. This is a classical linear associative memory, and it has two limits. Its *capacity* is bounded by its size: once more than about $D_h$ key-value pairs are stored, their keys cannot all be near-orthogonal and retrievals interfere. And plain linear attention only *adds*: old associations are never removed, so the state becomes noisier as the sequence grows. Softmax avoids both, because it keeps every key separately (the KV-cache) and its exponential can isolate a single match.
+
+**What modern recurrent layers add.** The line of work that made linear-time layers competitive again fixes exactly these two problems:
+
+| update rule | form | example models |
+|---|---|---|
+| additive (vanilla linear attention) | $S_t = S_{t-1} + k_t v_t^\top$ | Katharopoulos et al., 2020 |
+| decay / gating | $S_t = \alpha_t S_{t-1} + k_t v_t^\top$, with $\alpha_t$ fixed or input-dependent | RetNet, GLA, Mamba-2 |
+| delta rule | $S_t = S_{t-1} + \beta_t\, k_t \big(v_t - S_{t-1}^\top k_t\big)^\top$ | DeltaNet (Schlag et al., 2021; Yang et al., 2024) |
+| gated delta rule | decay plus delta rule | Gated DeltaNet (Yang et al., 2025), used in Qwen3-Next; Kimi Delta Attention in Kimi Linear |
+
+Gating lets the model forget; the delta rule *overwrites* the value stored under a key instead of piling on, which uses the limited capacity much better. Training uses a chunkwise-parallel form (parallel within chunks, recurrent across them) so it runs efficiently on GPUs. Even so, a fixed-size state cannot store an arbitrarily long sequence verbatim, which is the theoretical reason hybrids keep a few softmax layers.
 ''')
 nb.code(r'''
 lin = LinearAttention(C, H)
@@ -95,6 +190,36 @@ nb.md(r'''
 Which variant should you use? Measure. We build a corpus where **long-range exact recall matters**: a random span of 12 tokens, 30 random filler tokens, then the same span again. Only the repeated span is predictable, and only by looking back ~42 tokens.
 
 **Metric.** Perplexity over the whole stream would be useless here: 44 of every 55 tokens are random noise that no model can predict, and they drown the signal. Instead we measure **copy accuracy**: on fresh held-out sequences, the fraction of repeated-span tokens (2nd to 12th) the model predicts exactly. This is the "measure the thing you care about" rule in action.
+
+### Induction heads: the mechanism behind copying
+
+How does a transformer copy a span it saw earlier? Elhage et al. (2021, "A Mathematical Framework for Transformer Circuits") and Olsson et al. (2022, "In-context Learning and Induction Heads") identified a two-layer circuit that does it, and the copy task here is designed to require it.
+
+Suppose the sequence contains `... A B ... A` and we want to predict `B`.
+
+```
+position:      p     p+1                    t
+token:         A      B       ......        A    -> predict B
+
+layer 1  (previous-token head):  at p+1, write "the token before me was A"
+layer 2  (induction head):       query from t:  "who was preceded by A?"
+                                 matches key at p+1, copies its value: B
+```
+
+1. A **previous-token head** in an early layer attends from each position to the one right before it and writes that token's identity into the residual stream. After it, position $p+1$ carries both "I am B" and "I was preceded by A".
+2. An **induction head** in a later layer forms its query from the current token `A` and its keys from the "preceded by" information, so it attends to position $p+1$, and its value/output circuit copies "B" into the prediction.
+
+Because the key of the second head depends on the output of the first ("K-composition"), the circuit needs at least two layers; a single attention layer cannot implement it. Olsson et al. found that induction heads form abruptly during training, at the same moment as a visible bump in the loss curve and a jump in in-context learning ability, which is why the training length matters in the experiment below.
+
+**What each variant needs to run this circuit.** The induction head must attend from the second span to the first, about 42 positions back, and pick out *one* exact position by content.
+
+- Dense attention can do this directly.
+- A sliding window with $w = 16$ cannot make that 42-token jump in any single layer; the only path is relaying through intermediate filler tokens, which the circuit above does not use.
+- Content-based block selection can make the jump if its scorer picks the right block.
+- Linear attention can attend anywhere in principle, but only through its fixed-size state, which blurs exact positions together.
+- A hybrid keeps at least one layer that can make the jump.
+
+Real-world versions of this test, at much larger scale, are needle-in-a-haystack retrieval and benchmarks like RULER (Hsieh et al., 2024), which add multi-hop tracing and aggregation tasks.
 ''')
 nb.code(r'''
 from llm_edu_suite.model import ModelConfig, TransformerLM
@@ -164,7 +289,7 @@ plt.tight_layout(); plt.show()
 nb.md(r'''
 **Takeaways**
 - **Induction heads appear suddenly.** After 300 steps even the dense model copies essentially nothing; by 1500 steps it is near-perfect. This "phase transition" is the induction-head mechanism described by Olsson et al. (Anthropic, 2022): two attention layers cooperate to find the previous occurrence of the current token and copy what followed it. Train too briefly and you would wrongly conclude the architecture cannot do the task.
-- **Who can see far enough decides who can copy.** Dense attention sees everything. Block-sparse attention selects the relevant distant blocks by content and gets most of the way. SWA with `w=16` cannot see across the 30-token gap at all, and linear attention compresses the past into a fixed-size state that cannot hold an exact 12-token sequence. The hybrid (one global layer out of four) recovers part of the ability — the argument behind Gemma-3/Qwen3-Next-style hybrids, which in practice use more global layers and far longer training.
+- **Who can see far enough decides who can copy.** Dense attention sees everything. Block-sparse attention selects the relevant distant blocks by content and gets most of the way. SWA with `w=16` cannot attend across the 30-token gap in one step: with 4 layers its receptive field (about 64 tokens) does reach that far, but only by relaying information hop by hop, which blurs the exact token an induction head needs to look up, and linear attention compresses the past into a fixed-size state that cannot hold an exact 12-token sequence. The hybrid (one global layer out of four) recovers part of the ability — the argument behind Gemma-3/Qwen3-Next-style hybrids, which in practice use more global layers and far longer training.
 - Timing here reflects *mask-based* implementations; the asymptotic savings appear only with real kernels (FlexAttention, FlashAttention, Triton) at long sequence lengths.
 - Decision rule: dense + GQA by default; SWA/hybrid when context ≥ 32k or KV-cache memory binds; linear/hybrid for ≥ 256k; learned block-sparse when you can afford the kernels — and always test exact long-range recall on your own data (needle-in-a-haystack, RULER).
 

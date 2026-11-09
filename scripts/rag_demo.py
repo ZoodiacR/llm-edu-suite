@@ -5,7 +5,7 @@ answer with numbered citations. The same pipeline as notebook 10, packaged as a 
 
     python scripts/rag_demo.py --ask "Why must an MCP stdio server never print to stdout?"
     python scripts/rag_demo.py --eval data/eval/rag_eval.json            # retrieval hit rate and MRR (fast)
-    python scripts/rag_demo.py --eval data/eval/rag_eval.json --ragas    # + RAGAS generation metrics (slow, uses the LLM as judge)
+    python scripts/rag_demo.py --eval data/eval/rag_eval.json --ragas    # + RAGAS generation metrics (slow; judge = config.judge_model(), qwen2.5:7b if pulled)
     python scripts/rag_demo.py --docs data/sample_docs --ask "What is the refund policy?" --retriever dense
 
 Models come from llm_edu_suite.config (Ollama qwen2.5:3b and nomic-embed-text by default; edit .env to switch).
@@ -230,8 +230,8 @@ def main(argv=None):
         if args.ragas:
             t0 = time.time()
             results = chain.batch([it["question"] for it in items], config={"max_concurrency": 4})
-            scores = asyncio.run(ragas_evaluate(items, results, info["chat_model"], info["embedding_model"]))
-            print(f"\nRAGAS ({args.retriever}, judge {info['chat_model']}, {time.time() - t0:.0f}s): "
+            scores = asyncio.run(ragas_evaluate(items, results, info["judge_model"], info["embedding_model"]))
+            print(f"\nRAGAS ({args.retriever}, judge {info['judge_model']}, {time.time() - t0:.0f}s): "
                   + "  ".join(f"{k} {v:.2f}" for k, v in scores.items()))
 
 

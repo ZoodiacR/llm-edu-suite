@@ -17,3 +17,6 @@ runs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Downloaded datasets (MovieLens may not be redistributed)
+data/cache/

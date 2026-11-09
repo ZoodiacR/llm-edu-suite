@@ -19,6 +19,140 @@ nb.md(r'''
 
 **Source:** `llm_edu_suite/model.py` (`generate`, `sample_next_token`), `llm_edu_suite/inference.py`.
 ''')
+nb.md(r'''
+## Background: the two phases of generation
+
+A causal LM produces one token per forward pass, feeds it back, and repeats. That loop has two very different phases:
+
+```
+prompt (P tokens)          generated tokens, one per step
+[ t1 t2 ... tP ]  ---->  y1 ---> y2 ---> y3 ---> ... ---> yN
+ \___ prefill ___/        \__________ decode _____________/
+ one pass, all P tokens   N passes, one new token each
+ matrix x matrix          matrix x vector
+ compute-bound            memory-bandwidth-bound
+```
+
+- **Prefill** processes the whole prompt in one pass. Every weight matrix is multiplied by a $P \times C$ block of activations, so each weight read from memory is used $P$ times. The GPU's arithmetic units are busy: prefill is **compute-bound** and determines the **time to first token (TTFT)**.
+- **Decode** produces one token per pass. Every weight is read from memory to be used for a single vector (or for $B$ vectors with batch size $B$). Reading the weights takes far longer than the arithmetic: decode is **memory-bandwidth-bound** and determines the **time per output token (TPOT)**.
+
+### Arithmetic intensity, in one line
+
+For a model with $N$ parameters stored in bf16 (2 bytes each), one decode step for a batch of $B$ sequences performs about $2NB$ FLOPs and reads at least $2N$ bytes of weights:
+
+$$\text{arithmetic intensity} \approx \frac{2NB}{2N} = B \ \text{FLOPs per byte}$$
+
+A modern datacenter GPU can do on the order of a hundred or more FLOPs in the time it reads one byte from memory (its "ridge point" in the roofline model of Williams et al., 2009). At $B = 1$ the GPU is therefore idle most of the time, waiting for memory. This single fact explains most of this notebook:
+- the speed ceiling at batch 1 is roughly **memory bandwidth / model size in bytes** (a 7B model in bf16 is 14 GB, so a GPU with 1 TB/s cannot exceed about 70 tokens/s for one sequence, whatever its FLOPs);
+- **batching** is almost free until $B$ approaches the ridge point, because the same weight read serves $B$ sequences;
+- **quantization** (notebook 09) speeds up decode by reducing the bytes, not the FLOPs;
+- **speculative decoding** exploits the idle compute by checking several tokens per weight read.
+
+Pope et al. (2022), *Efficiently Scaling Transformer Inference*, is the standard reference for this analysis.
+
+## Background: decoding strategies
+
+The model outputs logits $z \in \mathbb{R}^V$ for the next token. A **decoding strategy** turns them into a choice. There are two families.
+
+**Mode-seeking** methods look for the most probable text. **Greedy** decoding takes $\arg\max_i z_i$ at each step. **Beam search** keeps the $b$ best partial sequences and approximates the most probable *sequence*. They work well when there is one correct answer (translation, extraction, short factual answers), but for open-ended text they produce bland, repetitive output. Holtzman et al. (2020) showed that maximizing likelihood leads to text that is *more* predictable than anything a human writes, and that repetition is self-reinforcing: once a phrase repeats, the model assigns it even higher probability.
+
+**Sampling** methods draw from the distribution, usually after reshaping it:
+
+**Temperature** divides the logits before the softmax:
+
+$$p_i(T) = \frac{e^{z_i / T}}{\sum_j e^{z_j / T}}$$
+
+$T < 1$ sharpens the distribution (as $T \to 0$ it becomes greedy), $T > 1$ flattens it (as $T \to \infty$ it becomes uniform). Temperature never changes the *ranking* of tokens, only how much mass the top tokens get. The name and the formula come from the Boltzmann distribution in statistical physics.
+
+**Truncation** removes the unreliable tail. The tail of an LLM's distribution contains thousands of tokens that are each very unlikely but together can hold a few percent of the mass; sample from it once and the text can derail, after which the model conditions on its own mistake.
+- **Top-k** (Fan, Lewis, Dauphin, 2018) keeps the $k$ most likely tokens. Its weakness is that $k$ is fixed: too many candidates when the model is sure, too few when many continuations are reasonable.
+- **Top-p / nucleus** (Holtzman et al., 2020) keeps the smallest set $V_p$ whose total probability reaches $p$, then renormalizes:
+$$V_p = \text{smallest } S \text{ with } \sum_{i \in S} p_i \ge p, \qquad \tilde p_i = \frac{p_i \,\mathbb{1}[i \in V_p]}{\sum_{j \in V_p} p_j}$$
+  The candidate set adapts to the model's confidence, which is why top-p replaced top-k as the default in most APIs.
+- **Min-p** (Nguyen et al., 2024) keeps tokens with $p_i \ge p_{min} \cdot \max_j p_j$, a threshold relative to the top token. It is popular in open-source inference tools, particularly at higher temperatures; how much it improves over top-p is still discussed.
+
+**Repetition control.** The repetition penalty from CTRL (Keskar et al., 2019) divides the positive logits of already-generated tokens by $\theta > 1$ (and multiplies negative ones), making them less likely. The OpenAI-style *presence* and *frequency* penalties instead subtract a constant, or a constant times the count, from those logits. Both are blunt: they also punish repetition that is correct, such as a variable name in code or a name in a story.
+
+| strategy | parameter | adapts to confidence? | typical use |
+|---|---|---|---|
+| greedy / beam | beam width | no | extraction, translation, deterministic evals |
+| temperature | $T$ | no (rescales everything) | always combined with one of the below |
+| top-k | $k$ | no | older default (GPT-2 era) |
+| top-p | $p$ | yes | default for chat (often $T \approx 0.7$, $p \approx 0.9$) |
+| min-p | $p_{min}$ | yes | open-source runtimes, creative writing |
+
+Two practical notes. The **order** in which libraries apply temperature, top-k and top-p differs, so the same parameter values can give slightly different distributions in different engines. And **$T = 0$ is not perfectly deterministic** in a production server: the floating-point result of a matmul can depend on the batch it was computed in, so near-ties can flip between runs. Structured output (notebook 11) is also a decoding strategy: it masks the logits of every token that would violate a grammar or JSON schema.
+
+## Background: the KV-cache
+
+In causal attention, the key and value vectors of a past position never change once computed, because they depend only on tokens up to that position. Recomputing them at every step is pure waste, so every inference engine stores them in a **KV-cache**. Without it, step $t$ recomputes projections for all $t$ previous tokens, $O(N^2)$ projection work for $N$ tokens; with it, each step computes projections for one new token and attends over the cached ones, $O(N)$ projection work in total (the attention itself still reads all $t$ cached entries per step).
+
+The cache is not free. Per token it stores keys and values for every layer and KV head:
+
+$$\text{bytes per token} = 2 \times n_{layers} \times n_{kv\_heads} \times d_{head} \times \text{bytes per value}$$
+
+and the total grows with context length times batch size. In serving, the cache, not the weights, usually decides how many sequences fit on a GPU. That is why so many architecture changes target it: multi-query attention (Shazeer, 2019), grouped-query attention (Ainslie et al., 2023), multi-head latent attention (DeepSeek-V2, 2024), sliding-window attention, and fp8 KV-cache quantization.
+
+## Background: serving many users
+
+| technique | problem it solves | key reference |
+|---|---|---|
+| static batching | weight reads are amortized over the batch | — |
+| continuous (iteration-level) batching | in static batching, finished sequences leave idle slots until the longest one ends; here the scheduler adds and removes sequences at every decode step | Yu et al. (2022), *Orca* |
+| PagedAttention | contiguous per-sequence cache buffers waste memory to fragmentation and over-reservation; storing the cache in fixed-size blocks with a block table (like virtual memory pages) nearly eliminates the waste and allows sharing blocks | Kwon et al. (2023), *Efficient Memory Management for Large Language Model Serving with PagedAttention* (vLLM) |
+| prefix caching | many requests share a system prompt or few-shot examples; reuse their KV blocks instead of re-running prefill | Zheng et al. (2024), *SGLang* (RadixAttention) |
+| chunked prefill | a long prompt's prefill stalls all decoding sequences; split it into chunks mixed with decode steps | Agrawal et al. (2024), *Sarathi-Serve* |
+| prefill/decode disaggregation | the two phases want different hardware trade-offs; run them on separate GPU pools | Zhong et al. (2024), *DistServe* |
+| CUDA graphs | kernel launch overhead dominates small decode steps; record the step once and replay it | — |
+
+vLLM, SGLang and TensorRT-LLM combine most of these. The metrics they are tuned for are TTFT, TPOT, throughput at a given latency target (often called "goodput"), and cost per million tokens.
+
+## Background: speculative decoding and why it is exact
+
+Decode leaves the GPU's compute idle, and the target model can score $k+1$ positions in one pass for nearly the cost of one. Speculative decoding (Leviathan, Kalman, Matias, 2023; and independently Chen et al., 2023, under the name speculative sampling; an earlier greedy-only form is Stern, Shazeer, Uszkoreit, 2018) turns that into speed:
+
+```
+draft  (small, fast):  proposes  d1 d2 d3 d4          (k = 4 cheap steps)
+target (big, exact):   one pass scores positions 1..5 in parallel
+                       accept d1  accept d2  reject d3 -> resample from residual
+output this round:     d1 d2 r3                       (3 tokens for 1 target pass)
+```
+
+For each proposed token $x \sim q(\cdot)$ (draft distribution) with target distribution $p(\cdot)$ at the same position:
+1. accept $x$ with probability $\min\big(1, \tfrac{p(x)}{q(x)}\big)$;
+2. at the first rejection, sample a replacement from the **residual distribution** $p'(x) = \dfrac{\max(0,\, p(x) - q(x))}{\sum_y \max(0,\, p(y) - q(y))}$ and stop the round;
+3. if all $k$ are accepted, sample one bonus token from the target's distribution at position $k+1$, which the same pass already computed.
+
+**Why the output distribution is exactly $p$.** Let $\beta = \sum_y \min(p(y), q(y))$ be the total acceptance probability. The probability of emitting token $x$ is the probability of proposing and accepting it, plus the probability of rejecting and then resampling it:
+
+$$P(x) = q(x)\min\Big(1, \frac{p(x)}{q(x)}\Big) + (1-\beta)\,p'(x) = \min(p(x), q(x)) + \max(0, p(x) - q(x)) = p(x)$$
+
+using $1 - \beta = \sum_y \max(0, p(y) - q(y))$. No approximation is involved: a bad draft makes the method slow, never wrong. Note that $\beta = 1 - \text{TV}(p, q)$, so the per-token acceptance rate is one minus the total variation distance between draft and target.
+
+**Expected speed-up.** If each token is accepted independently with probability $\alpha$, the expected number of tokens produced per target pass is
+
+$$\mathbb{E}[\text{tokens per round}] = \frac{1 - \alpha^{k+1}}{1 - \alpha}$$
+
+which tends to $k+1$ as $\alpha \to 1$. The wall-clock gain is smaller, because the draft's $k$ forward passes are not free; Leviathan et al. derive the improvement factor $\frac{1-\alpha^{k+1}}{(1-\alpha)(kc+1)}$ where $c$ is the cost of one draft step relative to one target step. So you want a draft that is both cheap (small $c$) and well aligned with the target (large $\alpha$), and $k$ is tuned between the two.
+
+**When it does not help.** At large batch sizes decode is no longer memory-bound, the spare compute disappears, and the extra verification work competes with real requests. Acceptance also drops at high temperature (both distributions are flatter and disagree more) and on text the draft model knows poorly. The draft must use the same tokenizer as the target.
+
+**Modern variants** remove the separate draft model: Medusa (Cai et al., 2024) adds extra decoding heads to the target, EAGLE (Li et al., 2024) drafts from the target's own hidden features, prompt-lookup / n-gram drafting copies spans from the context (very effective for editing and RAG), and DeepSeek-V3's multi-token-prediction module can be reused as a draft. All of them keep the same accept/reject rule, which is what guarantees correctness.
+
+### Key papers
+
+- Holtzman, Buys, Du, Forbes, Choi (2020), *The Curious Case of Neural Text Degeneration*.
+- Fan, Lewis, Dauphin (2018), *Hierarchical Neural Story Generation*.
+- Keskar et al. (2019), *CTRL: A Conditional Transformer Language Model for Controllable Generation*.
+- Pope et al. (2022), *Efficiently Scaling Transformer Inference*.
+- Shazeer (2019), *Fast Transformer Decoding: One Write-Head is All You Need*.
+- Ainslie et al. (2023), *GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints*.
+- Yu et al. (2022), *Orca: A Distributed Serving System for Transformer-Based Generative Models*.
+- Kwon et al. (2023), *Efficient Memory Management for Large Language Model Serving with PagedAttention*.
+- Leviathan, Kalman, Matias (2023), *Fast Inference from Transformers via Speculative Decoding*.
+- Chen et al. (2023), *Accelerating Large Language Model Decoding with Speculative Sampling*.
+- Cai et al. (2024), *Medusa*; Li et al. (2024), *EAGLE*.
+''')
 nb.code(SETUP)
 nb.code(r'''
 # Train a small target model and an even smaller draft model on the same data. Each takes a few seconds.
@@ -47,6 +181,8 @@ The model gives a distribution over `V`; the decoding strategy picks a token. Ty
 | repetition penalty | down-weights tokens already generated | fewer loops, can hurt when repetition is correct |
 
 In our synthetic language a "word" is a fixed sequence of 2–4 tokens and words are separated by `0`. **Inside** a word the next token is almost certain (all strategies agree); **right after a `0`** the model must choose among ~80 words — that is where the strategies differ. We look at that position.
+
+**What the cell measures.** For each strategy it prints how many tokens keep non-zero probability (truncation), the probability of the top token (sharpness) and the **entropy** $H = -\sum_i p_i \log p_i$ in nats. Entropy is the cleanest single number for "how random will the next token be": $e^{H}$ is the effective number of equally likely choices, so a uniform choice among 80 words would give $H = \ln 80 \approx 4.4$ nats. Temperature changes entropy smoothly and keeps every candidate alive; top-k and top-p cut candidates to zero and renormalize the survivors, which also raises their individual probabilities.
 ''')
 nb.code(r'''
 from llm_edu_suite.model import next_token_distribution
@@ -89,6 +225,8 @@ nb.md(r'''
 nb.md(r'''
 ## 2. KV-cache: same output, far less work
 Without the cache, generating N tokens recomputes k/v for every past token at every step (O(N²) projections). With it, O(N). We verify equality and time both.
+
+The equality check is the important half. A KV-cache is an *exact* optimization: with greedy decoding, the cached and uncached paths must produce the same tokens, because they compute the same function. Small floating-point differences between the two code paths can in principle flip a near-tie, which is why serious engines test cache correctness on many prompts. The second cell then sizes the cache with the formula from the Background, $2 \times n_{layers} \times n_{kv\_heads} \times d_{head} \times 2$ bytes in bf16, to show how much KV-sharing (GQA) and compression (MLA) reduce it.
 ''')
 nb.code(r'''
 import time
@@ -107,7 +245,7 @@ print(f"no cache {t_nc*1000:.0f} ms | with cache {t_c*1000:.0f} ms | speed-up {t
 ''')
 nb.code(r'''
 from llm_edu_suite.inference import kv_cache_memory
-for name, args in {"Llama-2-70B (MHA)": dict(n_layers=80, n_kv_heads=64, head_dim=128), "Llama-3-70B (GQA 8)": dict(n_layers=80, n_kv_heads=8, head_dim=128),
+for name, args in {"70B with MHA (64 KV)": dict(n_layers=80, n_kv_heads=64, head_dim=128), "Llama-3-70B (GQA 8)": dict(n_layers=80, n_kv_heads=8, head_dim=128),
                    "Llama-3-8B (GQA 8)": dict(n_layers=32, n_kv_heads=8, head_dim=128)}.items():
     m = kv_cache_memory(context=8192, batch=1, **args)
     print(f"{name:20s} {m['bytes_per_token']/1024:6.0f} KB/token -> {m['total_gb']:5.1f} GB for one 8k-token sequence")
@@ -117,6 +255,8 @@ nb.md(r'''
 ## 3. Speculative decoding
 
 Decode is memory-bound: verifying `k` tokens costs about the same as generating 1. So let a cheap **draft** propose `k` tokens, and have the **target** verify them in one forward pass, accepting each with probability `min(1, p/q)` and resampling from `norm(max(0, p−q))` at the first rejection. The output distribution is *exactly* the target's; speed comes from accepting several tokens per target call.
+
+**What to expect from the numbers.** With $k = 4$ the ceiling is $k + 1 = 5$ tokens per target pass, reached only when every draft token is accepted. Under the independence assumption from the Background, the expected value is $(1 - \alpha^{5}) / (1 - \alpha)$ for acceptance rate $\alpha$, so you can check the measured `tokens_per_round` against the measured `acceptance_rate`. Our synthetic language is highly predictable inside words, which favours a high acceptance rate; real chat text at temperature 1 with a much smaller draft typically gives lower values. Remember that tokens per round is not wall-clock speed-up: on real hardware you would also pay for the draft's $k$ forward passes.
 ''')
 nb.code(r'''
 from llm_edu_suite.inference import speculative_decode
@@ -132,6 +272,8 @@ print(f"\n-> {stats['tokens_per_round']:.2f} tokens per target forward pass (pla
 nb.md(r'''
 ### Does speculative decoding change the distribution?
 It must not. We sample many next-token continuations with both methods and compare the empirical distributions over the first generated token (a statistical check, not a proof — the proof is in the paper).
+
+**How close is "close enough"?** Each frequency is an estimate from $N = 400$ samples, so its standard error is $\sqrt{p(1-p)/N}$, at most $\sqrt{0.25/400} = 0.025$. Two correct samplers will therefore disagree by a couple of percentage points just by chance; a systematic gap several times larger than that would point to a bug, for example forgetting to renormalize the residual distribution. A more formal version of this test is a chi-squared test on the two count tables.
 ''')
 nb.code(r'''
 from collections import Counter
@@ -147,6 +289,8 @@ for t in top:
 nb.md(r'''
 ## 4. Batched generation
 Serving many users means batching: one weight read serves many sequences. The simple version left-pads prompts; real engines (vLLM) use **PagedAttention** (cache in non-contiguous pages, no fragmentation), **continuous batching** (new requests join mid-flight), **prefix caching** (shared system prompts computed once), and **chunked prefill** so long prompts don't stall others.
+
+**Why left padding.** In a batch, prompts have different lengths, but a decoder generates at the *end* of each row. Padding on the left aligns every prompt's last token in the same column, so each step appends one new column for the whole batch. The padded positions must be masked out of attention (and position ids adjusted), otherwise the model would attend to pad tokens and its outputs would differ from unbatched generation. The demo `batched_generate` keeps things minimal and does neither (its docstring says so); in the cell below every prompt has the same 8 tokens, so no padding actually occurs and the issue does not arise. Padding also wastes compute on positions that carry no information, which is one of the inefficiencies that continuous batching and PagedAttention remove: they let each sequence occupy exactly the cache it needs.
 ''')
 nb.code(r'''
 from llm_edu_suite.inference import batched_generate
@@ -159,6 +303,8 @@ nb.md(r'''
 ## 5. Evaluation: latency and throughput
 
 The serving metrics: **TTFT** (time to first token; prefill-bound), **tokens/s per sequence** (decode-bound), **aggregate throughput** (grows with batch), and **cost per 1M tokens**. Always report them *together with* a quality check — an optimization that changes outputs is a bug, not a speed-up.
+
+**The latency-throughput trade-off.** Total generation time for one request is roughly $\text{TTFT} + N_{out} \times \text{TPOT}$. Batching raises aggregate throughput (tokens per second across all users) almost for free while decode is memory-bound, but once the batch is large enough to make each step compute-bound, every extra sequence makes the step slower and TPOT grows for everyone. A serving system therefore picks an operating point: the largest batch that still meets the latency target (for example, a TTFT and TPOT budget at the 99th percentile). Benchmarks that report only peak throughput, or only single-request latency, hide that choice.
 ''')
 nb.code(r'''
 from llm_edu_suite.evaluation import benchmark_generation

@@ -20,6 +20,43 @@ Most production LLM work is not chatbots. It is a handful of patterns applied to
 | 6 | **batch processing** | `.batch(..., max_concurrency=n)`, `get_usage_metadata_callback` | throughput, tokens, projected cost |
 
 Everything runs on the local `qwen2.5:3b` through Ollama, at temperature 0, on small hand-labelled sets (8 to 20 items per task). Small sets are enough to see large effects and to catch regressions; they cannot separate methods that differ by a few points, and the notebook says so where it matters.
+
+## Background: the LLM as a general-purpose text function
+
+### What these patterns replaced
+
+Before instruction-tuned LLMs, each of these tasks had its own pipeline: a named-entity recognizer plus regular expressions for extraction, a classifier trained on thousands of labelled tickets, an extractive summarizer that picked sentences, a keyword blocklist for abuse. Each needed its own labelled data and its own model. GPT-3 (Brown et al., 2020, *Language Models are Few-Shot Learners*) showed that one large model could perform many of these tasks from a description and a few examples in the prompt (**in-context learning**), and instruction tuning (Wei et al., 2022, *Finetuned Language Models Are Zero-Shot Learners*; Ouyang et al., 2022) made the zero-shot description alone work much better. The industry pattern since then is: write the task as a prompt, constrain the output to a schema, measure on a small labelled set, and only train a dedicated model when volume or latency justifies it.
+
+| task | classic approach | LLM pattern | what you gain | what you pay |
+|---|---|---|---|---|
+| extraction | NER + regex + rules | schema + constrained decoding | handles unseen phrasings with no training data | per-call cost, semantic errors that look valid |
+| classification | supervised classifier | zero/few-shot with a label `Literal` | no training set, label set easy to change | slower and costlier per item than a small model |
+| summarization | extractive (sentence selection) | abstractive, map-reduce for long inputs | fluent, compressed output | can state things the source does not say |
+| caching | HTTP / key-value cache | exact + semantic cache | reuse across paraphrases | false hits |
+| abuse filtering | keyword lists | LLM or small classifier guard | understands intent, not just words | still bypassable, adds a call |
+
+### The economics of a call
+
+Hosted models are priced per token, separately for input and output, and output tokens are typically several times more expensive than input tokens because generation is sequential. For a job of $N$ records with $t_{\text{in}}$ input and $t_{\text{out}}$ output tokens each:
+
+$$\text{cost} \approx N\,(t_{\text{in}}\,p_{\text{in}} + t_{\text{out}}\,p_{\text{out}})$$
+
+Latency has two parts with different physics. **Prefill** processes the whole prompt in parallel and is compute-bound; **decode** produces one token at a time and is memory-bandwidth-bound (each step reads all the weights for one token per sequence). So long prompts cost money but relatively little time, and long outputs cost time. That asymmetry explains several design choices below: few-shot examples inflate $t_{\text{in}}$ on every call, structured output keeps $t_{\text{out}}$ short, caching removes both, and batching many sequences together uses the memory bandwidth that a single decode stream wastes.
+
+### Evaluating LLM components
+
+Every pattern here is evaluated like a classical ML component: a small labelled set, a task metric, and an error analysis. The reason to insist on it is that LLM failures are *plausible*: a wrong field in valid JSON, a fluent summary that omits a topic, a cached answer to a slightly different question. Format checks catch none of them. Two practical facts shape the evaluation: outputs can vary between runs even at temperature 0 (GPU kernels and batching are not bit-for-bit deterministic), and with 10-20 items a single item is 5-10 points, so only large differences mean something.
+
+### Key papers
+
+- Brown et al., 2020. *Language Models are Few-Shot Learners.*
+- Zhao et al., 2021. *Calibrate Before Use: Improving Few-Shot Performance of Language Models.*
+- Min et al., 2022. *Rethinking the Role of Demonstrations: What Makes In-Context Learning Work?*
+- Willard & Louf, 2023. *Efficient Guided Generation for Large Language Models.*
+- Liu et al., 2024. *Lost in the Middle: How Language Models Use Long Contexts.*
+- Kwon et al., 2023. *Efficient Memory Management for Large Language Model Serving with PagedAttention.*
+- Greshake et al., 2023. *Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection.*
+- Wallace et al., 2024. *The Instruction Hierarchy: Training LLMs to Prioritize Privileged Instructions.*
 ''')
 nb.code(setup_apps("llm-edu-suite-13-applications"))
 nb.code(r'''
@@ -47,6 +84,15 @@ The most common production use of an LLM: turn messy text (emails, invoices, tic
 - `function_calling`: the schema becomes a tool definition and the model is asked to "call" it. Validity then depends on how well the model was trained for tool calling.
 
 Field descriptions are where you write the rules ("amount is the total, not the unit price"). But check whether the model actually *sees* them: with `function_calling` the descriptions travel inside the tool definition, while `json_schema` on `ChatOllama` only passes the schema to the decoder (`format=`), so the model is forced into the right shape without ever reading the rules. We therefore test a third variant, `json_schema` with the rules repeated in the system message.
+
+**Constrained decoding, under the hood.** At every step the model produces logits over the whole vocabulary. A JSON Schema can be compiled into a grammar (a finite-state machine for simple schemas, a pushdown automaton when nesting is unbounded) that says which characters may come next. Before sampling, the decoder sets the logit of every token that would break the grammar to $-\infty$:
+$$\tilde z_i = \begin{cases} z_i & \text{if token } i \text{ keeps the output a valid prefix} \\ -\infty & \text{otherwise}\end{cases}$$
+so the model chooses freely among the *allowed* tokens. Willard & Louf (2023, *Efficient Guided Generation for Large Language Models*, the Outlines library) showed how to precompute, for each grammar state, the set of allowed tokens, so the mask costs almost nothing per step; XGrammar (Dong et al., 2024) extends this to context-free grammars at low overhead. Ollama relies on llama.cpp's grammar-based sampling for the same purpose.
+
+Three consequences are worth knowing:
+- **Validity is guaranteed, correctness is not.** The mask only removes invalid continuations. If the model's preferred continuation was wrong, it will pick the most likely *valid* wrong one, which is exactly what the evaluation below shows.
+- **Format restrictions can cost quality.** Masking changes the distribution the model was trained on; Tam et al. (2024, *Let Me Speak Freely?*) reported lower reasoning accuracy under strict JSON formats on some tasks. The effect depends on the task and the model and is debated, but the usual mitigation is to let the model reason in a free-text field placed *before* the answer fields (generation is left to right, so field order is reasoning order).
+- **Tool calling is a learned skill, not a constraint.** With `function_calling` and no grammar, validity comes from the model's training; a parser and a retry are the safety net.
 
 **Evaluation.** Per-field exact match (after light normalisation) and the share of records with *every* field right, which is what matters if a wrong field means a wrong action.
 ''')
@@ -137,6 +183,19 @@ Routing tickets, tagging reviews, triaging alerts: classification is the second 
 1. **Constrain the output to the label set.** Asking for "one of: billing, technical..." in free text invites "Billing issue." or "This is technical". Declaring the label as a `Literal[...]` in a Pydantic model makes the label set part of the schema, so constrained decoding can only produce a valid label: no normalisation code, no invalid predictions.
 2. **Zero-shot or few-shot.** Zero-shot relies on the label names alone. Few-shot adds solved examples to the prompt (`FewShotChatMessagePromptTemplate` turns them into user/assistant message pairs), which shows the model where *your* boundaries are, such as whether a password reset is "account" or "technical".
 
+**What in-context examples actually do.** Few-shot prompting does not update any weights: the examples are conditioning text, and the model infers the task from them. Studies of *which part* of the examples matters found surprising answers. Min et al. (2022, *Rethinking the Role of Demonstrations*) showed that randomizing the labels of the demonstrations often hurt much less than expected: the format, the label space and the distribution of inputs carried much of the benefit. Zhao et al. (2021, *Calibrate Before Use*) documented systematic biases: a **majority-label bias** (the model favours labels that appear more often among the examples), a **recency bias** (it favours the label of the last example) and a **common-token bias**. So the choice, balance and order of the examples change predictions, which is why they must be evaluated rather than assumed helpful. Larger and better instruction-tuned models depend less on examples for tasks that their label names already describe well.
+
+**The alternatives for classification.**
+
+| approach | labelled data | cost per item | when it wins |
+|---|---|---|---|
+| zero-shot LLM | none | one LLM call | label names are self-explanatory; prototypes |
+| few-shot LLM | a handful | one call with a longer prompt | boundaries the label names do not convey |
+| embeddings + logistic regression | hundreds | one embedding call + a dot product | high volume, stable labels |
+| fine-tuned small encoder (or SetFit, Tunstall et al., 2022) | tens to thousands | a few ms on CPU | very high volume, strict latency |
+
+A common production path is to start zero-shot, use the LLM to pre-label data, have people correct it, and then train the small model once the label set is stable.
+
 **Evaluation**: accuracy and the confusion matrix on 20 labelled tickets (5 per class); the four few-shot examples are different tickets.
 ''')
 nb.code(r'''
@@ -215,6 +274,20 @@ When a document fits in the context window, one call ("stuff" it into the prompt
 
 **Map-reduce** fixes that: split the document, summarise each chunk independently (the *map*, which runs in parallel with `.batch`), then summarise the summaries (the *reduce*). In LCEL it is two small chains glued by a function. The alternative, *refine*, walks the chunks sequentially and updates a running summary: better continuity, but no parallelism.
 
+**Why long inputs are a problem even when they fit.** A context window is a hard limit, but quality degrades before it. Self-attention compute grows quadratically with sequence length and the KV-cache grows linearly in memory; the memory is the main reason local servers default to small windows. And models use long contexts unevenly: Liu et al. (2024, *Lost in the Middle: How Language Models Use Long Contexts*) found that information placed in the middle of a long prompt is used less reliably than information at the beginning or the end. Splitting the document so that each call sees a short text sidesteps both effects, at the price of losing cross-chunk context.
+
+**The strategies compared.**
+
+| strategy | LLM calls | parallel | sees the whole document at once | main risk |
+|---|---|---|---|---|
+| stuff | 1 | n/a | yes, if it fits | silent truncation; lost-in-the-middle |
+| map-reduce | $n + 1$ (or a tree of reduces) | yes (map step) | no | each chunk summarized out of context; the reduce step drops topics |
+| refine (incremental) | $n$ | no | no, but carries a running summary | early content gets overwritten by later content |
+
+Chang et al. (2024, *BooookScore*) compared hierarchical merging (map-reduce style) and incremental updating (refine style) on book-length texts and found trade-offs in coherence and detail rather than a clear winner. Map-reduce wins on wall time and on robustness when chunks are independent; when the reduce input itself grows too large, the reduce is applied recursively, which gives a tree of summaries.
+
+**Evaluating a summary.** Reference-based metrics such as ROUGE (Lin, 2004) count n-gram overlap with a human summary; they are cheap but reward copying and need references. Without references, two properties matter: **coverage** (did the summary mention what it should, which is what the topic check below measures) and **faithfulness** (does it state only what the source says). Abstractive summarizers are known to add unsupported content (Maynez et al., 2020, *On Faithfulness and Factuality in Abstractive Summarization*); faithfulness is usually checked with an NLI model or an LLM judge, the same idea as RAGAS faithfulness in notebook 10.
+
 **Evaluation** without a reference summary: we list 13 topics that a summary of the notebooks guide must mention (one per group of notebooks) and count how many appear (*coverage*). We also report the input tokens the model actually processed, from `usage_metadata`, which exposes the truncation.
 ''')
 nb.code(r'''
@@ -263,6 +336,20 @@ nb.md(r'''
 
 Identical requests are common (FAQ bots, retries, re-running a notebook or an eval). A cache returns the stored answer without calling the model.
 
+**Three different things are called "caching" in LLM systems.** They live at different layers and are often confused:
+
+| layer | what is reused | key | correctness risk | where |
+|---|---|---|---|---|
+| response cache (exact) | the whole answer | the exact prompt + model settings | stale answers; keys that omit settings | application (this section) |
+| semantic cache | the whole answer | the prompt's embedding, within a similarity threshold | answering a different question (false hit) | application (this section) |
+| prompt / prefix cache | the KV-cache of a shared prompt prefix | the token prefix | none: the output is computed normally | serving engine or provider |
+
+Prefix caching deserves a mention because it is free of correctness risk: when many requests start with the same long system prompt or few-shot block, the engine keeps the keys and values computed for that prefix and only runs prefill on the new suffix. vLLM implements it on top of PagedAttention (Kwon et al., 2023), and hosted APIs offer it as discounted "cached input" tokens. It saves prefill time and cost, not decode. Response caches save everything, but only for repeated requests.
+
+**The economics.** With hit rate $h$, lookup time $t_{\text{lookup}}$ and model latency $t_{\text{model}}$, the expected latency is
+$$\mathbb{E}[t] = t_{\text{lookup}} + (1 - h)\, t_{\text{model}}$$
+An exact lookup is microseconds, so any hit rate pays. A semantic lookup costs one embedding call plus a nearest-neighbour search on *every* request, including misses, so it only pays when $h\,t_{\text{model}}$ clearly exceeds that overhead, and the cost of a false hit (a wrong answer served confidently) has to be counted too.
+
 **Exact cache.** `set_llm_cache(InMemoryCache())` installs a process-wide cache for every LangChain chat model. The key is the serialised prompt *plus* a description of the model (`llm_string`), which each integration builds itself. That detail matters: we check below what `ChatOllama` puts in it. In production you would use `SQLiteCache` or `RedisCache` (in `langchain_community.cache`) so the cache survives restarts and is shared between workers.
 ''')
 nb.code(r'''
@@ -288,6 +375,8 @@ nb.md(r'''
 **Semantic cache.** Users rarely type the same string twice: "what is the refund policy?" and "What's your refund policy" should share an answer. A semantic cache embeds the prompt and returns a stored answer when a previous prompt is similar enough (cosine above a threshold). LangChain's semantic caches (`RedisSemanticCache`, `OpenSearchSemanticCache`, `AzureCosmosDBSemanticCache`...) all need an external database, so here we write the same idea against the `BaseCache` interface in a few lines, with the course's embedding model. `set_llm_cache` then uses it exactly like the built-in ones.
 
 The danger is the **false hit**: "price of the pro plan" and "price of the basic plan" are very similar strings with different answers. So we measure both sides, on 10 paraphrase pairs (should hit) and 10 near-miss pairs (must not hit).
+
+**The threshold is a binary classifier.** A semantic cache decides "same question / different question" by thresholding a cosine similarity, so it has the usual precision-recall trade-off: raising the threshold lowers false hits and the hit rate together. The underlying difficulty is that sentence embeddings are trained to place texts about the same *topic* close together, and two questions about the same topic with one changed word (weekdays / weekends, pro / basic) are close by construction. Negation, numbers and entity names are the classic weak spots. Mitigations used in practice: tune the threshold on logged traffic with labelled near misses, cache only per intent or per template, include the parameters that change the answer (user, plan, locale) in an exact part of the key, and verify a candidate hit with a cheap reranker or a cross-encoder before serving it. GPTCache (Bang, 2023) is an open-source implementation of this design.
 ''')
 nb.code(r'''
 from langchain_core.caches import BaseCache
@@ -385,6 +474,21 @@ Any text the model reads that you did not write (a retrieved document, a web pag
 1. **Delimit and label untrusted text**: put it inside clearly marked tags and tell the model, in the system message, that anything inside is data to process, never instructions to follow.
 2. **Detect**: a classifier (here, the LLM with structured output) flags texts that look like injection before they reach the main prompt.
 3. **Limit the blast radius**: least-privilege tools, confirmation before actions with side effects, never put secrets in the prompt (notebooks 11, 14 and 16).
+
+**Why this is hard, in one sentence: there is no separate channel for data.** SQL injection was solved by parameterized queries, which send the code and the data to the database separately so that data can never be executed. An LLM receives one token sequence; the system prompt, the user's message and a retrieved web page are all just text, and the model was trained to follow instructions wherever they appear. Delimiters and role tags are conventions the model learned to respect *usually*, not a boundary it cannot cross.
+
+**Terminology.** *Direct* prompt injection comes from the user typing into your app; *indirect* injection hides in content the app retrieves on the user's behalf (Greshake et al., 2023, *Not What You've Signed Up For*), which is the dangerous case for RAG and agents, because the victim is the user, not the attacker. *Jailbreaking* is related but different: it targets the model's safety training to obtain content the provider forbids, while injection targets *your application's* instructions. The attack was first described systematically by Perez & Ribeiro (2022, *Ignore Previous Prompt*), and it is item LLM01 in the OWASP Top 10 for LLM Applications.
+
+**The defence landscape.**
+
+| layer | examples | strength | limit |
+|---|---|---|---|
+| prompt design | delimiters, "data not instructions", sandwich, spotlighting (Hines et al., 2024: mark or encode untrusted text so it is recognizably different) | free, easy | a convention the model may ignore, especially small models |
+| model training | instruction hierarchy (Wallace et al., 2024), StruQ (Chen et al., 2024: a separate trained channel for data) | moves the boundary into the weights | needs control of training; not complete |
+| detection | LLM classifiers, small dedicated classifiers (Meta's Prompt Guard), Llama Guard-style moderation (Inan et al., 2023) | catches known patterns cheaply | adaptive attackers paraphrase around it; false positives |
+| system design | least privilege, human confirmation, the dual-LLM pattern (Willison, 2023: a privileged model never sees untrusted text), CaMeL (Debenedetti et al., 2025: untrusted data cannot change control flow) | bounds the damage even when the model is fooled | constrains what the application can do |
+
+The consensus in the security community is that the first three layers reduce the probability of a successful attack and only the last one bounds its consequences.
 
 **Experiment 1, prompt defences.** Ten documents each hide an instruction to reply with the canary word `PWNED`. We summarise them with three prompts and count how often the canary appears in the output (*attack success rate*):
 - *naive*: "Summarize the following text: ..." with the document pasted in;
@@ -484,6 +588,12 @@ The layers multiply: with the guard in front of the sandwich prompt, an attack h
 Much LLM work is offline: classify a million reviews, extract fields from an archive of invoices. Every LangChain runnable has `.batch()`, which runs the inputs on a thread pool; `max_concurrency` caps how many requests are in flight, which is how you respect a provider's rate limit (or, locally, the GPU). `get_usage_metadata_callback()` adds up the `usage_metadata` (input and output tokens) of every call made inside the `with` block, per model, which is what you need to **project cost before scaling up**.
 
 Below, the 20 tickets twice (40 records) with the few-shot classifier, sequentially and with 4 requests in flight. Ollama can serve several requests from one loaded model in parallel (up to `OLLAMA_NUM_PARALLEL`), so concurrency should raise throughput until the GPU is saturated. Other processes sharing the GPU affect these timings.
+
+**Throughput, latency and concurrency.** For a service that handles requests one at a time, throughput is $1 / t_{\text{request}}$. With several requests in flight, Little's law from queueing theory relates the three quantities: $L = \lambda W$, where $L$ is the average number of requests in flight, $\lambda$ the throughput and $W$ the average time each one spends in the system. Raising `max_concurrency` (L) raises throughput only while the server can process the extra requests without each one taking proportionally longer. That is the case for a hosted API (many machines behind one endpoint) and for a serving engine with **continuous batching** (Yu et al., 2022, *Orca*; vLLM), where new sequences join the running batch at every decoding step. It works because decoding is memory-bandwidth-bound: one pass over the weights can produce a token for many sequences at almost the cost of one. A server that runs requests one after another gives no such gain.
+
+**Rate limits and failures.** Providers cap requests per minute and tokens per minute; the concurrency cap is how you stay under them. At scale some calls will fail (timeouts, rate-limit errors, a reply that does not validate), so a batch job needs retries with exponential backoff, `return_exceptions=True` so one failure does not lose the batch, and idempotent, resumable bookkeeping (record which inputs are done).
+
+**Offline batch APIs.** For jobs that do not need an answer within seconds, the major providers offer asynchronous batch endpoints: you upload a file of requests and collect the results later (within hours, typically up to a day), at a substantial discount over the interactive price. When latency does not matter, that is usually the cheapest option, and the cost formula from the Background section applies with the discounted prices.
 ''')
 nb.code(r'''
 from langchain_core.callbacks import get_usage_metadata_callback

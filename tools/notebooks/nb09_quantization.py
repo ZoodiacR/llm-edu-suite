@@ -18,6 +18,123 @@ A 7B model in bf16 needs 14 GB just for its weights; in 4-bit it needs about 4 G
 3. *How to measure it*: memory, speed, perplexity, and the two metrics that catch damage perplexity hides: **KL divergence** to the original model and **top-1 agreement**.
 4. What people use in production: bitsandbytes, GPTQ, AWQ, GGUF, FP8.
 ''')
+nb.md(r'''
+## Background: quantization for LLMs
+
+**Quantization** stores numbers with fewer bits than they were trained with, accepting a small, controlled error. For LLMs it solves three different problems, and it helps to keep them apart because different methods target different ones:
+
+| problem | what quantization changes | who benefits |
+|---|---|---|
+| **memory**: the weights do not fit | bytes per weight | everyone; the saving is guaranteed |
+| **bandwidth**: decode reads every weight per token (notebook 06) | bytes moved per token | batch-1 and small-batch decoding, *if* a kernel computes on the packed format |
+| **compute**: matmuls in large-batch serving and prefill | the precision of the arithmetic itself | needs weights *and* activations in low precision and hardware that supports it (int8 / fp8 / fp4 tensor cores) |
+
+### Number formats
+
+| format | bits | layout | range and precision | typical use |
+|---|---|---|---|---|
+| fp32 | 32 | 1 sign, 8 exponent, 23 mantissa | wide range, high precision | master weights and optimizer states in training |
+| fp16 | 16 | 1, 5, 10 | max about 65504; overflows easily | older inference, needs loss scaling for training |
+| bf16 | 16 | 1, 8, 7 | fp32's range, low precision | the default for training and inference today |
+| fp8 E4M3 | 8 | 1, 4, 3 | max 448 | weights and activations in fp8 inference and training |
+| fp8 E5M2 | 8 | 1, 5, 2 | max 57344, coarser | gradients (more range, less precision) |
+| int8 | 8 | 256 evenly spaced levels | needs a scale | weight-only or W8A8 inference |
+| int4 / NF4 | 4 | 16 levels | needs small-block scales | weight-only inference, QLoRA |
+| MXFP4 / NVFP4 | 4 | tiny float per value plus a shared scale per small block | hardware-supported on the newest GPUs | emerging 4-bit standard (gpt-oss ships MoE weights in MXFP4) |
+
+Integers place their levels **evenly**; floats place them **logarithmically**, dense near zero and sparse for large magnitudes. That is why fp8 can do without fine-grained scales more easily than int8: its own exponent absorbs part of the dynamic range. The fp8 formats were standardized by Micikevicius et al. (2022), *FP8 Formats for Deep Learning*.
+
+### The quantization map
+
+Section 1 uses the **symmetric** (absmax) map. The **asymmetric** (affine) map adds a zero-point $z$ so that a range that is not centered on zero uses all the levels:
+
+$$s = \frac{\max(w) - \min(w)}{2^b - 1}, \qquad z = \mathrm{round}\Big(-\frac{\min(w)}{s}\Big), \qquad q = \mathrm{clamp}\big(\mathrm{round}(w/s) + z,\; 0,\; 2^b - 1\big), \qquad \hat w = s\,(q - z)$$
+
+The scale $s$ (and $z$) is shared by a group of weights. The choice of group is the **granularity**: per tensor (one scale), per output channel (one per row), or per group of $g$ consecutive weights (typically 32 to 128). Smaller groups follow the local range better and cost more metadata: a 16-bit scale per group of $g$ adds $16/g$ bits per weight, plus the same again for a zero-point.
+
+### How large is the error?
+
+With round-to-nearest, each weight's error is at most $s/2$, and for "generic" weights it behaves like uniform noise on $[-s/2, s/2]$ with variance
+
+$$\mathbb{E}[(w - \hat w)^2] = \frac{s^2}{12}$$
+
+Each extra bit halves $s$, so the error variance drops by 4x per bit (the classic "about 6 dB of signal-to-noise per bit" from signal processing). Going from 8 to 4 bits makes the step 16 times larger. What makes or breaks a scheme is $s$ itself, which is set by the **largest** value in the group: a single outlier inflates $s$ for everyone, which is exactly what section 1 measures.
+
+### Why LLMs tolerate it, and where they do not
+
+Networks with billions of parameters are heavily overparameterized and trained with noise (stochastic gradients, dropout in some models), so they are robust to small independent perturbations of their weights; rounding errors in a long dot product are roughly zero-mean and partially cancel. Robustness is not uniform, though:
+- **Activations are harder than weights.** Dettmers et al. (2022), *LLM.int8()*, found that beyond a few billion parameters a handful of hidden dimensions carry activation values far larger than the rest. Quantizing those with a shared scale destroys the small values. Their fix keeps the outlier dimensions in fp16; later methods move the problem elsewhere.
+- **Small models degrade more** than large ones at the same bit width, because they have less redundancy.
+- **Some layers are more sensitive**: embeddings, the output head and the first and last blocks are often kept at higher precision (this notebook keeps `lm_head` in bf16).
+
+### Families of methods
+
+**Round-to-nearest (RTN)**: compute scales from the weights and round. No data needed, seconds to run. This is what `optimum-quanto` and bitsandbytes do at load time; it works well at 8 bits and reasonably at 4 bits with small groups.
+
+**GPTQ** (Frantar, Ashkboos, Hoefler, Alistarh, 2023) minimizes the error of each layer's *output* rather than of its weights, on a small calibration set $X$:
+
+$$\min_{\hat W} \;\| W X - \hat W X \|_F^2$$
+
+It quantizes the columns of $W$ one at a time and, after each one, adjusts the not-yet-quantized columns to compensate for the error just made, using the inverse of the Hessian $H = 2XX^\top$ of this quadratic objective:
+
+$$\delta = -\,\frac{w_q - \mathrm{quant}(w_q)}{[H^{-1}]_{qq}}\,(H^{-1})_{:,q}$$
+
+The idea comes from Optimal Brain Surgeon (Hassibi & Stork, 1993): when you are forced to change one weight, let the correlated weights absorb the damage. Clever ordering and a Cholesky formulation make it fast enough to quantize 100B+ parameter models in a few GPU hours.
+
+**AWQ** (Lin et al., 2024) starts from the observation that a small fraction of weight channels matter much more than the rest, and that they are identified by large *activation* magnitudes, not by large weights. Instead of keeping them in high precision, it multiplies those input channels by a scale $s > 1$ before quantization and divides the activations by the same factor, which leaves the float function unchanged:
+
+$$y = W x = (W\,\mathrm{diag}(s))\,(\mathrm{diag}(s)^{-1} x) \;\approx\; Q\big(W\,\mathrm{diag}(s)\big)\,\big(\mathrm{diag}(s)^{-1} x\big)$$
+
+Scaling a channel up makes its relative rounding error smaller. The scales are found by a small grid search per layer on calibration data, with no backpropagation, which makes AWQ fast and less prone to overfitting the calibration set.
+
+**SmoothQuant** (Xiao et al., 2023) uses the same identity in the other direction, for W8A8: it divides the activation outliers down and multiplies the weights up, "migrating" quantization difficulty from activations (hard) to weights (easy). **Rotation methods** (QuaRot, Ashkboos et al., 2024; SpinQuant, Liu et al., 2024) multiply by orthogonal matrices, such as Hadamard transforms, that spread outliers across all dimensions, which makes 4-bit weights *and* activations feasible.
+
+**Quantization-aware training (QAT)** simulates quantization in the forward pass during training and passes gradients through the rounding with the straight-through estimator (Bengio et al., 2013). It gives the best quality at very low bit widths but needs a training run. At the extreme, BitNet b1.58 (Ma et al., 2024) trains models from scratch with ternary weights $\{-1, 0, 1\}$.
+
+| method | needs data? | cost | sweet spot |
+|---|---|---|---|
+| RTN (quanto, bitsandbytes) | no | seconds | 8-bit; 4-bit with small groups on large models |
+| LLM.int8() | no | load time | 8-bit with outlier handling |
+| NF4 + double quantization (QLoRA) | no | load time | 4-bit base for LoRA fine-tuning |
+| GPTQ | small calibration set | minutes to hours | 4-bit (and 3-bit) weight-only serving |
+| AWQ | small calibration set | minutes | 4-bit weight-only serving |
+| SmoothQuant / FP8 | calibration for activation scales | minutes | W8A8 serving on int8 / fp8 hardware |
+| QAT, BitNet | full training data | a training run | 2-bit and below |
+
+**What the industry does today.** For datacenter serving on recent NVIDIA GPUs, **FP8** for weights and activations is the common default, because it is close to lossless and uses native fp8 tensor cores. For local and cost-sensitive serving, **4-bit weight-only** formats dominate (AWQ and GPTQ on GPU servers, GGUF k-quants in llama.cpp and Ollama). FP8 is also used for training at scale: DeepSeek-V3 was trained with fp8 mixed precision using fine-grained block-wise scales. Four-bit floating-point formats with hardware support are the current frontier. Dettmers & Zettlemoyer (2023), *The case for 4-bit precision*, showed that for a fixed memory budget, a larger model at about 4 bits usually beats a smaller model at higher precision, which is the reasoning behind "quantize a bigger model rather than run a smaller one in bf16".
+
+### Measuring fidelity: why perplexity is not enough
+
+Perplexity only looks at the probability of the *true* next token. Quantization noise can raise that probability at some positions and lower it at others, and the average can barely move even though the model now behaves differently. Two metrics compare the quantized model directly with the original instead:
+
+- **KL divergence** at each position, $D_{\text{KL}}(p_{ref} \,\|\, p_{q}) = \sum_v p_{ref}(v) \log \frac{p_{ref}(v)}{p_q(v)} \ge 0$. Being non-negative at every position, it cannot cancel out across positions. This direction weighs most heavily the tokens the original model considers likely, which are the ones that matter for generation.
+- **Top-1 agreement** (equivalently, the rate of "flips"): would greedy decoding pick the same token? By Pinsker's inequality, total variation is at most $\sqrt{D_{\text{KL}}/2}$, so a small KL bounds how much probability can move; a flip still happens whenever the top two tokens were nearly tied, which is why even bf16 shows a few percent of flips.
+
+Dutta et al. (2024), *Accuracy is Not All You Need*, made this point for benchmarks: a quantized model can match the original's accuracy while changing a large share of individual answers (right answers become wrong and vice versa), and they recommend KL divergence and flips as the primary fidelity metrics. Use these to compare formats cheaply, then confirm on your task metric.
+
+### Common failure modes
+
+- **Outliers** with per-tensor or per-channel scales (section 1).
+- **Very low bit widths with RTN** (2-3 bits): the model collapses, as int2 does below.
+- **Specific skills break first**: math, code, long-context retrieval and non-English languages often degrade while perplexity on generic English looks fine.
+- **Calibration mismatch**: GPTQ and AWQ calibrated on generic text can underperform on a very different domain.
+- **No fused kernel**: the memory shrinks, but the speed stays the same or gets worse, because the weights are unpacked to bf16 before every matmul.
+
+### Key papers
+
+- Jacob et al. (2018), *Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference*.
+- Nagel et al. (2021), *A White Paper on Neural Network Quantization*.
+- Dettmers, Lewis, Belkada, Zettlemoyer (2022), *LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale*.
+- Dettmers, Pagnoni, Holtzman, Zettlemoyer (2023), *QLoRA: Efficient Finetuning of Quantized LLMs*.
+- Frantar, Ashkboos, Hoefler, Alistarh (2023), *GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers*.
+- Lin et al. (2024), *AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration*.
+- Xiao et al. (2023), *SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models*.
+- Micikevicius et al. (2022), *FP8 Formats for Deep Learning*.
+- Dettmers & Zettlemoyer (2023), *The case for 4-bit precision: k-bit Inference Scaling Laws*.
+- Ashkboos et al. (2024), *QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs*.
+- Ma et al. (2024), *The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits*.
+- Dutta et al. (2024), *Accuracy is Not All You Need*.
+''')
 nb.code(SETUP_HF)
 nb.md(r'''
 ## 1. Under the hood: absmax, blocks and NF4
@@ -26,6 +143,8 @@ Symmetric **absmax** quantization to *b* bits maps a group of weights to integer
 $$s = \frac{\max|w|}{2^{b-1}-1},\qquad q = \mathrm{round}(w/s),\qquad \hat w = s\,q$$
 
 One large weight sets the scale for its whole group, and every other weight in the group is rounded coarsely. Real LLM weights do have outliers. Let's look at a real matrix: the first MLP down-projection of SmolLM2-135M.
+
+**A back-of-the-envelope prediction.** Suppose the largest weight is $k$ standard deviations from zero. With 4 bits, symmetric absmax has 7 positive levels, so the step is $s = k\sigma/7$. Any weight smaller than $s/2$ in magnitude is rounded to exactly zero. For $k = 15$ that threshold is about $1.07\sigma$, and for roughly normal weights about 70 % of them fall below it: most of the matrix would simply vanish. With 8 bits the step is $k\sigma/127$, 18 times finer, which is why 8-bit survives a per-tensor scale and 4-bit does not. Smaller blocks fix this because most blocks do not contain the outlier, so their own $k$ is much smaller.
 ''')
 nb.code(r'''
 small = from_pretrained(AutoModelForCausalLM, "HuggingFaceTB/SmolLM2-135M-Instruct", dtype=torch.float32)
@@ -79,6 +198,8 @@ nb.md(r'''
 [`optimum-quanto`](https://github.com/huggingface/optimum-quanto) quantizes any PyTorch model in two calls: `quantize(model, weights=qint4)` swaps every `nn.Linear` for a `QLinear`, and `freeze(model)` replaces the float weights by packed integers plus scales. Under the hood it does what we just did: int8 and float8 use per-output-channel scales; int4 and int2 use groups of 128 weights with a scale and a zero-point each (affine instead of symmetric). Activations stay in bf16 (this is called **W8A16 / W4A16**). Quantizing activations too (`activations=qint8`) needs a calibration pass and pays off mostly on hardware with int8/fp8 matmuls.
 
 We keep `lm_head` in bf16: in SmolLM2 it is tied to the input embedding, and the output layer is the most sensitive one.
+
+**What happens inside a W4A16 layer.** Two int4 values are packed into each byte (four int2 values for int2). At every forward pass the kernel reads the packed bytes, unpacks them, applies $\hat w = s\,(q - z)$ group by group to get bf16 weights, and runs an ordinary bf16 matmul with the bf16 activations. The arithmetic is unchanged; what shrinks is the memory footprint and, with a fused kernel that dequantizes in registers right before the multiply, the bytes read from GPU memory. Without such a kernel the dequantized weights are materialized first, so the layer does *more* work than a plain bf16 layer. That distinction explains the speed results later in this notebook.
 
 > **Windows note.** For int4/int2, quanto unpacks the weights with a C++/CUDA kernel that it compiles on first use, which needs `ninja` and a C++ compiler. When those are missing, the cell below routes the op to an equivalent pure-PyTorch implementation (the same code as quanto's own reference version). It is slower, but it gives the same numbers.
 ''')
@@ -135,6 +256,8 @@ For each quantized model and every position of the held-out text:
 - **KL(fp32 ‖ quant)** $=\sum_v p_{\text{fp32}}(v)\,\log\frac{p_{\text{fp32}}(v)}{p_{\text{quant}}(v)}$, averaged over positions: how far the *whole* next-token distribution moved. `llama.cpp` reports exactly this for its GGUF quants;
 - **top-1 agreement**: the % of positions where both models' most likely token is the same. Roughly: "would greedy decoding say the same thing?";
 - **weight memory** (bytes on the GPU) and **decode speed** (tokens per second, batch 1, greedy, 64 new tokens).
+
+**Implementation notes.** Every model's log-probabilities are converted to fp32 on the CPU before comparison, so the metric itself adds no rounding of its own. The KL is computed from log-probabilities, $\sum_v e^{\log p_{ref}(v)}\big(\log p_{ref}(v) - \log p_q(v)\big)$, which is numerically stable even when some probabilities are tiny. The reference is fp32 rather than bf16 because we want to see the cost of each format relative to the original trained model, including the cost of bf16 itself. Perplexity is measured against the real next tokens; KL and top-1 agreement need no labels at all, only the two models, so they can be computed on any text that looks like your traffic.
 ''')
 nb.code(r'''
 def drift(lp):
@@ -215,7 +338,7 @@ nb.md(r'''
 | **GPTQ** (`GPTQModel`) | quantizes layer by layer, using a small calibration set and second-order (Hessian) information to compensate the rounding error | 4-bit checkpoints served with fast W4A16 kernels (Marlin, ExLlama) in vLLM / TGI |
 | **AWQ** (`AutoAWQ`, `llm-compressor`) | finds the ~1 % of channels with large *activations* and scales them before quantizing, so their weights lose less precision | 4-bit serving in vLLM; often a little better than GPTQ at the same size |
 | **GGUF** (`llama.cpp`, Ollama, LM Studio) | k-quants: blocks of 32/256 weights with nested scales, 2–8 bits (`Q4_K_M`, `Q5_K_M`, `Q8_0`…) | CPU, Apple Silicon and consumer GPUs. The `qwen2.5:3b` model this course runs in Ollama is a `Q4_K_M` GGUF |
-| **FP8** (`llm-compressor`, TensorRT-LLM, vLLM) | 8-bit floating point weights *and* activations, with native matmuls on Hopper / Ada / Blackwell GPUs | the default for large-scale serving: almost lossless, about 2× the throughput of bf16 |
+| **FP8** (`llm-compressor`, TensorRT-LLM, vLLM) | 8-bit floating point weights *and* activations, with native matmuls on Hopper / Ada / Blackwell GPUs | the default for large-scale serving: almost lossless, up to about 2× the throughput of bf16 when serving is compute-bound (the gain depends on the GPU and the workload) |
 | **torchao** | PyTorch-native int8 / int4 / fp8 (weights and activations), works with `torch.compile` | PyTorch serving and quantization-aware training |
 | **KV-cache quantization** | stores the attention cache in fp8 / int8 | long contexts, where the cache can be bigger than the weights |
 

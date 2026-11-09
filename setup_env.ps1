@@ -11,7 +11,7 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
 } else {
     & $py -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 }
-& $py -m pip install -r requirements-dev.txt
+& $py -m pip install -r requirements.txt
 & $py -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
 
 # Local LLMs for notebooks 10-16 (Ollama). Install it from https://ollama.com if it is missing.

@@ -29,10 +29,10 @@ The number is the suggested study order; the folder is the topic.
 | **Pre-training & inference** | [05 · pre-training](notebooks/02_pretraining_and_inference/05_pretraining.ipynb) | the training pipeline, LR schedules, irreducible loss, scaling curves | PyTorch (from scratch) |
 | | [06 · inference & serving](notebooks/02_pretraining_and_inference/06_inference_serving.ipynb) | sampling, KV-cache, speculative decoding, batching, TTFT | PyTorch (from scratch) |
 | | [09 · quantization](notebooks/02_pretraining_and_inference/09_quantization.ipynb) | int8 / float8 / int4 / int2 on a real model, measured with KL and top-1 agreement | `optimum-quanto` |
-| **Post-training** | [07 · SFT, LoRA, distillation](notebooks/03_post_training/07_finetuning_sft_lora.ipynb) | chat templates and loss masking, full SFT vs LoRA, the new-token trap, rank ablation, teacher → student | `transformers`, `peft`, `trl` |
+| **Post-training** | [07 · SFT, LoRA, distillation](notebooks/03_post_training/07_finetuning_sft_lora.ipynb) | chat templates and loss masking, full SFT vs LoRA vs QLoRA (4-bit NF4), the new-token trap, rank ablation, teacher → student | `transformers`, `peft`, `trl`, `bitsandbytes` |
 | | [08 · DPO & GRPO](notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb) | preference tuning, likelihood displacement, DPO + NLL, RL with verifiable rewards | `trl` |
 | **Applications** | [10 · RAG](notebooks/04_applications/10_rag.ipynb) | loaders, splitters, FAISS, BM25, hybrid RRF, LCEL chains with citations, RAGAS | LangChain, RAGAS |
-| | [12 · recommender systems](notebooks/04_applications/12_recommender_systems.ipynb) | SASRec as next-item prediction, embeddings, LLM re-ranking (measured) | PyTorch, LangChain |
+| | [12 · recommender systems](notebooks/04_applications/12_recommender_systems.ipynb) | the industry funnel on MovieLens-1M: SASRec, two-tower + FAISS, LambdaMART ranker, exploration and diversity, LLM requests and explanations | PyTorch, FAISS, LightGBM, LangChain |
 | | [13 · LLM application patterns](notebooks/04_applications/13_modern_llm_applications.ipynb) | extraction, classification, map-reduce summarization, caching, prompt-injection defense, batch jobs | LangChain |
 | **Agents & MCP** | [11 · tools & structured output](notebooks/05_agents_and_mcp/11_agents_tools_structured_output.ipynb) | how tool calling works, `bind_tools`, the loop by hand, `create_agent`, Pydantic outputs | LangChain |
 | | [14 · agentic AI](notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) | StateGraph, guardrails, human-in-the-loop, memory, plan-and-execute, reflection, routing | LangGraph |
@@ -51,11 +51,13 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 03 · efficient attention | long-range copy accuracy: **dense 99.9%, block-sparse 88.7%, hybrid 48.4%, sliding window and linear ~0%**; at 300 steps even dense is at 0.3% (the induction-head phase transition) |
 | 06 · inference | speculative decoding accepts **98% of draft tokens, ~4.6 tokens per target forward pass** |
 | 07 · SFT & LoRA (SmolLM2-135M) | few-shot 17.5% → **full SFT 35%**, LoRA r=16 32.5% training 3.5% of the parameters, r=64 45%. A new special token with frozen embeddings is **never emitted (0%)**; with `modules_to_save` it is emitted **100%** of the time |
+| 07 · QLoRA | the same LoRA on a 4-bit NF4 base: **no loss of quality** (37.5% vs 32.5% exact, same 86.5% of fields), weights 269 → 110 MB; for a 7B model the frozen weights drop from 14 GB to 3.6 GB |
 | 07 · distillation | a 360M teacher (87.5%) labels 600 extra prompts; the 135M student rises from 35% to **55%** |
 | 08 · DPO & GRPO | plain DPO wins its training metric but **drops exact match from 30% to 7.5%** (likelihood displacement); DPO + NLL holds 32.5%. **GRPO lifts arithmetic from 5% to 46% in 40 steps** with no labels, only a verifier |
 | 09 · quantization (SmolLM2-360M) | int8 and float8 keep ~96% top-1 agreement at 0.41 GB; int4 drops to 73% (KL 0.27); int2 breaks the model. Perplexity hides what KL shows |
-| 10 · RAG + RAGAS | hybrid BM25 + dense retrieval: **evidence MRR 0.84** vs 0.73 dense-only; RAGAS context precision 0.76 → 0.84, faithfulness 0.38 → 0.54 (3B judge, noisy) |
+| 10 · RAG + RAGAS | hybrid BM25 + dense retrieval: **evidence MRR 0.84** vs 0.73 dense-only. RAGAS with a 7B judge and bootstrap intervals: the one clear gain is **context precision 0.79 → 0.92**; the faithfulness "gain" a 3B judge reported (0.38 → 0.54) was the judge's noise |
 | 11 · tool calling | 79% tool selection and 86% valid arguments on 14 labelled requests; `function_calling` / `json_mode` 98% field accuracy vs 85% for `json_schema` on Ollama |
+| 12 · recommender (MovieLens-1M) | full-ranking hit@10: popularity 0.036, ItemKNN 0.125, two-tower 0.194, SASRec 0.293, **LambdaMART ranker 0.307** (+1.4 points, 95% CI [+0.7, +2.1]); a new-movie slot lifts cold-start hits 0.009 → 0.044; an LLM front end satisfies request constraints in **87% vs 60%** for embedding search, while LLM keywords did not help ranking |
 | 13 · application patterns | map-reduce summary covers **11/13 topics** vs 9/13 for one silently truncated call (6/13 in another run); an LLM injection guard catches **10/10 attacks with 0/10 false positives** |
 | 14 · LangGraph agents | every guardrail stops with an explicit reason; ReAct beats plan-and-execute on 10 short tasks (80% vs 60%) with a third of the model calls |
 | 15 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback surfaced a real tool-prompt bug |
@@ -105,7 +107,8 @@ llm-edu-suite/
 ├── scripts/                   mini_llm, train, sample, finetune (TRL), rag_demo (LangChain), mcp_server (FastMCP)
 ├── tests/                     fast tests with fake LLMs + Ollama-marked integration tests
 ├── tools/notebooks/           one generator per notebook (the source of truth) + CONVENTIONS.md
-├── data/                      knowledge base and labelled eval sets for RAG, LangSmith and MCP
+├── data/                      knowledge base and eval sets (RAG, LangSmith, MCP, recommender), LLM item keywords;
+│                              data/cache/ holds downloaded datasets (MovieLens, git-ignored)
 └── docs/es/  docs/en/         full documentation in Spanish and English
 ```
 
@@ -116,7 +119,7 @@ llm-edu-suite/
 - **Understand the inside, then use the real tool.** The model is built by hand because that is how attention, RoPE or a KV-cache stop being magic. Applications are built with the frameworks you will meet at work, using their current APIs.
 - **Everything is evaluated.** Each notebook ends with the metric a practitioner would report: perplexity, exact match, hit@k / MRR, RAGAS scores, tool-selection accuracy, KL divergence, latency percentiles, judged correctness.
 - **Local first.** Ollama + small Hugging Face models: anyone can reproduce the course on a laptop, offline, for free.
-- **Honest.** Negative results stay in (an LLM re-ranker that hurts, plain DPO that degrades the model, a small judge that is noisy), each with the explanation of why.
+- **Honest.** Negative results stay in (plain DPO that degrades the model, a small judge that invents effects, LLM keywords that do not help a recommender), each with the explanation of why. A component only enters a system if it beats the previous one on held-out data.
 
 ## Roadmap
 
@@ -124,11 +127,12 @@ llm-edu-suite/
 - [x] v1: everything from scratch, verified ([tag `v1.0-from-scratch`](https://github.com/ZoodiacR/llm-edu-suite/tree/v1.0-from-scratch))
 - [x] v2: application layer on Hugging Face, LangChain, LangGraph, LangSmith, RAGAS and the MCP SDK; local models through Ollama
 - [x] Topic-organized notebooks, one generator per notebook, bilingual docs, CI with fake LLMs
+- [x] v2.1: theory sections in every notebook and a bilingual foundations guide; recommender rebuilt on MovieLens-1M as an industry funnel; QLoRA; a 7B judge with bootstrap intervals; dependencies in `pyproject.toml` only
 
 **Next**
-- [ ] A bigger-model track (Qwen2.5-1.5B / 3B with QLoRA via `bitsandbytes`) for the post-training notebooks
+- [ ] A bigger-model track (Qwen2.5-1.5B / 3B with the QLoRA recipe of notebook 07) for the post-training notebooks
 - [ ] Serving notebook with vLLM: continuous batching, prefix caching, measured TTFT and throughput
-- [ ] RAG at scale: a vector database (Qdrant / pgvector), cross-encoder rerankers, RAGAS with a stronger judge
+- [ ] RAG at scale: a vector database (Qdrant / pgvector), cross-encoder rerankers
 - [ ] Deploying a LangGraph agent as a service, with LangSmith monitoring dashboards
 - [ ] Remote MCP server over Streamable HTTP with OAuth
 - [ ] "Open in Colab" for every notebook and a dev container
@@ -140,6 +144,7 @@ llm-edu-suite/
 | Index | [docs/es/README.md](docs/es/README.md) | [docs/en/README.md](docs/en/README.md) |
 | Installation & environment (Ollama, `.env`, LangSmith, GPU) | [instalacion.md](docs/es/instalacion.md) | [installation.md](docs/en/installation.md) |
 | Notebook guide | [guia_notebooks.md](docs/es/guia_notebooks.md) | [notebooks_guide.md](docs/en/notebooks_guide.md) |
+| Theory foundations: why each technique exists, how it works, what it replaced | [fundamentos.md](docs/es/fundamentos.md) | [foundations.md](docs/en/foundations.md) |
 | Module reference (`llm_edu_suite`) and where each topic is taught | [referencia_modulos.md](docs/es/referencia_modulos.md) | [module_reference.md](docs/en/module_reference.md) |
 | Command-line scripts | [scripts_cli.md](docs/es/scripts_cli.md) | [cli_scripts.md](docs/en/cli_scripts.md) |
 | Case study (portfolio write-up) | [caso_de_estudio.md](docs/es/caso_de_estudio.md) | [case_study.md](docs/en/case_study.md) |

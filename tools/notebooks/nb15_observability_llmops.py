@@ -87,7 +87,7 @@ nb.md(r'''
 
 An LLM application fails in ways ordinary monitoring does not see. A hallucinated answer still returns `HTTP 200`. A prompt change quietly doubles the token bill. One slow tool drags the p99 latency. A retrieval regression lowers answer quality for a week before a customer complains. **Observability** means recording enough about every request to answer, after the fact: *what happened, how long did it take, what did it cost, and how good was it?*
 
-**LangSmith** is LangChain's observability and evaluation platform, and its data model is the one shared by Langfuse, Arize Phoenix and the OpenTelemetry GenAI conventions:
+**LangSmith** is LangChain's observability and evaluation platform, and its data model is very close to the ones used by Langfuse, Arize Phoenix and the OpenTelemetry GenAI conventions (similar concepts, not identical schemas):
 
 | concept | what it is |
 |---|---|
@@ -102,6 +102,72 @@ An LLM application fails in ways ordinary monitoring does not see. A hallucinate
 In this notebook we instrument a small support assistant (a LangGraph RAG graph plus a tool), send it some traffic, and then use the LangSmith SDK the way an on-call engineer would: latency percentiles, tokens, error rate, SLOs, online scores, PII redaction, sampling, export, and an offline experiment comparing two versions of the app.
 
 **Without a LangSmith key** the notebook still runs: the app works, the evaluators run locally, and the cells that need the LangSmith server print that they were skipped. Add `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` to `.env` to see everything.
+''')
+nb.md(r'''
+## Background: observability for systems whose output is text
+
+### Why LLM applications need their own kind of monitoring
+
+Classical monitoring rests on the assumption that a request either succeeds or fails, and that a success is correct. LLM applications break that assumption in several ways at once:
+
+- **Failures are semantic.** A wrong, ungrounded or unsafe answer is a successful HTTP response. Only something that reads the content can detect it.
+- **Behaviour is non-deterministic and input-dependent.** The same code path produces different outputs for paraphrased inputs, and a provider can change a hosted model under the same name.
+- **Requests are multi-step.** One user message can trigger retrieval, several model calls and tool calls. A slow or wrong answer has to be attributed to a step.
+- **Cost is proportional to tokens**, and tokens depend on prompts, retrieved context and conversation length, all of which change with every release.
+- **Quality is a distribution, not a bit.** "Is the app better after this change?" is a statistical question over many requests.
+
+LLMOps therefore combines two traditions: **distributed tracing** from site-reliability engineering (what happened, where the time went) and **evaluation** from machine learning (how good the outputs are), applied continuously to production traffic.
+
+### Traces and spans: where the data model comes from
+
+The trace/span model comes from Google's **Dapper** (Sigelman et al., 2010, *Dapper, a Large-Scale Distributed Systems Tracing Infrastructure*). A **trace** is the record of one request; it is a tree of **spans**, each a timed operation with a parent. The key mechanism is **context propagation**: when a span starts a child operation, it passes along the trace id and its own span id, so the child can attach itself to the right parent, even across threads, processes or services. Dapper's ideas went into Zipkin, then OpenTracing and OpenCensus, which merged in 2019 into **OpenTelemetry** (OTel), today's vendor-neutral standard for traces, metrics and logs.
+
+LangSmith's *runs* are spans with LLM-specific fields (inputs and outputs as messages, token usage, `run_type`). Inside one Python process the "context" is a context variable holding the current run; across processes LangSmith propagates it through headers, exactly as OTel does. The `dotted_order` field you will see in section 2 encodes the path from the root to each run (start time plus id at each level), so sorting by it reproduces the tree.
+
+### The OpenTelemetry GenAI semantic conventions
+
+A trace is only portable if everyone names things the same way. OTel's **GenAI semantic conventions** define standard span names and attributes for model calls, for example:
+
+| attribute | meaning |
+|---|---|
+| `gen_ai.operation.name` | `chat`, `embeddings`, `execute_tool`, `invoke_agent`, ... |
+| `gen_ai.provider.name` | the provider (earlier versions called this `gen_ai.system`) |
+| `gen_ai.request.model`, `gen_ai.response.model` | the model asked for and the model that answered |
+| `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | token counts |
+| `gen_ai.request.temperature`, `gen_ai.request.max_tokens` | sampling parameters |
+
+They also define metrics such as the client operation duration, token usage and, for servers, time to first token. The conventions were still marked as *in development* at the time of writing, and attribute names have changed between versions (as `gen_ai.system` did), so check the current version before building dashboards on them. Their importance is strategic: an application instrumented with them can send its traces to LangSmith, Langfuse, Arize Phoenix, Datadog or Grafana without code changes, and LangSmith both exports and accepts OTel traces (section 11).
+
+### Signals: traces, metrics, logs, and feedback
+
+Observability is usually described with three kinds of telemetry: **traces** (the structure and timing of a request), **metrics** (aggregated numbers over time, cheap to store and alert on) and **logs** (discrete events). LLM systems add a fourth: **feedback**, a score attached to a trace after the fact, coming from users, heuristics, LLM judges or human reviewers. Feedback is what turns traces into a quality signal, and it is the link between monitoring and evaluation.
+
+### Offline and online evaluation
+
+| | offline evaluation | online evaluation |
+|---|---|---|
+| when | before a change ships | continuously, on production traffic |
+| data | a fixed, labelled dataset | real requests, usually without reference answers |
+| evaluators | reference-based (exact match, key facts, LLM judge with a reference) | reference-free (groundedness, format checks, judge without reference, user feedback) |
+| answers the question | is version B better than version A on the cases we care about? | is production healthy today, and which traces should a human read? |
+| main risk | the dataset stops representing real traffic | cheap signals are noisy; expensive ones can only run on a sample |
+
+The two feed each other: bad production traces, once reviewed and labelled, become new dataset examples, so the offline set tracks what users actually ask. This loop is the core workflow of LLMOps.
+
+### LLM-as-judge in brief
+
+Many qualities (correctness of free text, helpfulness, tone) have no cheap deterministic metric. **LLM-as-judge** uses a strong model with a rubric as the evaluator. Zheng et al. (2023, *Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena*) showed that strong judges agree with human preferences about as often as humans agree with each other, and also documented the biases that come with it: **position bias**, **verbosity bias** and **self-enhancement bias**. Section 10 discusses them and their mitigations next to the code.
+
+### Key references
+
+- Sigelman et al., 2010. *Dapper, a Large-Scale Distributed Systems Tracing Infrastructure.* Google technical report.
+- OpenTelemetry. *Semantic conventions for generative AI systems* (opentelemetry.io, versioned with the OTel semantic conventions).
+- Dean and Barroso, 2013. *The Tail at Scale.* Communications of the ACM.
+- Beyer, Jones, Petoff and Murphy (eds.), 2016. *Site Reliability Engineering*, chapter "Service Level Objectives". O'Reilly.
+- Zheng et al., 2023. *Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena.*
+- Liu et al., 2023. *G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment.*
+- Wang et al., 2023. *Large Language Models are not Fair Evaluators.*
+- Verga et al., 2024. *Replacing Judges with Juries: Evaluating LLM Generations with a Panel of Diverse Models.*
 ''')
 nb.code(setup_apps("llm-edu-suite-15-observability"))
 nb.code(r'''
@@ -357,6 +423,26 @@ n_err = sum(r["error"] is not None for r in records)
 print(f"{len(records)} requests in {sum(r['wall_s'] for r in records):.1f}s, {n_err} failed")
 ''')
 nb.md(r'''
+### Latency distributions and why percentiles
+
+Request latency is almost never normally distributed. It is bounded below (no request is faster than the minimal work) and has a long right tail: occasional requests hit a cold cache, a queue, a garbage-collection pause or, for LLMs, a long generation. For an LLM call the latency decomposes roughly as
+
+$$
+T \;\approx\; T_{\text{queue}} + T_{\text{prefill}} + n_{\text{out}} \cdot T_{\text{per token}},
+$$
+
+where the prefill time (reading the prompt) grows with the input length and shows up as **time to first token** (TTFT), and the decode time grows linearly with the number of output tokens $n_{\text{out}}$. Output length varies a lot from request to request, and queueing adds bursts, so the tail is long by construction.
+
+In such a distribution the **mean** is a poor summary: a handful of slow requests can pull it far from what a typical user experiences, and it says nothing about the slow requests themselves. **Percentiles** answer the questions people actually ask. The p50 (median) is the typical experience; the p95 says "1 request in 20 is slower than this"; the p99 describes the tail that triggers timeouts and complaints.
+
+The tail matters more than its share of requests suggests. Dean and Barroso (2013, *The Tail at Scale*) pointed out that when one user action fans out to many calls, the slowest call sets the pace. If a page needs 100 backend calls and each is slow 1% of the time, the page is slow with probability $1 - 0.99^{100} \approx 63\%$. Agents have exactly this structure: one answer may need several model and tool calls in sequence, so the p99 of each step becomes the experience of many users.
+
+Two practical consequences:
+
+- **Percentiles need many samples.** The p95 of 18 requests is decided by the one or two slowest of them, and it jumps around from run to run. An estimate of the p99 is only meaningful with many hundreds of requests per window.
+- **Percentiles cannot be averaged.** The mean of hourly p95s is not the daily p95. Monitoring systems therefore store histograms or mergeable sketches (HDR histograms, t-digest by Dunning, DDSketch by Masson et al. 2019) and compute percentiles from the merged data.
+''')
+nb.md(r'''
 Now the monitoring query: every run with this execution's `traffic` tag (roots and children), grouped by `run_type`. Latency is reported as **percentiles**. The mean hides the slow tail that users feel and that trips timeouts; p95 says "1 request in 20 is slower than this".
 
 LangSmith fills `total_cost` only when it knows the model's price (it has a price table for hosted models and lets you add your own in the UI). A local Ollama model has no price, so for illustration we price the tokens at a typical small hosted model, $0.15 per million input tokens and $0.60 per million output tokens.
@@ -416,6 +502,21 @@ nb.md(r'''
 
 A **service-level objective** states what "healthy" means, for example: 95 % of requests answer in under 4 s, fewer than 5 % fail, and a request uses fewer than 600 tokens on average. In production the same query runs every few minutes over a sliding window, and an alert fires when a window breaks the SLO. LangSmith can also do this itself through *automation rules* and *alerts* on a project.
 ''')
+nb.md(r'''
+### SLIs, SLOs, SLAs and error budgets
+
+The vocabulary comes from Google's *Site Reliability Engineering* book (Beyer et al., 2016):
+
+| term | meaning | example |
+|---|---|---|
+| **SLI** (indicator) | a measured quantity, usually a ratio of good events to all events | share of requests answered in under 4 s |
+| **SLO** (objective) | the target for an SLI over a time window | 95 % of requests under 4 s, over 28 days |
+| **SLA** (agreement) | a contract with consequences if the objective is missed | credits to a customer below 99 % availability |
+
+The idea that makes SLOs useful is the **error budget**: a 99 % objective explicitly allows 1 % of bad events. While the budget lasts, the team can ship risky changes; when it is spent, reliability work comes first. Alerting is then based on the **burn rate**, how fast the budget is being consumed, typically checked over a short and a long window together so that a brief spike does not page anyone but a sustained one does.
+
+LLM applications add SLIs that classical services do not have: time to first token (what users perceive in a streaming UI), tokens or cost per request, the share of answers that pass a groundedness or format check, the refusal rate, and the share of runs that end by hitting a step limit instead of answering. They are all ratios or distributions over requests, so the same SLO machinery applies.
+''')
 nb.code(r'''
 SLOS = {"p95 latency (s)": (req["p95"], 4.0), "error rate": (error_rate, 0.05),
         "tokens per request": ((tok_in + tok_out) / len(records), 600)}
@@ -434,6 +535,23 @@ Latency and cost are easy to measure; **quality** is what users care about. In p
 - **LLM-as-judge** online evaluators on a sample, configurable in the LangSmith UI as *automation rules*.
 
 `client.create_feedback(run_id, key, score=..., trace_id=..., session_id=project_id)` attaches the score to the root run. Giving `trace_id` lets the SDK upload feedback in the background batch; `session_id` (the project id) is what recent LangSmith versions need to locate the run. Then we can query by feedback, which is the daily debugging loop of an LLM team: *show me the traces with the worst scores*.
+''')
+nb.md(r'''
+### Choosing online quality signals
+
+Without reference answers, online evaluation trades cost against fidelity. A useful way to organise the options is a pyramid, from cheap signals on all traffic to expensive ones on a sample:
+
+| signal | cost per trace | coverage | what it catches |
+|---|---|---|---|
+| deterministic checks (format, length, banned strings, word-overlap groundedness) | microseconds | 100 % | broken formats, obvious hallucinations, leaks |
+| small-model checks (an NLI model or embedding similarity between answer and context) | milliseconds | most traffic | statements not supported by the context |
+| LLM-as-judge without a reference | a model call | a sample | relevance, faithfulness, tone |
+| implicit user signals (regenerate, copy, abandon, rephrase) and explicit thumbs | free, but sparse and biased toward unhappy users | whatever users give | dissatisfaction |
+| human review | minutes | a small queue, usually the worst-scored traces | ground truth, new failure categories |
+
+Our groundedness score is the cheapest kind: a lexical overlap that ignores meaning, so it flags paraphrases as unsupported and misses a wrong number that happens to appear in the context. Model-based faithfulness metrics (for example RAGAS faithfulness, notebook 10) split the answer into claims and check each against the context; they are more accurate and far more expensive.
+
+When a signal runs on a random sample of $n$ traces and finds a rate $\hat p$, its standard error is about $\sqrt{\hat p(1-\hat p)/n}$. A judge on 100 traces a day measures a 10 % failure rate to within roughly ±6 points (95 % interval); enough to see a large regression, not a small one. Feedback is attached to a specific run id, which is why the traffic loop above fixed one per request.
 ''')
 nb.code(r'''
 for r in records:
@@ -475,6 +593,21 @@ sample = {"question": "Hi, I'm Ana (ana.lopez@example.com, +51 987 654 321). My 
 print(redact(dict(sample))["question"])
 ''')
 nb.md(r'''
+### Principles behind PII handling in traces
+
+Traces are a copy of user data with a different purpose (debugging and evaluation) and a different audience (engineers, vendors). Data-protection law treats that copy like any other: the GDPR's principles of **data minimisation** (collect only what the purpose needs), **purpose limitation** and **storage limitation** (keep it only as long as needed) all apply to observability data. Three families of techniques, from strongest to weakest protection:
+
+| technique | what it does | keeps |
+|---|---|---|
+| **drop** (`hide_inputs` / `hide_outputs`) | the payload is never sent | timing, tokens, errors |
+| **redact / mask** (our anonymizer) | detected values are replaced by a type label such as `<email>` | the text around them, so traces stay readable |
+| **pseudonymise** | each value is replaced by a consistent token (`<email_17>`) or a keyed hash | the ability to group traces by user without seeing who it is; legally still personal data, because the mapping exists |
+
+Detection is the hard part. **Regular expressions** are fast and precise for values with a fixed structure (emails, card numbers, which can also be checked with the Luhn checksum, phone numbers, API keys with a known prefix), and blind to everything else. **Named-entity recognition** models (Microsoft Presidio combines both approaches) find names, addresses and organisations, at the cost of latency and of false positives and negatives. In practice teams combine them and accept that detection has a recall below 100 %, which is one more reason to limit who can read traces and for how long they are kept.
+
+Finally, decide *where* to redact. Redacting in the tracing client protects the trace store. Redacting before the model call also protects the model provider, and redacting at the edge of the system protects everything downstream, at the price of the model never seeing the original value.
+''')
+nb.md(r'''
 Now we trace a request through a client that has the anonymizer, and read back what LangSmith actually stored.
 ''')
 nb.code(r'''
@@ -500,6 +633,22 @@ The email, the phone number, the card number and the API key are replaced in the
 ## 9. Sampling: keeping a fraction of the traces
 
 At high traffic you do not need every trace, and each one costs storage. `LANGSMITH_TRACING_SAMPLING_RATE=0.1` (read when a `Client` is created, so set it before the first trace) or `Client(tracing_sampling_rate=0.1)` keeps that fraction of **traces**. The decision is a hash of the trace id, so a trace is kept or dropped as a whole, never half of it. Errors are sampled like everything else, so teams that need every failure also log errors elsewhere or use a higher rate.
+''')
+nb.md(r'''
+### Head-based and tail-based sampling
+
+Tracing systems distinguish two moments at which the keep-or-drop decision can be made:
+
+| | head-based sampling | tail-based sampling |
+|---|---|---|
+| decided | when the trace starts | after the trace has finished |
+| based on | the trace id or a random draw, nothing about the outcome | anything in the trace: errors, latency, feedback, route |
+| cost | negligible; dropped traces are never sent | every span must be buffered until the trace completes, usually in a collector (for example the OpenTelemetry Collector's tail-sampling processor) |
+| keeps all errors? | no, errors are sampled at the same rate as successes | yes, if the policy says so |
+
+LangSmith's client-side rate is head-based, which is why errors are sampled like everything else. The decision is made per trace, so a kept trace is always complete; dropping individual spans would leave trees with holes.
+
+Uniform sampling keeps aggregate metrics unbiased: a rate measured on the kept traces estimates the rate on all traffic, and counts are recovered by dividing by the sampling rate. What suffers is rare events, whose counts in the sample become small and noisy. A common production compromise is to keep a small random fraction of everything plus every error and every trace with negative feedback, which requires the tail-based decision or a second, separate logging path for failures.
 ''')
 nb.code(r'''
 @traceable(name="tiny_request")
@@ -551,12 +700,52 @@ else:
     print("LangSmith off: the experiments below run locally on the same", len(ds_examples), "examples")
 ''')
 nb.md(r'''
+### How much can a small dataset tell you?
+
+An experiment estimates a proportion (the share of correct answers) from $n$ examples. Its standard error is about $\sqrt{p(1-p)/n}$, which is at most $0.5/\sqrt{n}$. With $n = 12$ that is up to about 0.14, so a 95 % interval spans roughly ±0.28 around the measured value; with $n = 100$ it shrinks to about ±0.10. A dataset of a dozen examples can show a large effect, such as a capability that one version has and the other lacks, but not a difference of a few points.
+
+Two habits extract more from a small set:
+
+- **Compare versions on the same examples** (a *paired* design). Most of the variation in a score comes from how hard each example is; running both versions on the same examples cancels it. For binary scores the matching significance test, McNemar's test, looks only at the **discordant pairs**, the examples where one version is right and the other wrong; the examples both get right or both get wrong carry no information about which is better.
+- **Look at the per-example table**, not only at the averages. The examples that change verdict between versions are where the explanation is.
+
+What goes into the dataset matters as much as its size: the common intents, the known edge cases, adversarial inputs, and every production failure that has been fixed (a regression set). Keep it versioned, so an experiment is always tied to the exact examples it ran on, and keep it out of anything used for prompt tuning, or the scores measure memorisation of the test set.
+''')
+nb.md(r'''
 **The two versions.** `closed_book` asks the model directly, with only a system prompt saying it is the shop's assistant. `rag` is our graph. The company's policies are fictional, so a closed-book model can only guess; this is the comparison a team runs when deciding whether retrieval earns its latency.
 
 **The evaluators** follow LangSmith's signature: a function of any of `inputs`, `outputs`, `reference_outputs` (and `run`, `example`) that returns a score, here `{"key", "score", "comment"}`.
 - `exact_match`: the answer equals the reference after normalising case and punctuation. Free-text answers almost never match exactly; we include it to show why it is the wrong metric here.
 - `contains_fact`: every key fact (`must_contain`) appears in the answer. Cheap and deterministic, but blind to phrasing it did not anticipate.
 - `correctness`: an **LLM-as-judge**. The local `qwen2.5:3b` with structured output (a `Grade` with `reasoning` then `correct`) compares the answer with the reference, using a strict rubric. Putting the reasoning first lets the model think before it decides.
+''')
+nb.md(r'''
+### LLM-as-judge: designs, biases and mitigations
+
+**Three designs.** A **pointwise** judge scores one answer on a rubric. A **pairwise** judge sees two answers and picks the better one, which is closer to how humans compare and is what Chatbot Arena-style rankings use. A **reference-guided** judge compares the answer with a known correct answer, which is much more reliable for factual questions because the judge does not have to know the answer itself. Our `correctness` evaluator is pointwise and reference-guided, with a binary verdict.
+
+**Why it works at all.** Grading is usually easier than generating: checking that an answer states the same number as a reference is a simpler task than producing that number from documents. A judge that is at least as strong as the system it grades, with a narrow rubric, can therefore be accurate enough to replace a large share of human labelling. Zheng et al. (2023) found that strong judges agree with human preferences at a level comparable to the agreement between human annotators.
+
+**Known biases**, documented by Zheng et al. (2023), Wang et al. (2023, *Large Language Models are not Fair Evaluators*) and later work:
+
+| bias | what happens | mitigation |
+|---|---|---|
+| position | in pairwise grading the verdict depends on which answer is shown first | run both orders and keep only consistent verdicts, or average them |
+| verbosity | longer, more detailed answers are preferred even when they are not better | a rubric that says length is irrelevant; length-controlled comparisons |
+| self-enhancement | a judge favours answers written by itself or by models of its family | use a judge from a different model family, or a panel |
+| limited capability | the judge accepts wrong answers to questions it could not solve itself | give it a reference answer; keep the rubric narrow |
+| prompt sensitivity | small wording changes in the judge prompt shift the scores | freeze the judge prompt and version it like code |
+| score-scale drift | 1 to 10 scales are used inconsistently | binary or few-level verdicts with explicit criteria; G-Eval (Liu et al., 2023) weights scores by the judge's token probabilities |
+
+**Good practice** that the evaluator below follows: a structured output with the **reasoning before the verdict** (the model writes its justification first, so the verdict is conditioned on it, the same idea as chain-of-thought), temperature 0, a strict rubric that defines what counts as correct, and the judge's comment kept with each score so a human can audit it. A **panel** of several smaller judges from different families can match one large judge at lower cost and with less self-preference (Verga et al., 2024).
+
+**Validate the judge before trusting it.** Label a few dozen answers by hand and measure agreement. Raw agreement is inflated when one class dominates, so use Cohen's kappa, which corrects for agreement by chance:
+
+$$
+\kappa = \frac{p_o - p_e}{1 - p_e},
+$$
+
+where $p_o$ is the observed agreement and $p_e$ the agreement expected if both raters labelled at random with their own label frequencies. Below, the deterministic `contains_fact` check plays the role of the second rater, an imperfect but free stand-in for human labels.
 ''')
 nb.code(r'''
 closed_prompt = ChatPromptTemplate.from_messages([

@@ -40,6 +40,94 @@ A server offers three kinds of capability ("primitives"), and each one is contro
 
 **Source:** `scripts/mcp_server.py` (the knowledge-base server), `tests/test_mcp_sdk.py`.
 ''')
+nb.md(r'''
+## Background: why a protocol, and how this one is designed
+
+### The integration problem
+
+Notebooks 11 and 14 wrote tools as Python functions inside the agent's process. That works until the same tools are needed elsewhere. A company typically has several AI applications (a chat assistant, an IDE plugin, a support bot, an internal agent) and many systems they should reach (a wiki, a ticket tracker, a CRM, databases, a file store). If every application writes its own connector for every system, the work grows as $N \times M$, each connector is maintained separately, and each behaves slightly differently. The model vendors made it worse in 2023-24: each had its own tool format, and each agent framework its own tool wrapper.
+
+The classic answer to an $N \times M$ problem is a **standard interface in the middle**: each application implements the client side once, each system implements the server side once, and any pair can talk, $N + M$ pieces of work instead of $N \times M$. Database drivers (ODBC, JDBC) did this for databases; the one MCP explicitly borrows from is the Language Server Protocol.
+
+### The LSP analogy
+
+Before 2016, every code editor needed its own plugin for every programming language to offer autocompletion, go-to-definition and error highlighting. Microsoft's **Language Server Protocol** (LSP, 2016) split that work: a *language server* knows one language and speaks a standard JSON-RPC protocol, and any editor that speaks LSP gets the features for free. Today a single Python language server serves VS Code, Neovim, Emacs and many others.
+
+MCP applies the same structure to AI applications, and the specification says that it takes inspiration from LSP:
+
+| | LSP | MCP |
+|---|---|---|
+| client side | the editor | the AI application (host) |
+| server side | one language's tooling | one system's capabilities (docs, tickets, a database) |
+| wire format | JSON-RPC 2.0 | JSON-RPC 2.0 |
+| session | stateful, starts with `initialize` and capability negotiation | the same |
+| typical local transport | stdio subprocess | stdio subprocess |
+
+The analogy also explains MCP's success conditions. A protocol is worth what its ecosystem is worth: LSP won because enough editors and enough languages adopted it. MCP was released by Anthropic in November 2024; during 2025 OpenAI, Google and Microsoft added support to their products and SDKs, thousands of servers were published, and in December 2025 the protocol was donated to the Agentic AI Foundation under the Linux Foundation, giving it vendor-neutral governance.
+
+### Why not just OpenAPI and function calling?
+
+A fair question, and one that is still debated: any HTTP API with an OpenAPI description can be turned into tool schemas automatically, and OpenAI's 2023 ChatGPT plugins did exactly that (they were retired in 2024). MCP adds things that a stateless HTTP description does not cover:
+
+- **A local transport.** A stdio server runs as a subprocess with the user's permissions, with no network port and no authentication setup. Most MCP servers in use are local.
+- **A session with negotiated capabilities**, so client and server can evolve independently and turn optional features on only when both support them.
+- **Communication in both directions.** The server can send notifications ("my tool list changed"), progress updates and log messages, and it can make requests *to* the client: ask the host's model to generate text (sampling), ask the user for input (elicitation), or ask which folders it may work in (roots).
+- **Primitives designed for models**: resources and prompts as well as tools, each with a clear owner (see the table above).
+
+The counter-arguments are also real: MCP is another protocol to secure and operate, remote servers need OAuth infrastructure, and for a single application calling a single well-documented API, a direct function call is simpler. Use MCP when the same capability should be reachable from several hosts, or when you want to use the existing ecosystem of servers.
+
+### Architecture and the role of the host
+
+```
+             trust boundary: the host decides what the model sees and may do
+ +--------------------------------------------------------------------+
+ |  HOST  (Claude Desktop, an IDE, your LangGraph agent)              |
+ |    model  <-->  host logic (policy, approvals, context assembly)   |
+ |                    |                 |                 |           |
+ |                 client A          client B          client C       |
+ +--------------------|-----------------|-----------------|-----------+
+                      | stdio           | stdio           | Streamable HTTP
+                 server A          server B          server C (remote)
+                 (files)           (git)             (ticketing SaaS)
+```
+
+One **client per server** is a deliberate isolation choice: each connection has its own session, capabilities and permissions, and a server never sees the other servers or the full conversation, only the requests its client sends. The **host** is where policy lives: which servers are connected, which tools the model may see, which calls need a person's approval, and what goes into the model's context. Servers provide capabilities; they do not control the model.
+
+### Capability negotiation and versioning
+
+The protocol is versioned by date (`2024-11-05`, `2025-03-26`, `2025-06-18`, and the current `2025-11-25`). In `initialize` the client proposes the newest version it supports; the server answers with the same version if it supports it, or with another one it does support, and the client disconnects if it cannot work with the answer. Both sides also declare **capabilities**: the server says whether it offers tools, resources (and whether clients may subscribe to changes), prompts, logging or argument completion; the client says whether it supports roots, sampling or elicitation. Features that one side did not declare must not be used. This is how the protocol has added features (structured tool output and elicitation in 2025-06-18; experimental long-running *tasks* and tool use inside sampling requests in 2025-11-25, among others) without breaking older implementations.
+
+### The three server primitives and the control model
+
+The table in the introduction assigns each primitive to a controller, and the assignment is the design idea. **Tools** are *model-controlled*: the model decides to call them, so they are where risk concentrates and where approvals belong. **Resources** are *application-controlled*: the host decides what to load into context (attach a file, a database row), which keeps the model from pulling in arbitrary data. **Prompts** are *user-controlled*: templates a person picks explicitly, like slash commands. Separating "what the model may trigger" from "what the application or user chooses" gives the host clear places to apply different policies.
+
+On the client side, **sampling** deserves a note: it lets a server use the host's model without holding its own API key, so the user keeps control over which model is used and what it costs, and the host can show the request for approval.
+
+### Cost and latency trade-offs
+
+- **Transport overhead is small**; a local `tools/call` costs milliseconds next to seconds of model inference (section 8 measures it). Process start-up and the handshake are the expensive part, so sessions should be reused.
+- **Context is the real cost.** Every connected tool's name, description and schema is sent to the model on every call. A few servers with dozens of tools each can consume thousands of prompt tokens before the conversation starts, and too many tools degrade tool selection (notebook 11). Hosts answer with allowlists, per-task tool subsets, tool search (load definitions only when needed), or by letting the model write code that calls MCP tools instead of loading every schema, an approach Anthropic described in late 2025.
+
+### Failure modes specific to MCP
+
+| failure | description |
+|---|---|
+| tool poisoning | instructions hidden in a tool description, which the model reads and the user usually does not (described by Invariant Labs, 2025) |
+| rug pull | a server changes a tool's description or behaviour after the user approved it |
+| cross-server shadowing | a malicious server's description tells the model how to use *another* server's tools, or reuses its tool names |
+| indirect prompt injection | instructions inside data returned by a tool (Greshake et al., 2023) |
+| confused deputy / token passthrough | a server forwards a token issued for something else, acting with privileges the caller should not have; the spec forbids passing tokens through |
+| the "lethal trifecta" | an agent that has access to private data, reads untrusted content and can communicate externally can be made to leak data (Willison, 2025); remove at least one of the three |
+
+### Key references
+
+- *Model Context Protocol Specification*, version 2025-11-25 (modelcontextprotocol.io/specification).
+- JSON-RPC Working Group, *JSON-RPC 2.0 Specification* (2010, updated 2013).
+- Microsoft, *Language Server Protocol Specification* (first published 2016).
+- IETF RFC 9728 (*OAuth 2.0 Protected Resource Metadata*), RFC 8707 (*Resource Indicators for OAuth 2.0*), and the OAuth 2.1 draft, on which MCP authorization is built.
+- Greshake et al., 2023. *Not what you've signed up for: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection.*
+- Anthropic, November 2024. *Introducing the Model Context Protocol.*
+''')
 nb.code(setup_apps("llm-edu-suite-16-mcp"))
 nb.code(r'''
 import importlib.metadata as md
@@ -118,6 +206,8 @@ A client session follows a fixed lifecycle:
 2. the client sends the `notifications/initialized` notification, and the session is ready;
 3. then any number of requests: `tools/list`, `tools/call`, `resources/read`, `prompts/get`, ...
 
+The handshake exists so that neither side has to guess what the other supports (see *Capability negotiation* in the Background). Before `initialize` completes, the only messages allowed are the handshake itself and pings, and after it each side may use only what both declared. A session ends when the transport closes: for stdio, when the client closes the server's stdin and the process exits; for HTTP, when the client stops using the session id or deletes it.
+
 `create_connected_server_and_client_session` connects a `ClientSession` to a server object through in-memory streams. Every message is still a typed JSON-RPC message, but there is no subprocess. This is how you unit-test a server, and `tests/test_mcp_sdk.py` does the same. The SDK is `async`. Jupyter runs top-level `await`, and in a script you would wrap the code in `asyncio.run(main())`.
 ''')
 nb.code(r'''
@@ -142,6 +232,19 @@ nb.md(r'''
 ## 3. The protocol on the wire
 
 MCP messages are **JSON-RPC 2.0**. A **request** has an `id` and gets exactly one **response** with the same `id`, which holds either a `result` or an `error`. A **notification** has no `id` and gets no response. With the **stdio transport**, each message is one line of JSON on the server's stdin (client to server) or stdout (server to client).
+
+**Why JSON-RPC.** It is about the smallest protocol that supports what MCP needs: it is symmetric (either side can send requests, which MCP uses for sampling and elicitation), it does not care about the transport (the same messages travel over pipes or HTTP), and it has a tiny, fixed envelope that every language can produce. LSP made the same choice for the same reasons. The `id` is what makes concurrency possible: several requests can be in flight at once, and responses may come back in any order, because each one is matched by its id rather than by position. The specification reserves a small set of error codes:
+
+| code | meaning |
+|---|---|
+| `-32700` | parse error: the message is not valid JSON |
+| `-32600` | invalid request: valid JSON but not a valid JSON-RPC request |
+| `-32601` | method not found |
+| `-32602` | invalid params |
+| `-32603` | internal error |
+| `-32000` to `-32099` | reserved for implementation-defined server errors |
+
+MCP adds a few codes of its own on top (for example for a missing resource), and the rest of each error is a human-readable `message` and optional `data`.
 
 To see the real bytes, we start `scripts/mcp_server.py` as a subprocess, the way Claude Desktop does, and write JSON lines to it by hand. No SDK is involved on the client side.
 ''')
@@ -181,7 +284,7 @@ Everything an SDK does is built from these lines: the handshake (`initialize`, t
 
 ## 4. Two kinds of errors
 
-MCP separates two failure modes, and a host must treat them differently:
+MCP separates two failure modes, and a host must treat them differently. The reasoning is about the audience of each error: some failures are information for the *model* (it chose a bad argument, the record does not exist), and some are information for the *developer* (the client sent something the protocol does not allow). Mixing them would either hide bugs from developers or expose protocol noise to the model.
 
 - A **tool error** is a normal `result` with `isError: true`: the tool ran (or its arguments failed validation) and failed. The host passes it back to the **model** as an observation, so the model can correct itself, e.g. fix the expression or pick a valid enum value.
 - A **protocol error** is a JSON-RPC `error` object with a numeric `code`: the request itself is broken (unknown method, malformed params). It is a bug in the **client** and never reaches the model.
@@ -240,6 +343,19 @@ npx @modelcontextprotocol/inspector python scripts/mcp_server.py                
 python scripts/mcp_server.py --http --port 8000                                  # remote clients: http://127.0.0.1:8000/mcp
 ```
 
+**Choosing a transport.** The specification defines two standard transports (it also allows custom ones):
+
+| | stdio | Streamable HTTP |
+|---|---|---|
+| where the server runs | a subprocess started by the host, on the same machine | anywhere reachable over HTTP, possibly shared by many users |
+| framing | one JSON-RPC message per line on stdin / stdout | a single endpoint: the client POSTs each message; the server answers with plain JSON or opens a Server-Sent Events stream; a GET opens a stream for server-initiated messages |
+| session | the life of the process | an `Mcp-Session-Id` header assigned at initialisation; streams can resume after a disconnect using event ids |
+| authentication | none needed: the process runs with the user's own permissions | OAuth 2.1, with the MCP server acting as a resource server |
+| lifecycle cost | process start-up per session | network round-trips per call |
+| typical use | local files, git, developer tools | SaaS integrations, company-wide servers |
+
+Streamable HTTP (introduced in `2025-03-26`) replaced the original HTTP-plus-SSE transport, which needed two separate endpoints and a long-lived connection. The single endpoint works with ordinary load balancers and can be run statelessly. Two security rules from the spec are worth remembering: a local HTTP server should bind to `127.0.0.1` only, and every HTTP server must validate the `Origin` header, otherwise a web page in the user's browser could reach it (a DNS-rebinding attack).
+
 > Because stdout carries the protocol, an stdio server must **never print to stdout**. One stray `print()` corrupts the stream. Logs go to stderr.
 
 Below the SDK client does what a host does: `stdio_client` starts the subprocess and turns its pipes into message streams, and `ClientSession` runs the protocol over them.
@@ -273,6 +389,10 @@ A host turns the server's tool list into the model's tool format, and turns each
 - `tool_name_prefix=True` **namespaces** tools by server (`docs_search_docs`), so two servers that both expose `search` cannot collide.
 - The tool **annotations** are copied into each LangChain tool's `metadata`, which we use for security in section 7.
 - By default, `get_tools()` gives tools that **open a new session for every call**. For stdio, that means a new subprocess per call. That is simple and stateless, but slow, as section 8 measures. For many calls, keep one session open with `client.session(...)` and `load_mcp_tools(session)`.
+
+**What the adapter is, conceptually.** It is the *host* half of MCP, packaged for LangChain. It translates in both directions: MCP's `inputSchema` becomes the JSON schema in the model's tool list (the same OpenAI-style function schema notebook 11 printed), and the model's tool call becomes a `tools/call` request whose `CallToolResult` is turned back into a `ToolMessage`. Because the translation is mechanical, the model cannot tell an MCP tool from a local `@tool` function, which is the whole point: the agent's reasoning loop does not change, only where the tools live.
+
+The trade-off between stateless and stateful tools is a familiar one from networking. A session per call is simple, isolates failures and needs no cleanup, but pays the connection set-up every time; a long-lived session amortises that cost but must be opened, kept healthy and closed. For stdio the set-up is a process launch, so reuse matters a lot; for a remote HTTP server it is a handshake over the network.
 ''')
 nb.code(r'''
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -329,6 +449,16 @@ Connecting a server gives the model new powers, and it also exposes the model to
 | tool poisoning | a malicious server hides instructions in a tool *description*, which the model reads but the user never sees | review servers before installing, pin versions, scan and show descriptions |
 
 Annotations are **hints**. A malicious server can label a destructive tool `readOnlyHint=True`, so trust annotations only from servers you trust, and keep your own allowlist.
+
+**Thinking in trust boundaries.** Three parties contribute text to the model's context: the user, the host's own prompts, and the servers. Only the first two are under the host's control. Everything a server sends (tool names, descriptions, results, resource contents, prompt templates) is input from a third party, with the same status as a web page the agent visits. A language model has no reliable way to separate instructions from data in its context, so the defences have to sit outside it:
+
+- **Least privilege.** Connect only the servers a task needs, expose only the tools it needs, and give each server credentials scoped to what it should do.
+- **Break the lethal trifecta.** Data exfiltration needs private data, untrusted input and an outbound channel in the same agent. If an agent reads untrusted documents, keep its tools that can send data out (email, HTTP requests, ticket creation) behind confirmation, or remove them.
+- **Pin and review.** A server's descriptions can change between versions or even between sessions (a rug pull). Hosts that show and re-confirm changed descriptions, and teams that pin server versions, close that gap.
+- **Do not pass tokens through.** A remote server must accept only tokens issued for itself (the audience check of RFC 8707) and must not forward the user's token to other services, a classic confused-deputy problem the authorization spec rules out explicitly.
+- **Confirmation in code.** As in notebook 14, the approval step must be a control in the host, not a sentence in the prompt.
+
+These measures reduce risk; none removes it. Prompt injection is an open research problem, and current guidance is to design systems so that a successful injection cannot do much harm.
 
 ### 7a. Allowlist and namespacing
 
@@ -439,7 +569,7 @@ The poisoned `lookup` tool never reached the model, and the injected result arri
 
 ## 8. Evaluation
 
-A server is a dependency, so test it like one. We measure four things:
+A server is a dependency, so test it like one. In software-engineering terms, the conformance checks below are **contract tests**: they verify the server against the protocol it claims to implement, independently of any particular client, the same way an HTTP service is tested against its OpenAPI contract. They catch the class of bugs that otherwise surface only when a different host connects (an unexpected error channel, a missing capability, a schema that one client tolerates and another rejects). The official MCP Inspector is the interactive version of the same idea. The quality and latency measurements then answer a different question: not "does it speak the protocol" but "is it useful and fast enough as a tool for a model". We measure four things:
 
 1. **Conformance**: the handshake, listings, valid and invalid calls, resources and prompts behave as a client expects (pass/fail);
 2. **Retrieval quality**: does `search_docs` return the right document for the 6 labelled questions in `data/sample_eval.json` (top-1 and top-3)?

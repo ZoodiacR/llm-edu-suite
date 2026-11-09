@@ -4,7 +4,7 @@
 
 > **Summary.** A hands-on LLM engineering course in two halves: a language model built **from scratch in PyTorch** to understand how it works inside, and applications built with **the tools the industry uses** (Hugging Face `transformers`/`peft`/`trl`, LangChain, LangGraph, LangSmith, RAGAS and the official MCP SDK), with local models through Ollama. 17 executed and evaluated notebooks, docs in Spanish and English, and CI. The project had two versions: **v1** implemented everything by hand and I took it to a state verified end to end (bugs fixed, experiments redesigned); **v2** replaced the application layer with real frameworks. Every decision is documented with measured numbers.
 
-> Section 11 describes the move to v2 (real frameworks). Sections 2–8 tell the v1 story, which is still the basis of the from-scratch model.
+> Section 11 describes the move to v2 (real frameworks), and section 12 version 2.1 (theory in every notebook, a real recommender on MovieLens-1M and evaluation with intervals). Sections 2–8 tell the v1 story, which is still the basis of the from-scratch model.
 
 ## 1. Context and goal
 
@@ -144,6 +144,8 @@ The notebooks "worked", but several results taught nothing or, worse, taught som
 
 **v2:** the above for the from-scratch model, plus Hugging Face `transformers`, `peft`, `trl`, `datasets` and `optimum-quanto`; LangChain (`langchain-core`, `langchain-community`, `langchain-classic`, `langchain-ollama`), LangGraph, LangSmith, RAGAS, FAISS, BM25, Pydantic; the official `mcp` SDK (FastMCP) and `langchain-mcp-adapters`; Ollama to serve the local models.
 
+**v2.1:** plus LightGBM (LambdaMART), `bitsandbytes` (QLoRA), a FAISS HNSW index and MovieLens-1M as a real dataset; `qwen2.5:7b` as an optional judge.
+
 ## 10. Next steps
 
 See the [README roadmap](../../README.md#roadmap). The most relevant items: a bigger-model track (Qwen2.5 1.5–3B with QLoRA), a serving notebook with vLLM, and RAG at scale with a vector database and a stronger judge.
@@ -191,3 +193,41 @@ See the [README roadmap](../../README.md#roadmap). The most relevant items: a bi
 1. **A framework does not save you from evaluating.** RAGAS, LangSmith `evaluate()` and trajectory metrics are what made it possible to say what worked and what did not.
 2. **A small model changes the conclusions.** With a 3B model, ReAct beats plan-and-execute and LLM re-ranking hurts recommendation; with large models it can differ. That is why the course teaches the **method** (labelled sets, the same metrics for every design), not a universal verdict.
 3. **Running everything locally has real engineering costs** (VRAM, queues, timeouts) that need to be designed for from the start.
+
+## 12. v2.1: theory, a real recommender and evaluation with uncertainty
+
+**Why.** v2 taught with the real tools, but it had three gaps. The theory was scattered and uneven across notebooks. The recommender was still a synthetic toy (200 items, made-up taste clusters) with an LLM re-ranker that made the list worse (hit@10 0.20 → 0.16). And comparisons on 20 questions were read without intervals, with a 3B judge grading itself. v2.1 tackles all three.
+
+**Theory in every notebook.** Every notebook now has "Background: ..." sections before the code that uses them (the problem, the idea with its equations, why it works, what it competes with, how it fails), and there is a full theory guide in [foundations](foundations.md). Writing it meant checking claims against the installed versions, and it turned up a correction or two: in LangGraph 1.2 the default `recursion_limit` is 10,007, not 25, so an agent stuck in a loop does not stop early on its own, and every run in notebook 14 passes its own limit.
+
+**The recommender, rebuilt from scratch** (notebook 12). It is now the industry funnel on MovieLens-1M (1,000,209 ratings, 6,040 users, 3,706 movies), with a protocol that does not fool itself: leave-last-two in time order, full ranking over the whole catalog (Krichene and Rendle, 2020), 10% of the movies held out as cold new releases, and a paired bootstrap for every comparison. And one rule: a stage only goes in if it beats the previous one on validation.
+
+- SASRec, notebook 02's `TransformerLM` trained with the full softmax, reaches hit@10 0.293 (ItemKNN 0.125, popularity 0.036), inside the published range for this dataset.
+- **The first ranker failed the gate.** Trained on a single positive per user (about 4,000 query groups), LambdaMART did not beat SASRec: the best feature was SASRec's own score, and the trees relearned it plus noise. Instead of tuning hyperparameters blindly, I looked at how RecTools' two-stage pipelines and the top Kaggle OTTO solutions do it. Two changes fixed it: fit the retrieval models on the history minus the last 8 events and turn each of those events into a ranker query (48,320 events → 35,762 queries, 1.82M rows), and give the ranker features SASRec cannot see (explicit ratings, demographics, co-visitation, time since the previous event, trending).
+- With that it passes the gate (validation nDCG +0.0059 [+0.0022, +0.0096]) and on test lifts hit@10 from 0.293 to **0.307** (+1.4 points [+0.7, +2.1]). A modest, real gain, about the size a second-stage ranker usually adds over a strong first stage.
+- The final re-ranking measures what it trades: one exploration slot takes hit@10 on new releases from 0.009 to 0.044 for 0.7 points overall, and MMR at λ = 0.8 raises diversity from 0.659 to 0.719 for 0.4 points.
+
+**Where the LLM helped in recommendation, and where it did not**
+
+| Use of the LLM | Result |
+|---|---|
+| per-movie keywords (`qwen2.5:7b`, offline) mixed into the item text | **worse**: content hit@10 0.033 → 0.023; validation rejected them |
+| the same keywords as a ranker feature | +0.0012 [−0.0012, +0.0035]: nothing measurable, not worth an hour of LLM time |
+| understanding natural-language requests and turning them into filters | **clearly better**: constraint satisfaction@5 0.60 → 0.87; 1 structured-output failure in 221 |
+| personalising inside the filtered set | done by the recommender, not the LLM: hit@10 0.555 with SASRec against 0.285 with popularity |
+| explanations grounded in the history | cite an anchor 97% of the time; mention a movie outside the history 7% of the time, against 13% without anchors |
+
+Small LLMs do not beat collaborative models at ranking, but they are excellent at the language around the recommender.
+
+**Evaluation with uncertainty, and a stronger judge** (notebook 10). `evaluation` gained `bootstrap_ci` and `paired_bootstrap_diff`, and `config` gained `judge_model()`: `qwen2.5:7b` if it is pulled (or `JUDGE_MODEL`), the chat model otherwise. With the 7B judge and its intervals, only one of the four RAGAS metrics shows a clear difference between dense and hybrid retrieval: context precision 0.79 → 0.92 (+0.13 [+0.03, +0.25]). Faithfulness (0.87 for both) and relevancy (0.78 → 0.75) do not move. The 3B judge had reported faithfulness 0.38 → 0.54 and relevancy 0.44 → 0.30: **a weak judge does not only add noise, it invents effects**. The price: 1038 s of scoring against about 7 minutes with the 3B. Notebook 15 is still judged by the 3B model (its outputs did not change; it only gained theory).
+
+**QLoRA** (notebook 07). The same LoRA on an NF4 base with double quantization and `paged_adamw_8bit`: 37.5% exact match against 32.5% for LoRA, with the same 86.5% of fields (two requests out of 40, noise: the honest reading is "no loss"). The weights drop from 269 MB to 110 MB, but the training peak barely moves (1.41 → 1.34 GB) because activations dominate at 135M; for a 7B model it would be 14 GB → 3.6 GB. Notebook 07 raises its VRAM budget to 2 GB because it trains nine models and the 4-bit one leaves ~0.1 GB behind.
+
+**Dependencies and infrastructure.** `pyproject.toml` is the single source of dependencies (`requirements.txt` only contains `-e .[dev]`; `requirements-dev.txt` is gone; `openai` and `anthropic` are optional extras), with two new ones: `lightgbm>=4.5` and `bitsandbytes>=0.45`. `tools/build_notebooks.py --keep-outputs` rebuilds a notebook from its generator while keeping the outputs of code cells that did not change, which is what made it possible to add the theory without re-running hours of notebooks. CI moved to `actions/checkout@v5`, `setup-python@v6`, `ubuntu-24.04` and Python 3.11/3.12.
+
+**v2.1 lessons**
+
+1. **A gate before every stage changes how you work.** The first ranker would have gone in if I had only looked at its training loss; the gate rejected it and forced me to understand why. The fix was documented in industry practice, not hidden in a hyperparameter.
+2. **Measuring the judge is part of measuring the system.** The faithfulness and relevancy differences v2 reported as results were artefacts of the judge. Without intervals and a stronger judge, I would still be quoting them.
+3. **Use the LLM where it adds value, and say where it does not.** In recommendation, the same model made ranking worse and clearly improved request understanding. The useful result is the table, not "LLMs help" or "LLMs do not help".
+4. **An interval changes the conversation.** "+1.4 points [+0.7, +2.1]" can be defended; a bare "0.307 against 0.293" cannot.

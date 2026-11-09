@@ -361,6 +361,127 @@ Notebook 11 built the basic agent: a model that calls tools in a loop. Productio
 
 Everything runs locally against `qwen2.5:3b` through Ollama. A 3B model is a weak agent, and we will see where it fails; the patterns and the evaluation method are what transfer to bigger models. With a LangSmith key in `.env`, every run below is traced to the project `llm-edu-suite-14-agentic`; open a trace to see each node, model call and tool call.
 ''')
+    nb.md(r'''
+## Background: from a free-form loop to a controlled system
+
+### What makes a system "agentic"
+
+The useful definition is about control flow, not about intelligence: a system is agentic to the degree that **a model decides what happens next**. That gives a spectrum rather than a yes/no:
+
+| level | who decides the next step | example |
+|---|---|---|
+| single call | your code; the model only fills in text | summarise this email |
+| fixed workflow (chain) | your code, with several model calls in a fixed order | retrieve, then generate (notebook 10) |
+| router | the model picks one of several branches you wrote | send billing questions to billing |
+| tool loop (ReAct) | the model picks tools and when to stop, inside limits you set | notebook 11, section 2 below |
+| autonomous agent | the model also writes its own plan and sub-goals over long horizons | coding agents, research agents |
+
+Each step down the table buys flexibility and pays for it in latency, cost, variance and difficulty of testing. That is the reasoning behind the advice in the intro: move down the table only when the task needs it and an evaluation shows it helps.
+
+### Why ReAct interleaves reasoning and acting
+
+Before ReAct there were two separate lines of work. **Chain-of-thought** prompting (Wei et al., 2022) lets a model reason step by step, but only with what is already in its weights: a wrong fact early in the chain propagates to the answer, and nothing in the loop can correct it. **Act-only** agents (for example WebGPT, Nakano et al., 2021, or the action-only baselines in the ReAct paper) call tools but have no explicit place to decompose the goal, track progress or notice that a result is unexpected.
+
+ReAct (Yao et al., 2022, *ReAct: Synergizing Reasoning and Acting in Language Models*) combines the two by enlarging the model's action space. Besides actions that change the world (search, look up, click), the model may emit a *thought*, an action that changes only its own context:
+
+```
+Thought: I need the order total before I can compute the tax.
+Action: order_status[A100]
+Observation: {"status": "shipped", "total": 120.0}
+Thought: 21% of 120 is the tax; I should use the calculator rather than guess.
+Action: calculate[120 * 1.21]
+Observation: 145.2
+Thought: I have everything.  ->  final answer
+```
+
+The intuition is a feedback loop in both directions. Reasoning makes acting better (the thought chooses the next action and explains why), and acting makes reasoning better (each observation grounds the next thought in real data instead of in the model's memory). The paper reported fewer hallucinated facts than chain-of-thought on knowledge tasks and better success than act-only agents on interactive tasks, and the trace is readable by a person, which is a large part of why the pattern spread.
+
+Modern native tool calling keeps the loop and changes the surface. The `Action` line became a structured `tool_calls` field, and the `Thought` is either visible text before the call, hidden reasoning tokens in "reasoning" models, or absent. When people call `create_agent` a "ReAct agent" they mean this act/observe loop, whether or not the model writes explicit thoughts.
+
+### Planning ahead instead of step by step
+
+A ReAct agent decides one step at a time with the whole history in view. Two problems follow on longer tasks: the context grows with every observation (cost, see notebook 11's formula), and the model can lose track of the overall goal while reading tool outputs. **Plan-and-execute** separates the two jobs:
+
+- **Plan-and-Solve** prompting (Wang et al., 2023) showed that asking the model to first write a plan and then carry it out reduces missing-step errors compared with plain chain-of-thought.
+- **ReWOO** (Xu et al., 2023, *Reasoning WithOut Observation*) writes the full plan with placeholders for tool results up front, runs the tools, and calls the model once more to answer. It saves tokens because the planner never re-reads observations.
+- **LLMCompiler** (Kim et al., 2023) treats the plan as a dependency graph and runs independent tool calls in parallel, like a compiler scheduling instructions.
+
+| | ReAct | plan-and-execute |
+|---|---|---|
+| model calls | one per step, often fewer with parallel calls | planner + at least one per step + writer |
+| adapts to surprises | immediately, at every step | only if you add a re-planning step |
+| context per call | grows with the whole history | each executor sees only its step |
+| inspectability | read the trace after the fact | the plan can be shown, edited or approved before anything runs |
+| typical failure | skips a step, loses the goal | redundant or badly split steps, information lost between hand-offs |
+
+Neither is better in general; section 9 measures them on our tasks.
+
+### Reflection and why the verifier matters
+
+Reflection loops let a system improve a draft before returning it. **Self-Refine** (Madaan et al., 2023) has the same model generate, critique and revise. **Reflexion** (Shinn et al., 2023, *Reflexion: Language Agents with Verbal Reinforcement Learning*) turns a failure signal (failed unit tests, a lost game) into a written lesson that is stored and prepended to the next attempt, a kind of reinforcement learning where the "weights" being updated are words in the prompt. **CRITIC** (Gou et al., 2023) has the model check its draft with tools.
+
+The pattern that holds up across this literature is a **generation-verification gap**: checking a solution is often much easier than producing one (running tests is easier than writing correct code), so a cheap reliable verifier plus a few retries can lift a generator that is only sometimes right. When the verifier is the same model judging itself without external information, the gain often disappears or reverses (Huang et al., 2024). That is why section 7 uses unit tests as the verifier.
+
+### Why graphs replaced free-form agent loops
+
+In 2023 the most visible agents (AutoGPT, BabyAGI) were open-ended loops: the model received a goal, wrote its own task list, and ran until it decided it was done. They demonstrated the idea and exposed its problems: runs that never ended, repeated actions, goals that drifted, costs nobody could predict, and no way to test a part of the behaviour in isolation or to resume after a crash.
+
+The industry response was to put the control flow back into code and give the model control only at specific decision points. Modelling an application as a **state machine** (a graph of nodes over a typed state) gives concrete properties:
+
+- **Explicit, testable transitions.** Deterministic edges are ordinary code you can unit-test with fake models, as `tests/test_agents_langgraph.py` does.
+- **Bounded behaviour.** Every loop in the graph is visible, so you know where to put limits.
+- **Checkpoints.** Because state only changes at node boundaries, the runtime can save it after each step. That enables resuming after a failure, pausing for a human for as long as needed, and "time travel" (replaying from an earlier state).
+- **Mixed autonomy.** A graph can contain a fully scripted branch next to a free ReAct loop, so autonomy is added exactly where it pays.
+
+LangGraph's runtime follows the **Pregel / bulk synchronous parallel** model (Malewicz et al., 2010, *Pregel: A System for Large-Scale Graph Processing*). Execution proceeds in **super-steps**: in each one, all the nodes that were triggered run (in parallel if there are several), their updates are merged into the state through each key's **reducer**, and the edges decide which nodes run in the next super-step. Reducers are what make parallel branches safe: two nodes that both append to `messages` in the same super-step produce a well-defined result instead of overwriting each other. The `recursion_limit` in section 3 counts these super-steps.
+
+```
+super-step 1: [model]          -> update: AI message with 2 tool calls
+super-step 2: [tools]          -> update: 2 tool messages (merged by add_messages)
+super-step 3: [model]          -> update: final AI message, no tool calls -> END
+```
+
+### Memory, from the cognitive-architecture view
+
+Agent memory is often described with categories borrowed from cognitive science (Sumers et al., 2023, *Cognitive Architectures for Language Agents*, CoALA):
+
+| kind | what it holds | in LangGraph |
+|---|---|---|
+| working | the current context window | the `messages` in the state |
+| episodic | what happened in past interactions | checkpoints of earlier threads, or stored summaries |
+| semantic | facts about the user and the world | the store, searched by embedding |
+| procedural | how to do things | the prompt and the code itself |
+
+Earlier systems explored how to manage the boundary between the context window and long-term storage: **Generative Agents** (Park et al., 2023) score memories by recency, importance and relevance before putting them in the prompt; **MemGPT** (Packer et al., 2023) pages memory in and out like an operating system. The underlying constraint is that the context window is limited and expensive, and models use long contexts unevenly (Liu et al., 2023, *Lost in the Middle*), so long-term memory is a retrieval problem with all of retrieval's failure modes.
+
+### Common failure modes of agents
+
+- **Compounding errors.** If each step succeeds independently with probability $p$, a task of $k$ steps succeeds with probability about $p^k$; $0.95^{10} \approx 0.60$. Long autonomous runs need either very reliable steps or checkpoints where errors are caught.
+- **Loops and runaway cost.** The same call repeated, or exploration with no end; handled with limits and stop reasons (section 3).
+- **Goal drift.** After many observations the model answers a different question than the one asked.
+- **Prompt injection through tools.** Any text an agent reads (a web page, an email, a document) can contain instructions. The more tools with side effects an agent has, the more an injection can do, which is why approvals live in code (section 4).
+- **Unsafe memory writes.** A wrong or injected fact saved to long-term memory is retrieved in every later conversation.
+
+### Is multi-agent worth it?
+
+Splitting work across several agents can help: smaller prompts, fewer tools per decision, parallel work. It also multiplies model calls and creates hand-offs where context is lost. Practitioners disagree publicly about when it pays; Anthropic described a multi-agent research system that outperformed a single agent on broad research tasks at a much higher token cost (2025), while Cognition argued in the same year that most agents should stay single-threaded to keep context coherent. The disagreement is mostly about task type: parallelisable breadth-first work favours several agents, tightly coupled work favours one. Section 8 uses the simplest, least controversial form, a router in front of specialists.
+
+### Key references
+
+- Wei et al., 2022. *Chain-of-Thought Prompting Elicits Reasoning in Large Language Models.*
+- Yao et al., 2022. *ReAct: Synergizing Reasoning and Acting in Language Models.*
+- Wang et al., 2023. *Plan-and-Solve Prompting.*
+- Xu et al., 2023. *ReWOO: Decoupling Reasoning from Observations for Efficient Augmented Language Models.*
+- Kim et al., 2023. *An LLM Compiler for Parallel Function Calling.*
+- Madaan et al., 2023. *Self-Refine: Iterative Refinement with Self-Feedback.*
+- Shinn et al., 2023. *Reflexion: Language Agents with Verbal Reinforcement Learning.*
+- Huang et al., 2024. *Large Language Models Cannot Self-Correct Reasoning Yet.*
+- Sumers et al., 2023. *Cognitive Architectures for Language Agents.*
+- Park et al., 2023. *Generative Agents: Interactive Simulacra of Human Behavior.*
+- Packer et al., 2023. *MemGPT: Towards LLMs as Operating Systems.*
+- Malewicz et al., 2010. *Pregel: A System for Large-Scale Graph Processing.*
+- Anthropic, 2024. *Building effective agents.*
+''')
     nb.code(setup_apps("llm-edu-suite-14-agentic"))
     nb.code(TOOLS_CELL + "\n" + HELPERS_CELL + r'''
 llm = get_llm()
@@ -397,7 +518,7 @@ print(triage.get_graph().draw_mermaid())
     nb.md(r'''
 ## 2. A ReAct agent with `create_agent`
 
-**ReAct** (reason + act) is the loop from notebook 11: the model either calls tools or answers, and tool results go back to the model. `create_agent` builds it as a two-node graph (`model` and `tools`) with a conditional edge after the model. We give it the three read-only tools and the error middleware from the helpers cell (a `ValueError` in a tool becomes a message to the model instead of crashing the run).
+**ReAct** (reason + act) is the loop from notebook 11: the model either calls tools or answers, and tool results go back to the model. `create_agent` builds it as a two-node graph (`model` and `tools`) with a conditional edge after the model. The conditional edge encodes the whole stopping rule of ReAct: if the last AI message has tool calls, go to `tools`; otherwise the model has chosen to answer, and the run ends. The model, not your code, decides when the task is done, which is the source of both the flexibility of this design and the need for the limits in section 3. We give it the three read-only tools and the error middleware from the helpers cell (a `ValueError` in a tool becomes a message to the model instead of crashing the run).
 ''')
     nb.code(r'''
 from langchain.agents import create_agent
@@ -421,12 +542,16 @@ print(f"{time.time() - t0:.1f}s")
 The most common production failure is not a wrong answer but an agent that **does not stop**: it repeats a call because it misreads the result, or keeps exploring and burns tokens. To see the guardrails work deterministically we use a deliberately broken "model", a fake chat model from `langchain_core` that requests the same tool call forever.
 
 Four layers, from coarse to fine:
-1. **`recursion_limit`** (a LangGraph run setting): the maximum number of graph steps (super-steps) in one run. Exceeding it raises `GraphRecursionError`. It is the last line of defence, and every run has one (default 25 in our version).
+1. **`recursion_limit`** (a LangGraph run setting): the maximum number of graph steps (super-steps) in one run. Exceeding it raises `GraphRecursionError`. It is the last line of defence, and every run has one. Do not rely on the default: older LangGraph versions used 25, but the installed 1.2 sets it to 10,007 (overridable with `LANGGRAPH_DEFAULT_RECURSION_LIMIT`), which in practice means an agent without an explicit limit can loop for a very long time. That is why every run in this notebook passes its own value.
 2. **`ModelCallLimitMiddleware`**: at most N model calls per run (`run_limit`) or per conversation thread (`thread_limit`). With `exit_behavior="end"` the agent stops gracefully with a message instead of raising.
 3. **`ToolCallLimitMiddleware`**: the same for tool calls, globally or for one tool (`tool_name=...`).
 4. **A wall-clock limit**: there is no built-in timeout middleware for synchronous runs, so we wrote `WallClockLimit` above. It is a small `AgentMiddleware` whose `before_model` hook returns `{"jump_to": "end"}` once the time is up. Custom middleware like this is how you add budgets in dollars, per-user quotas and similar policies.
 
 Each run ends with a **stop reason** (`stop_reason` in the helpers cell); in production you count them and alert when `model_call_limit` or `timeout` spikes, which usually means a prompt or tool regression.
+
+**Why agents fail to stop.** In a ReAct loop the only exit is the model choosing not to call a tool. Nothing in the model's training guarantees it will make that choice: it may misread a tool result as incomplete, retry a failing call with the same arguments, or keep gathering information because one more search always looks useful. Termination is a property you have to impose from outside, the same way a server imposes request timeouts instead of trusting every handler to return.
+
+**How the limits relate.** The recursion limit counts super-steps of the graph (see the Background), not model calls. In a plain ReAct agent each iteration is at least two super-steps (`model`, then `tools`), and middleware with its own hooks can add more, so a recursion limit of 25 allows roughly a dozen model calls, not 25. That is why it is a backstop and not a budget: the model and tool call limits express the budget directly in the units you pay for. The layered design (graceful limits that end with a message, a hard limit that raises) follows a general reliability principle: the first line of defence should degrade gracefully, and the last one should be impossible to bypass.
 ''')
     nb.code(r'''
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -470,6 +595,12 @@ Without middleware the loop only ended because the recursion limit raised an exc
 ## 4. Human in the loop: an approval gate for a risky tool
 
 Read-only tools can run freely; tools that **move money, send email or delete data** should wait for a person. LangGraph's primitive for this is `interrupt(value)`: the node pauses, the state is saved by the checkpointer, and the caller gets the `value` back. Later (seconds or days, from another process if the checkpointer is a database) someone calls `invoke(Command(resume=answer), config)` with the same `thread_id`, and `interrupt` returns `answer` inside the node.
+
+**Why pausing needs persistence.** A human may answer in five seconds or five days, from a different machine, after the process that started the run has been restarted. Keeping a Python call stack waiting that long is not an option, so the run has to be *durable*: its state is written to storage at the pause and read back at the resume. This is the same idea as durable-execution engines for business workflows (Temporal, AWS Step Functions): progress is a sequence of checkpoints, and any worker can continue from the last one.
+
+**A subtlety of resuming.** LangGraph does not restore the middle of a Python function. On resume it **runs the interrupted node again from its first line**, and this time `interrupt(...)` returns the resume value instead of pausing. Any code placed before the `interrupt` call in that node therefore runs twice. Keep side effects (payments, emails, database writes) out of the code that precedes an interrupt, or make them idempotent, which is why our graph puts the refund in a separate `execute` node after the gate.
+
+**Why the gate is not in the prompt.** A system prompt saying "always ask before refunding" is an instruction the model may ignore, misunderstand or be talked out of by an injected document. An `interrupt` in the graph is code: the path to the risky tool physically passes through it. This is the principle of *least agency* applied to LLMs: the model proposes, a deterministic control decides.
 
 First the primitive, in a three-node graph with no model involved:
 ''')
@@ -602,6 +733,8 @@ Two different threads, one store: the second conversation knows what the first o
 
 A request like *"look up order A100, add 21% tax, then find the refund policy"* needs several tools in sequence. A ReAct agent has to keep the whole task in mind while reading tool outputs. **Plan-and-execute** splits the work: a **planner** writes the list of steps (structured output, a Pydantic `Plan`), an **executor** runs one step at a time (a small ReAct agent limited to 3 model calls per step), and a **writer** composes the answer from the step results. The plan is inspectable and can be shown to a human before anything runs.
 
+Our version sits between the designs described in the Background. Like Plan-and-Solve, it writes the whole plan first; unlike ReWOO, each step is executed by a small agent that sees the earlier results, so a step can use a number found by a previous one; and there is no re-planning, so if a step fails, the plan does not change. Adding a "replan" node after each step (compare the results with the plan, keep or rewrite the remaining steps) is the usual next refinement, at the cost of one more model call per step. Isolating each executor from the full request is a deliberate choice: it stops a small model from trying to do the whole task in its first step, and it keeps each prompt short.
+
 The graph: `plan`, then `execute` looping on itself through a conditional edge while steps remain, then `write_answer`.
 ''')
     nb.code(PLAN_EXEC_CELL + r'''
@@ -626,6 +759,8 @@ Read the steps critically; this is what makes plan-and-execute easy to debug. Wi
 **Draft, verify, revise.** Reflection works when the verifier is *reliable*: unit tests for code, a schema validator, a SQL dry-run, a calculator. Asking the same model to critique itself without an external signal often does not help (Huang et al., 2024, *Large Language Models Cannot Self-Correct Reasoning Yet*).
 
 The graph has a `generate` node (the model writes a function), a `verify` node (we run unit tests on it in a separate Python process with a timeout) and a conditional edge: stop if the tests pass or the round budget is spent, otherwise go back to `generate` with the failing test in the prompt.
+
+In the vocabulary of the Background, this is a minimal **Reflexion** loop: the failing assert is the external signal, and the revision prompt carries it into the next attempt. Full Reflexion also asks the model to write an explicit lesson ("I forgot the century rule for leap years") and keeps those lessons across tasks; we pass the raw feedback only. The cost model is simple: each extra round costs one more generation and one more test run, and only the tasks that fail pay it, so the expected cost is $1 + \sum_{r \ge 2} P(\text{round } r \text{ is reached})$ generations per task. Reflection is cheap when most first drafts pass and expensive when they rarely do, which is also when it helps least.
 ''')
     nb.code(REFLECTION_CELL + r'''
 reflection = build_reflection(llm, max_rounds=3)
@@ -669,6 +804,8 @@ print(f"\npass rate: {sum(r['first'] for r in reflection_rows)}/{n_code} on the 
 ## 8. Multi-agent: a router and specialist subgraphs
 
 Instead of one agent with every tool and a long prompt, a **router** sends each request to a **specialist** with a short prompt and only the tools it needs. Fewer tools per prompt means fewer wrong tool choices and fewer prompt tokens, at the cost of one extra model call for routing.
+
+**A router is a classifier.** That is the most useful way to think about it, because classification has well-understood tools: a labelled set, accuracy, a confusion matrix, and a decision about what to do with uncertain cases. Routers come in increasing cost: keyword rules, an embedding similarity against example messages per destination (a "semantic router": milliseconds and no generation), a small fine-tuned classifier, or an LLM with structured output as here. The LLM router is the most flexible and the slowest. The overall error of a routed system is roughly the routing error plus the specialists' errors on correctly routed requests, so a router that is wrong 1 time in 10 caps the system at about 90% even with perfect specialists. Hierarchical designs (a supervisor that delegates and then reviews the specialists' output) can recover from misroutes, at the price of more model calls.
 
 Here the router is a structured-output call (`Route` with a `Literal` destination), and its node returns a `Command(goto=...)`, which updates the state and chooses the next node in one return value. The specialists are `create_agent` agents added to the parent graph **as nodes**: a compiled graph used as a node is a *subgraph*, sharing the `messages` key with the parent. (The other common design, a supervisor agent that calls specialists wrapped as tools, uses the same building blocks.)
 ''')
@@ -731,6 +868,10 @@ Ten multi-step requests, each labelled with the tools a correct solution needs a
 - **model calls** (steps) and **latency** per task.
 
 The ReAct agent gets a limit of 8 model calls per task; the plan-and-execute executor gets 3 per step.
+
+**Why evaluate the trajectory and not only the answer.** Two agents can produce the same final answer, one by looking up the number and one by guessing it. Outcome metrics cannot tell them apart, and the guessing agent will eventually be wrong in production. Trajectory metrics (which tools, in what multiset, how many steps) catch this, and they also explain *why* an outcome failed. Agent benchmarks such as AgentBench (Liu et al., 2023) and τ-bench (Yao et al., 2024) mix both kinds, and τ-bench adds *pass^k*, the probability of succeeding on all of $k$ repeated attempts, because a user who asks the same thing several times notices inconsistency. We run each task once; repeating the evaluation several times and reporting the spread is the natural extension if you have the time budget.
+
+**Cost and latency belong in the same table as quality.** A design that gains a little accuracy for three times the model calls may not be the better design. Always report the number of model calls and wall-clock time next to success, and compare designs on the same tasks (a *paired* comparison), which removes the variation between tasks from the difference.
 ''')
     nb.code(r'''
 EVAL_TASKS = [

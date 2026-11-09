@@ -1,5 +1,6 @@
 """Tiny dependency-free .ipynb builder used by tools/notebooks/nbXX_*.py."""
 import json
+import os
 
 
 class NB:
@@ -29,6 +30,12 @@ class NB:
         })
 
     def save(self, path: str):
+        if KEEP_OUTPUTS and os.path.exists(path):
+            _merge_outputs(self.cells, path)
+        meta = None
+        if KEEP_OUTPUTS and os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                meta = json.load(f).get("metadata")          # keep the kernel the notebook was executed with
         nb = {
             "cells": self.cells,
             "metadata": {
@@ -38,8 +45,44 @@ class NB:
             "nbformat": 4,
             "nbformat_minor": 5,
         }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(nb, f, ensure_ascii=False, indent=1)
+        if meta:
+            nb["metadata"] = meta
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            if meta:                                          # match nbformat's layout so unchanged notebooks give no diff
+                f.write(json.dumps(nb, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+            else:
+                json.dump(nb, f, ensure_ascii=False, indent=1)
+
+
+# Rebuilding without losing results.
+# With KEEP_OUTPUTS on (build_notebooks.py --keep-outputs), a rebuilt notebook takes the outputs of the
+# previous .ipynb for every code cell whose source did not change. Prose edits then need no re-execution;
+# cells whose code changed come out empty and are reported, so you know what to run again.
+
+KEEP_OUTPUTS = False
+
+
+def _merge_outputs(cells: list, old_path: str) -> None:
+    import os as _os2
+    with open(old_path, encoding="utf-8") as f:
+        old = json.load(f)
+    pool = {}
+    for c in old["cells"]:
+        if c["cell_type"] == "code":
+            pool.setdefault("".join(c["source"]), []).append(c)
+    missing = 0
+    for c in cells:
+        if c["cell_type"] != "code":
+            continue
+        match = pool.get("".join(c["source"]))
+        if match:
+            prev = match.pop(0)
+            c["outputs"], c["execution_count"] = prev.get("outputs", []), prev.get("execution_count")
+            c["metadata"] = prev.get("metadata", {})
+        elif "".join(c["source"]).strip():
+            missing += 1
+    name = _os2.path.basename(old_path)
+    print(f"  {name}: outputs kept" + (f", {missing} code cell(s) changed and need a re-run" if missing else ", no code changed"))
 
 
 # Topic layout of notebooks/

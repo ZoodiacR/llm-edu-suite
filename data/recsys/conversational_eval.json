@@ -1,0 +1,22 @@
+[
+  {"query": "a 90s science fiction movie like The Matrix", "genres_any": ["Sci-Fi"], "year_min": 1990, "year_max": 1999, "reference": "Matrix, The (1999)"},
+  {"query": "an animated movie for kids made before 1995", "genres_any": ["Animation"], "year_max": 1994},
+  {"query": "a romantic comedy from the 80s", "genres_all": ["Romance", "Comedy"], "year_min": 1980, "year_max": 1989},
+  {"query": "a classic film noir", "genres_any": ["Film-Noir"]},
+  {"query": "a western from the 60s or 70s", "genres_any": ["Western"], "year_min": 1960, "year_max": 1979},
+  {"query": "a scary horror film from the 1970s", "genres_any": ["Horror"], "year_min": 1970, "year_max": 1979},
+  {"query": "a war movie similar to Saving Private Ryan", "genres_any": ["War"], "reference": "Saving Private Ryan (1998)"},
+  {"query": "a musical from the 1950s", "genres_any": ["Musical"], "year_min": 1950, "year_max": 1959},
+  {"query": "a good documentary", "genres_any": ["Documentary"]},
+  {"query": "a 90s crime movie like Pulp Fiction", "genres_any": ["Crime"], "year_min": 1990, "year_max": 1999, "reference": "Pulp Fiction (1994)"},
+  {"query": "something like Toy Story", "reference": "Toy Story (1995)", "min_ref_genre_overlap": 0.5},
+  {"query": "a fantasy adventure, nothing older than 1990", "genres_all": ["Fantasy", "Adventure"], "year_min": 1990},
+  {"query": "a mystery from the 1940s", "genres_any": ["Mystery"], "year_min": 1940, "year_max": 1949},
+  {"query": "a family movie for children that is not animated", "genres_any": ["Children's"], "genres_none": ["Animation"]},
+  {"query": "an 80s action movie", "genres_any": ["Action"], "year_min": 1980, "year_max": 1989},
+  {"query": "a war drama made in the 1990s", "genres_all": ["Drama", "War"], "year_min": 1990, "year_max": 1999},
+  {"query": "a sci-fi horror film like Alien", "genres_all": ["Sci-Fi", "Horror"], "reference": "Alien (1979)"},
+  {"query": "a thriller from 1998 or later", "genres_any": ["Thriller"], "year_min": 1998},
+  {"query": "a comedy from the 70s that is not a romance", "genres_any": ["Comedy"], "genres_none": ["Romance"], "year_min": 1970, "year_max": 1979},
+  {"query": "a Disney-style animated musical", "genres_all": ["Animation", "Musical"]}
+]

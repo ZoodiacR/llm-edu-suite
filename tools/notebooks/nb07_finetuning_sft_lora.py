@@ -173,6 +173,64 @@ It looks easy, but the format is strict: `people` must be an integer (people wri
 
 **Plan:** chat templates and loss masking → baseline → full SFT vs LoRA → the "new special token" trap → rank ablation → distillation from a 360M teacher → evaluation.
 ''')
+nb.md(r'''
+## Background: from a pretrained model to a task specialist
+
+### Supervised fine-tuning is maximum likelihood on demonstrations
+
+A causal language model $\pi_\theta$ defines a probability for every continuation $y = (y_1, \dots, y_T)$ of a prompt $x$, one token at a time: $\pi_\theta(y \mid x) = \prod_t \pi_\theta(y_t \mid x, y_{<t})$. Pre-training maximises this likelihood on raw web text. SFT uses *exactly the same objective*, only on a curated dataset $\mathcal{D}$ of (prompt, ideal answer) pairs, and only on the answer tokens:
+
+$$\mathcal{L}_{\text{SFT}}(\theta) = -\,\mathbb{E}_{(x,y)\sim\mathcal{D}} \sum_{t=1}^{|y|} \log \pi_\theta(y_t \mid x, y_{<t})$$
+
+Two properties of this objective explain most of what you will see in this notebook.
+
+- **Teacher forcing.** During training the model always conditions on the *correct* previous tokens $y_{<t}$. At inference it conditions on its *own* previous tokens. A small early mistake (a wrong hour) puts it in a state it never saw during training, and nothing in the loss taught it how to recover. This mismatch is called **exposure bias**. It is one of the motivations for the preference and RL methods of notebook 08, which train on the model's own samples.
+- **Imitation, not judgement.** SFT is behaviour cloning: the model learns to produce answers that look like the demonstrations, including their mistakes. It receives no signal that one wrong answer is worse than another, and no signal about answers it was never shown. Data quality is therefore the main lever. The LIMA paper (Zhou et al., 2023) argued that a thousand carefully chosen examples can be enough to teach the *format* of helpful answers, because most of the knowledge is already in the pretrained weights (their "superficial alignment hypothesis"; how far it holds is debated).
+
+### What fine-tuning is good at
+
+Fine-tuning reliably teaches **form**: an output format, a style, a label set, a set of conventions, and how to apply a rule the base model already half-knows (here, converting "8:30 pm" to "20:30"). It is a poor way to add **new facts**: Gekhman et al. (2024) found that examples whose facts the model did not already know are learned slowly and, once learned, increase hallucination on other questions. For knowledge that changes, retrieval (notebook 10) is usually the better tool.
+
+| approach | changes | good for | weak at | cost |
+|---|---|---|---|---|
+| prompting / few-shot | nothing (context only) | quick iteration, many tasks with one model | long, strict formats; every call pays for the examples | tokens per call |
+| RAG | the context, from a store you control | facts that change, citations, access control | teaching a new behaviour or format | an index + retrieval latency |
+| SFT (full or LoRA) | the weights | formats, style, narrow skills, shorter prompts | adding new knowledge; needs labelled data | a training run, a model to serve |
+| distillation | the weights of a smaller model | cutting serving cost once a big model works | the student inherits the teacher's errors | teacher inference + a training run |
+
+In practice these are combined: a fine-tuned model that follows your format, fed with retrieved context.
+
+### The cost of full fine-tuning, and the parameter-efficient family
+
+Updating every weight means storing a gradient and optimizer state for every weight (section 4.1 does the accounting). It also means one full copy of the model per task. **Parameter-efficient fine-tuning (PEFT)** keeps the pretrained weights frozen and trains a small number of new parameters:
+
+| method | what is trained | inference cost | reference |
+|---|---|---|---|
+| adapters | small bottleneck MLPs inserted in each layer | extra layers on every forward pass | Houlsby et al., 2019 |
+| prefix / prompt tuning | learned "virtual tokens" prepended to the keys and values or to the input | longer effective sequence | Li & Liang, 2021; Lester et al., 2021 |
+| **LoRA** | a low-rank update $BA$ added to existing weight matrices | **zero after merging** | Hu et al., 2021 |
+| QLoRA | LoRA on top of a 4-bit quantized frozen base | as LoRA (base stays quantized or is merged) | Dettmers et al., 2023 |
+| DoRA | LoRA applied to the direction of each weight, with a separately learned magnitude | zero after merging | Liu et al., 2024 |
+
+LoRA became the default for three reasons: it adds no latency once merged, it matches full fine-tuning on many narrow tasks, and it is supported everywhere (`peft`, TRL, vLLM and most serving stacks can load several adapters on one base model). Its theoretical motivation is the observation that fine-tuning has a low **intrinsic dimension**: Aghajanyan et al. (2021) showed that a pretrained model can be fine-tuned well by optimizing a few hundred or thousand parameters projected into the full weight space. If the useful update lives in a small subspace, there is no need to parameterize all of it.
+
+### Key papers
+
+- Hu et al., 2021. *LoRA: Low-Rank Adaptation of Large Language Models.*
+- Aghajanyan, Gupta & Zettlemoyer, 2021. *Intrinsic Dimensionality Explains the Effectiveness of Language Model Fine-Tuning.*
+- Dettmers et al., 2023. *QLoRA: Efficient Finetuning of Quantized LLMs.*
+- Zhou et al., 2023. *LIMA: Less Is More for Alignment.*
+- Gekhman et al., 2024. *Does Fine-Tuning LLMs on New Knowledge Encourage Hallucinations?*
+- Biderman et al., 2024. *LoRA Learns Less and Forgets Less.*
+- Hinton, Vinyals & Dean, 2015. *Distilling the Knowledge in a Neural Network.*
+- Kim & Rush, 2016. *Sequence-Level Knowledge Distillation.*
+''')
+nb.code(r'''
+import os
+# This notebook trains nine models in one process, and the 4-bit model of section 4.3 leaves ~0.1 GB behind on the GPU.
+# A 2 GB budget fits every run and still leaves room for Ollama (~2.3 GB) on a 6 GB card. Notebooks 08-09 keep 1.5 GB.
+os.environ.setdefault("VRAM_BUDGET_GB", "2")
+''')
 nb.code(SETUP_HF)
 nb.md(r'''
 ## 1. The task and the data
@@ -200,6 +258,8 @@ print(tok.apply_chat_template(ex["prompt"] + ex["completion"], tokenize=False))
 ''')
 nb.md(r'''
 **Loss masking.** We want the model to learn to *write the answer*, not to predict the system prompt or the user's sentence (that would waste capacity and teach it to imitate users). So the labels of every prompt token are set to `-100`, which PyTorch's cross-entropy ignores, and the loss only covers the assistant's reply **including its end-of-turn token `<|im_end|>`**, so the model also learns when to stop.
+
+In terms of the objective above, masking turns the joint likelihood $\log \pi(x, y)$ into the conditional likelihood $\log \pi(y \mid x)$: we model the answer *given* the prompt, which is exactly what we will ask of the model at inference. With short answers and long prompts (here a long system prompt and a short JSON) the difference is large, because without masking most of the gradient would come from the prompt. Whether the prompt loss is always useless is debated: Shi et al. (2024, *Instruction Tuning With Loss Over Instructions*) report gains from keeping it when the answers are very short and the data is small, as a form of regularization. Completion-only loss remains the standard default.
 
 In TRL you get this by giving the dataset a `prompt` / `completion` split (`completion_only_loss`, the default for that format). For multi-turn chats there is `SFTConfig(assistant_only_loss=True)`, which needs a chat template with `{% generation %}` markers (TRL ships patched templates for common model families).
 
@@ -266,6 +326,10 @@ With mixed precision and AdamW, every trainable parameter costs about **16 bytes
 - cheaper optimizer state and bf16 weights (here: bf16 weights + **Adafactor**, which stores a factored second moment and no first moment), or
 - train far fewer parameters: **LoRA**.
 
+The 16-byte figure is the standard accounting from the ZeRO paper (Rajbhandari et al., 2020), which splits it slightly differently for mixed-precision training: a 16-bit copy of the weights (2 bytes) and of the gradients (2), plus an fp32 master copy of the weights (4) and Adam's first and second moments (4 + 4). Either way, for $N$ parameters the training state is about $16N$ bytes, and **activations come on top**: they grow with batch size × sequence length × number of layers × hidden size. Gradient checkpointing (used below) trades compute for activation memory: it stores only some layer inputs and recomputes the rest during the backward pass, at roughly one extra forward pass of cost.
+
+Adafactor (Shazeer & Stern, 2018) saves memory by keeping, for an $n \times m$ weight matrix, only row and column statistics of the squared gradient ($n + m$ numbers instead of $nm$) and by dropping the first moment. The price is a somewhat less stable optimizer; it was used to train T5 and is a reasonable choice when memory is the constraint.
+
 One helper runs every training in this notebook so they are comparable: same data, same 2 epochs, effective batch 16, cosine schedule, bf16, gradient checkpointing.
 ''')
 nb.code(r'''
@@ -304,7 +368,31 @@ $$W' = W + \tfrac{\alpha}{r}\,BA,\qquad A\in\mathbb{R}^{r\times k},\ B\in\mathbb
 - after training, `merge_and_unload()` folds `BA` into `W`: zero extra latency at inference;
 - adapters are tiny files: one base model can serve many tasks by swapping adapters.
 
-`peft.LoraConfig` choices: `r` (rank), `lora_alpha` (scale; `alpha = 2r` is a common default), and `target_modules`. `"all-linear"` (q, k, v, o, gate, up, down) usually beats a larger rank on q/v only. LoRA wants a **higher learning rate** than full fine-tuning (1e-4 to 1e-3 instead of 1e-5 to 1e-4), because `B` starts at zero and the update is scaled by `alpha / r`.
+`peft.LoraConfig` choices: `r` (rank), `lora_alpha` (scale; `alpha = 2r` is a common default), and `target_modules`. `"all-linear"` (q, k, v, o, gate, up, down) usually beats a larger rank on q/v only. LoRA works best with a **higher learning rate** than full fine-tuning (1e-4 to 1e-3 instead of 1e-5 to 1e-4). That is an empirical finding rather than a derivation: the low-rank factors are few, start from a zero update (`B = 0`) and are rescaled by `alpha / r`, so the usable range of learning rates moves up, but the right value is still found by trying.
+
+#### The theory in more detail
+
+**The forward pass.** For an input $x$, a LoRA-adapted linear layer computes
+$$h = W x + \frac{\alpha}{r}\, B (A x)$$
+The frozen path $Wx$ is unchanged. The adapter path first projects $x$ down to $r$ dimensions with $A$, then back up with $B$. The product $BA$ is a $d \times k$ matrix of rank at most $r$, but it is never formed during training: two thin matrix products are cheaper.
+
+**Parameter count.** A full update of $W \in \mathbb{R}^{d \times k}$ has $dk$ parameters; LoRA has $r(d + k)$. For a square $4096 \times 4096$ projection (typical of a 7B model) and $r = 16$, that is $16.8$ M against $131$ k, a factor of 128. Gradients and Adam states shrink by the same factor, which is where the memory saving comes from. The frozen weights still have to sit in memory, and the activations still flow through the whole network, so LoRA saves the optimizer and gradient memory, not the activation memory.
+
+**Why a low-rank update is enough.** Hu et al. measured the update $\Delta W$ learned by fine-tuning and found that it amplifies a few directions that were already present, but not emphasized, in $W$; a small $r$ captures most of it. This agrees with the intrinsic-dimension result in the Background section. It is an empirical finding about adaptation to *narrow* tasks. When the target is far from what the model already does (a new language, a large domain shift, continued pre-training), the needed update has higher rank and LoRA falls behind full fine-tuning.
+
+**Initialization and the role of $\alpha$.** $A$ is initialized randomly (Kaiming-uniform in `peft`) and $B$ at zero, so $\Delta W = 0$ at step 0 but the gradient with respect to $B$ is non-zero. The factor $\alpha / r$ decouples the size of the update from the rank: without it, changing $r$ would change the effective learning rate. Kalajdzievski (2023, *A Rank Stabilization Scaling Factor for Fine-Tuning with LoRA*) argued that $\alpha/r$ shrinks the update too much at large ranks and proposed $\alpha/\sqrt{r}$; `peft` exposes it as `LoraConfig(use_rslora=True)`.
+
+**Trade-offs against full fine-tuning.** Biderman et al. (2024, *LoRA Learns Less and Forgets Less*) compared both on code and math at scale: full fine-tuning learned the target domain better, LoRA kept more of the base model's general abilities. That matches the intuition: a constrained update moves the model less, which costs plasticity and buys stability. For a narrow task with a few hundred examples, the constraint rarely hurts.
+
+| | full fine-tuning | LoRA | QLoRA |
+|---|---|---|---|
+| trainable parameters | all | $r(d+k)$ per adapted matrix | same as LoRA |
+| frozen base in memory | (none frozen) | 16-bit | 4-bit |
+| optimizer + gradient memory | ~16 bytes/param | ~16 bytes per *adapter* param | same as LoRA |
+| quality on narrow tasks | reference | usually close | usually close, slightly more noise from quantization |
+| artefact per task | full model | small adapter file | small adapter file |
+
+**Common failure modes.** Learning rate too low (LoRA typically needs about 10× the full fine-tuning rate); adapting only `q_proj` and `v_proj` (the original paper's choice) when all linear layers work better for the same budget; forgetting that `lm_head` and the embeddings are frozen (section 5); merging an adapter into a base model that is not the one it was trained on.
 ''')
 nb.code(r'''
 from peft import LoraConfig, get_peft_model
@@ -349,12 +437,74 @@ nb.md(r'''
 **What we see.** Both full SFT and LoRA turn a model that needed four examples in its prompt into one that always produces valid JSON with the right names, restaurants, party sizes and days (field accuracy ≈ 86 % against 73 % few-shot), and both double the few-shot exact match. The remaining errors are almost all in `time`: with 300 examples and 2 epochs the 12-hour → 24-hour conversion ("10 pm" → "22:00") is only partly learned; the models often copy the hour (`10:00`) or guess one. LoRA trains 3.5 % of the parameters and lands within one test request of full fine-tuning (32.5 % vs 35.0 % exact). Its adapter is a 20 MB file.
 
 About memory: full fine-tuning fitted only because we switched to bf16 weights and Adafactor (1.19 GB peak at micro-batch 4). LoRA r=16 peaked at 1.41 GB, but with micro-batch 8; at micro-batch 4 a LoRA run needs about 0.9 GB (see the first run in section 5). In a model this small, activations and the 49k-token output layer weigh as much as the weights, so the gap is modest. It grows with model size: for a 7B model, full fine-tuning with AdamW needs ~112 GB for weights, gradients and optimizer state, while LoRA needs little more than the 14 GB of frozen bf16 weights.
+''')
+nb.md(r'''
+### 4.3 QLoRA: the same LoRA on a 4-bit base model
+
+LoRA freezes the base weights, but they still have to sit in GPU memory in bf16: 2 bytes per parameter, so about 14 GB for a 7B model before a single activation is stored. **QLoRA** (Dettmers, Pagnoni, Holtzman and Zettlemoyer, 2023, *QLoRA: Efficient Finetuning of Quantized LLMs*) keeps the frozen weights in **4 bits** and trains ordinary bf16 LoRA adapters on top. It is what made fine-tuning a 7-8B model possible on one consumer GPU, and it is still the default recipe when the base model does not fit.
+
+**The forward pass.** For each quantized linear layer,
+
+$$h = \operatorname{dequant}(W_0^{\text{NF4}})\,x + \frac{\alpha}{r} B A x$$
+
+The 4-bit weight is turned back into bf16 block by block, just for the matmul, and thrown away. Gradients flow *through* the frozen quantized layer to reach $A$ and $B$, which stay in bf16, so the optimizer never touches a 4-bit number. The adapters can even learn to compensate part of the quantization error, because they are trained against the quantized base they will run with.
+
+**The three ideas of the paper.**
+
+| idea | what it does | why it matters |
+|---|---|---|
+| **NF4** (4-bit NormalFloat) | 16 levels placed at the quantiles of a normal distribution, with one absmax scale per block of 64 weights | pretrained weights are roughly normal, so equal-probability levels waste less precision than the evenly spaced levels of int4 |
+| **double quantization** | the per-block scales (fp32) are themselves quantized to 8 bits | the scale overhead drops from 0.5 to about 0.127 bits per parameter, so the total is about 4.13 bits per weight |
+| **paged optimizers** | optimizer state lives in CUDA unified memory and is paged to CPU RAM when a long sequence makes memory spike | the run survives peaks instead of failing with out-of-memory |
+
+**What it costs.** Dequantizing on every forward and backward pass makes each step slower than plain LoRA, and the result is a LoRA adapter for a *quantized* base: to merge it, reload the base in bf16 and apply the adapter there (merging into the 4-bit weights loses precision). The paper reports that QLoRA matched 16-bit LoRA and full fine-tuning on its benchmarks; in practice the gap is small but worth measuring on your own task, which is what we do next.
+
+**What to expect on a 135M model.** Very little memory saving. `bitsandbytes` quantizes the linear layers only; SmolLM2's 28M-parameter embedding (tied with the output layer) stays in bf16, and at this size activations and the 49k-token output logits weigh as much as the weights. The point of running it here is to see the recipe and check that quality holds; the arithmetic below shows where the savings become decisive.
+''')
+nb.code(r'''
+from transformers import BitsAndBytesConfig
+from peft import prepare_model_for_kbit_training
+
+bnb_cfg = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",    # NormalFloat4 levels
+                             bnb_4bit_use_double_quant=True,                  # quantize the per-block scales too
+                             bnb_4bit_compute_dtype=DTYPE)                    # dequantize to bf16 for the matmuls
+bf16_bytes = from_pretrained(AutoModelForCausalLM, MODEL, dtype=DTYPE).get_memory_footprint()
+q_base = from_pretrained(AutoModelForCausalLM, MODEL, quantization_config=bnb_cfg, device_map={"": 0} if device == "cuda" else None)
+print(f"weights in memory: bf16 {bf16_bytes / 1e6:.0f} MB -> NF4 {q_base.get_memory_footprint() / 1e6:.0f} MB "
+      f"(the tied 28M-parameter embedding stays in bf16)")
+n4 = sum(1 for m in q_base.modules() if type(m).__name__ == "Linear4bit")
+print(f"{n4} linear layers stored in 4 bits")
+
+q_base = prepare_model_for_kbit_training(q_base, use_gradient_checkpointing=True)   # norms in fp32, inputs require grad
+q_model = get_peft_model(q_base, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", task_type="CAUSAL_LM"))
+q_model.print_trainable_parameters()
+trainer = train_sft(q_model, train_rows, "QLoRA r=16 (NF4)", optim="paged_adamw_8bit")   # the full QLoRA recipe
+_ = evaluate(trainer.model, tok, "QLoRA r=16 (NF4)", show=1)
+del trainer, q_model, q_base; free()
+
+for n in ["LoRA r=16", "QLoRA r=16 (NF4)"]:
+    print(f"{n:18s} exact {100 * RESULTS[n]['exact']:5.1f}%  fields {100 * RESULTS[n]['fields']:5.1f}%  "
+          f"time {RUNS[n]['time']:5.0f} s  peak VRAM {RUNS[n]['peak']:.2f} GB")
+
+# Where QLoRA matters: frozen-weight memory for real model sizes (NF4 + double quantization ~ 4.13 bits per weight)
+print(f"\n{'model':>6s} {'bf16 weights':>13s} {'NF4 weights':>12s}")
+for b in (7, 13, 70):
+    print(f"{b:>5d}B {2 * b:>11.0f} GB {b * 4.127 / 8:>10.1f} GB")
+''')
+nb.md(r'''
+**What we see.** The 4-bit base holds its own: QLoRA reaches 37.5 % exact match against 32.5 % for plain LoRA, with the same 86.5 % of fields right. Two requests out of 40 are within the noise, so the honest reading is *no loss of quality*, not *better*. The memory story is the one predicted: the weights shrink from 269 MB to 110 MB (210 linear layers stored in NF4; the 28M-parameter tied embedding stays in bf16), but the training peak barely moves (1.41 → 1.34 GB), because on a 135M model the activations and the 49k-token output layer dominate. Each run is a little slower (47 s against 41 s for the same 38 steps), because every matmul dequantizes its weights first.
+
+The last table is the reason QLoRA exists. For a 7B model the frozen weights go from 14 GB to about 3.6 GB: the difference between *does not fit* and *fits with room for activations* on an 8 GB card, and for a 70B model between a multi-GPU server and a single 48 GB GPU. Rule of thumb: if the base model fits in bf16 with room to train, use LoRA (faster, simpler, merges directly); if it does not, use QLoRA and merge the adapter into a bf16 copy of the base.
 
 ## 5. The "new special token" trap
 
 Real projects often **add tokens**: a new role, a tool-call marker, a `<|json|>` tag. `tokenizer.add_tokens` + `model.resize_token_embeddings` adds rows to the embedding matrix. Transformers initializes them at the **mean** of the existing embeddings (plus tiny noise).
 
 Now combine that with LoRA, which freezes the embeddings. SmolLM2 ties the input embedding and the output layer (`lm_head`): the logit of token *i* is $h \cdot e_i$. A vector at the mean of all $e_i$ lies *inside* the cloud of embeddings, and a linear score $h \cdot e$ is always maximized at the edge of the cloud, never at its centre. So **no hidden state can ever make the new token the most likely one**: greedy decoding can never emit it, however well the adapters train. The fix is to train the embedding row too: `LoraConfig(modules_to_save=["embed_tokens"], ensure_weight_tying=True)` (the whole matrix, tied to `lm_head`) or `trainable_token_indices=[...]` (only the new rows).
+
+**Weight tying, briefly.** Press & Wolf (2017, *Using the Output Embedding to Improve Language Models*) and Inan et al. (2017) proposed using the same matrix $E \in \mathbb{R}^{V \times h}$ for the input embedding and the output projection: logits $= E\,h_{\text{last}}$. It saves $V \times h$ parameters (for SmolLM2's 49k-token vocabulary that is a large share of a 135M model) and tends to help small models. The flip side is that a token's *input* meaning and its *output* score are the same vector, so a badly initialized row is wrong in both roles at once. To state the geometric argument precisely: if the new row is $\bar e = \frac{1}{V}\sum_i e_i$, then for any hidden state $h$, $h \cdot \bar e$ is the average of the scores $h \cdot e_i$, and an average can never exceed the maximum. Mean initialization is still the right default (John Hewitt's 2021 note *Initializing New Word Embeddings for Pretrained Language Models* showed it avoids the much worse alternative of random rows that dominate the softmax), but it only gives a *starting point* that training must move.
+
+**What `modules_to_save` does.** It wraps the named module, keeps the original frozen, and trains a full copy that is saved in the adapter file. For the embedding that means the adapter now contains a $V \times h$ matrix, so it is no longer tiny: the trade-off is correctness against adapter size. `trainable_token_indices` trains only the listed rows, which is the economical version when it works with your library versions.
 
 Experiment: the answer must now start with a new `<|json|>` token. Same data, LoRA r=16 with and without a trainable embedding.
 ''')
@@ -413,6 +563,14 @@ Two practical notes:
 ## 6. Rank ablation: how much rank do you need?
 
 The LoRA paper found that very small ranks (1–8) often match full fine-tuning. We train r = 2, 16 (above) and 64 with the same data and steps (`alpha = 2r`, so the effective scale `alpha/r` stays the same).
+
+**What the rank controls.** The rank is the dimension of the subspace in which each weight matrix may change. With $r = 1$ every adapted matrix can only move along one outer product $b a^\top$; with $r = \min(d, k)$ LoRA can express any update and becomes a reparameterization of full fine-tuning. Capacity grows linearly with $r$ (trainable parameters are $r(d+k)$ per matrix), and so do adapter size and optimizer memory, while the compute overhead stays small for any practical rank.
+
+**Why small ranks often suffice, and when they do not.** Hu et al. compared the subspaces learned at $r = 8$ and $r = 64$ and found that the top directions overlap strongly: the extra rank mostly adds directions that carry little. That is a statement about tasks close to what the model already does (their experiments were GLUE-style tasks and GPT-3 adaptation). A task that requires a genuinely new mapping, here a conversion rule the 135M model has not mastered, can use more directions, and a rank sweep is the only way to know.
+
+**Rank, $\alpha$ and the learning rate interact.** With `alpha = 2r` the scale $\alpha/r$ is constant, so the comparison isolates capacity. If instead you keep $\alpha$ fixed and raise $r$, the update shrinks as $1/r$ and a larger rank can look *worse* simply because it learns more slowly; that is the effect rsLoRA's $\alpha/\sqrt{r}$ is meant to correct. When you read a rank ablation from someone else, check which convention they used.
+
+**Practical rule.** Spend capacity on *which* matrices are adapted before spending it on rank (all linear layers at $r = 8$ or $16$ is a stronger default than $r = 64$ on two projections), and consider more data before a larger rank.
 ''')
 nb.code(r'''
 for r in [2, 64]:
@@ -442,6 +600,26 @@ Labelled data is expensive, unlabelled prompts are cheap. **Knowledge distillati
 
 - **Sequence-level (synthetic-data) distillation**: the teacher *writes the answers* to unlabelled prompts, and the student does ordinary SFT on them. This is how most small open models are made today (e.g. DeepSeek-R1-Distill, or fine-tuning on answers from a frontier API). It only needs the teacher's text.
 - **Logit distillation**: the student matches the teacher's full next-token distribution at temperature τ, $\mathcal{L} = (1-\lambda)\,\mathrm{CE}(y, p_s) + \lambda\,\tau^2\,\mathrm{KL}(p_t^{\tau}\,\|\,p_s^{\tau})$. Denser signal ("dark knowledge": how likely every other token was), but it needs the teacher's logits and **the same tokenizer**. TRL implements the on-policy version (GKD) as `trl.DistillationTrainer`. We do not run it here to keep the notebook short.
+
+#### The theory behind distillation
+
+**Soft targets and temperature.** Hinton, Vinyals & Dean (2015) observed that a trained network's output distribution carries more information than its top answer: a teacher that gives "20:30" most of its probability and "20:00" a small but clear share is also saying which mistakes are plausible. To expose that information they soften both distributions with a temperature $\tau > 1$:
+$$p_i^{\tau} = \frac{\exp(z_i / \tau)}{\sum_j \exp(z_j / \tau)}$$
+where $z$ are the logits. At $\tau = 1$ this is the ordinary softmax; as $\tau$ grows the distribution flattens and the small probabilities ("dark knowledge") get a visible share of the loss. The student minimizes $\mathrm{KL}(p_t^\tau \,\|\, p_s^\tau)$ per token, usually mixed with the ordinary cross-entropy on the gold label, as in the formula above. The factor $\tau^2$ is there because the gradient of the softened KL with respect to the student logits scales as $1/\tau^2$; multiplying by $\tau^2$ keeps the two loss terms on comparable scales when you change $\tau$.
+
+**Which direction of KL.** The forward KL $\mathrm{KL}(p_t \| p_s)$ is *mode-covering*: the student is penalized wherever the teacher has mass and it does not, so a small student spreads its probability over everything the teacher might say, including regions it cannot model well. The reverse KL $\mathrm{KL}(p_s \| p_t)$ is *mode-seeking*: the student is penalized for putting mass where the teacher has none, so it concentrates on the teacher's main modes. For generation, where sampling from a spread-out distribution produces incoherent text, MiniLLM (Gu et al., 2024) argued for the reverse KL; GKD (Agarwal et al., 2024) treats the divergence as a choice (including the generalized Jensen-Shannon divergence between the two) and trains on sequences sampled from the student itself. That "on-policy" part addresses exposure bias: the student learns what the teacher would do in the states the *student* actually reaches.
+
+**Sequence-level distillation as an approximation.** Kim & Rush (2016) showed that training the student on the teacher's *decoded outputs* (beam search or greedy) works surprisingly well. You can read it as replacing the teacher's full distribution over sequences with its mode. You lose the dark knowledge, but you gain three things: it works across different tokenizers and architectures, it works with a teacher you can only reach through an API, and it is just SFT, so all the tooling above applies. This is why it dominates in practice (Alpaca, Vicuna and many reasoning distillations were built this way).
+
+| | sequence-level (synthetic labels) | logit (token-level) | on-policy (GKD, MiniLLM) |
+|---|---|---|---|
+| needs from the teacher | text only | logits at every position | logits on student samples |
+| tokenizer | any | must match (or be aligned) | must match |
+| signal per example | one target sequence | a full distribution per token | a full distribution per token, on the student's own states |
+| cost | one teacher generation per prompt | teacher forward pass per training step | student sampling + teacher forward per step |
+| main risk | copies the teacher's errors | memory for two models | slow, more moving parts |
+
+**Failure modes.** The student is bounded by the teacher and inherits its systematic errors (here, 10 % of the labels are wrong, and a teacher's errors are rarely random: they tend to repeat on the same kind of input). A large *capacity gap* can make a very strong teacher a worse teacher than a medium one, because the student cannot represent what it is shown (Mirzadeh et al., 2020, *Improved Knowledge Distillation via Teacher Assistant*). And when the teacher is a commercial API, check its terms of use: several providers forbid using outputs to train competing models.
 
 Our setup: the teacher is **SmolLM2-360M-Instruct** fine-tuned with LoRA on the *same* 300 labelled examples. It then labels **600 new, unlabelled requests**, and the 135M student is trained on the 300 human labels plus the 600 teacher labels.
 ''')
@@ -478,7 +656,7 @@ nb.md(r'''
 Every model on the same 40 held-out requests, plus what each training run cost.
 ''')
 nb.code(r'''
-order = [n for n in ["baseline zero-shot", "baseline few-shot", "full SFT", "LoRA r=2", "LoRA r=16", "LoRA r=64",
+order = [n for n in ["baseline zero-shot", "baseline few-shot", "full SFT", "LoRA r=2", "LoRA r=16", "QLoRA r=16 (NF4)", "LoRA r=64",
                      "teacher 360M LoRA r=16", "student 135M: human + teacher labels"] if n in RESULTS]
 print(f"{'model':38s} {'valid':>6s} {'exact':>6s} {'fields':>7s} {'time':>6s} | {'trainable':>10s} {'train s':>8s} {'peak GB':>8s}")
 for n in order:
@@ -492,7 +670,7 @@ for k, (metric, c) in enumerate([("valid", "tab:gray"), ("fields", "tab:blue"), 
     ax[0].barh(ys + (k - 1) * w, [100 * RESULTS[n][metric] for n in order], height=w, color=c, label=metric)
 ax[0].set_yticks(ys, order); ax[0].invert_yaxis(); ax[0].set_xlim(0, 100); ax[0].set_xlabel("% of the 40 test requests")
 ax[0].legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3); ax[0].grid(alpha=.3, axis="x")
-for n in ["full SFT", "LoRA r=16", "LoRA r=2", "LoRA r=64", "student 135M: human + teacher labels"]:
+for n in ["full SFT", "LoRA r=16", "QLoRA r=16 (NF4)", "LoRA r=2", "LoRA r=64", "student 135M: human + teacher labels"]:
     steps, loss = zip(*RUNS[n]["loss"])
     ax[1].plot(steps, loss, label=n)
 ax[1].set_yscale("log"); ax[1].set_xlabel("optimizer step"); ax[1].set_ylabel("training loss (completion tokens)")
@@ -524,6 +702,7 @@ With 40 test requests, each request is 2.5 points: treat differences of one or t
 - Use the model's **chat template** and mask the prompt: train only on the answer and its end-of-turn token. `trl.SFTTrainer` does it for prompt-completion data; check the labels once, as we did.
 - Measure a **few-shot baseline** first. Fine-tuning has to beat a good prompt, not a bad one.
 - **LoRA** (`target_modules="all-linear"`, a higher LR) trains a few % of the parameters, fits where full fine-tuning does not, merges back for free, and on small data is as good as full fine-tuning.
+- **QLoRA** keeps the frozen base in 4-bit NF4 and trains bf16 adapters on top: the recipe for models whose bf16 weights do not fit (a 7B model drops from ~14 GB to ~3.6 GB of weights), at the price of slower steps. Merge into a bf16 copy of the base, not into the 4-bit weights.
 - **New tokens + frozen embeddings cannot work** with tied embeddings and mean initialization: make the embedding trainable (`modules_to_save` or `trainable_token_indices`).
 - **Rank** helped here (20 → 45 % from r = 2 to r = 64), but much less than more data did. Start at r = 16 and let the held-out metric decide.
 - **Sequence-level distillation**: a stronger teacher turns cheap unlabelled prompts into training data. The student is bounded by the teacher's mistakes, so measure the teacher's labels.

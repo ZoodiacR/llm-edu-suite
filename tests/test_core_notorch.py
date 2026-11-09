@@ -71,3 +71,50 @@ def test_content_embeddings_accept_a_langchain_embedder():
     cat = make_catalog(10, n_clusters=2)
     E = content_embeddings(cat, embedder=FakeEmbeddings())
     assert E.shape == (11, 2) and np.allclose(E[0], 0)
+
+
+# Uncertainty and configuration
+
+def test_bootstrap_intervals():
+    from llm_edu_suite.evaluation import bootstrap_ci, paired_bootstrap_diff
+    m, lo, hi = bootstrap_ci([0.0, 1.0] * 50)
+    assert m == pytest.approx(0.5) and lo < 0.5 < hi and hi - lo < 0.25          # 100 coin flips: about +-0.1
+    m, lo, hi = bootstrap_ci([1.0, float("nan"), 1.0])                          # NaNs (failed judge calls) are dropped
+    assert (m, lo, hi) == (1.0, 1.0, 1.0)
+    d, lo, hi = paired_bootstrap_diff([0.0] * 30, [1.0] * 30)
+    assert d == 1.0 and lo == 1.0                                               # every pair improved: the interval excludes 0
+    d, lo, hi = paired_bootstrap_diff([0, 1] * 20, [1, 0] * 20)
+    assert lo < 0 < hi                                                          # same average, swapped wins: no clear difference
+
+
+def test_judge_model_falls_back_to_the_chat_model(monkeypatch):
+    from llm_edu_suite import config
+    monkeypatch.delenv("JUDGE_MODEL", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("LLM_MODEL", "qwen2.5:3b")
+    monkeypatch.setattr(config, "ollama_models", lambda timeout=2.0: ["qwen2.5:3b"])
+    assert config.judge_model() == "qwen2.5:3b"                                  # the 7B is not pulled
+    monkeypatch.setattr(config, "ollama_models", lambda timeout=2.0: ["qwen2.5:3b", "qwen2.5:7b"])
+    assert config.judge_model() == "qwen2.5:7b"
+    monkeypatch.setenv("JUDGE_MODEL", "my-judge")
+    assert config.judge_model() == "my-judge"
+
+
+def test_movielens_loader_and_temporal_split(tmp_path):
+    """A tiny file in MovieLens-1M format: loading, re-indexing, time order, leave-last-two and the cold holdout."""
+    from llm_edu_suite.recsys import load_movielens_1m, temporal_split
+    (tmp_path / "movies.dat").write_text("10::Toy Story (1995)::Animation|Children's\n20::Heat (1995)::Action|Crime\n"
+                                         "30::Alien (1979)::Horror|Sci-Fi\n40::Unrated (2000)::Drama\n", encoding="latin-1")
+    rows = []
+    for u in (1, 2, 3):
+        for t, m in enumerate((10, 20, 30, 10, 20) if u != 3 else (30, 20, 10, 30, 20)):
+            rows.append(f"{u}::{m}::{4}::{100 * t + u}")
+    (tmp_path / "ratings.dat").write_text("\n".join(rows) + "\n", encoding="latin-1")
+    (tmp_path / "users.dat").write_text("1::F::1::10::0\n2::M::25::3::0\n3::F::35::7::0\n", encoding="latin-1")
+    ml = load_movielens_1m(str(tmp_path))
+    assert ml.n_items == 3 and ml.titles[1] == "Toy Story (1995)" and ml.years[3] == 1979   # the unrated movie is dropped
+    assert [i for _, i, _ in ml.events[1]] == [1, 2, 3, 1, 2]
+    sp = temporal_split(ml, cold_frac=0.34, min_count=1, seed=0)
+    (cold,) = sp["cold"]
+    assert all(cold not in h for h in sp["train"]) and all(cold not in h for h, _ in sp["test"])
+    assert [t for _, t in sp["test"]] == [2, 2, 2] and [t for _, t in sp["valid"]] == [1, 1, 3]

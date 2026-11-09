@@ -1,24 +1,58 @@
+# The single source of truth for dependencies (PEP 621). requirements.txt only points here.
+#   pip install -e ".[dev]"        # everything: the notebooks, the tests and Jupyter
+#   pip install -e .               # only what the notebooks and scripts import
+# Install PyTorch first with the wheel for your machine (CUDA or CPU); setup_env.ps1 / setup_env.sh do it for you.
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "llm-edu-suite"
 version = "2.0.0"
 description = "Learn LLM engineering by building the model in PyTorch and the applications with the tools the industry uses: Hugging Face, LangChain, LangGraph, LangSmith, RAGAS and MCP."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.3", "numpy>=1.24", "matplotlib>=3.7", "python-dotenv>=1.0",
+    # the from-scratch model (notebooks 00-06)
+    "torch>=2.3",
+    "numpy>=1.24",
+    "matplotlib>=3.7",
+    "python-dotenv>=1.0",
+    # LLM applications (notebooks 10-16)
+    "langchain>=1.4",
+    "langchain-core>=1.7",
+    "langchain-community>=0.4",
+    "langchain-classic>=1.0",          # EnsembleRetriever and MultiQueryRetriever live here in LangChain 1.x
+    "langchain-ollama>=1.1",
+    "langchain-text-splitters>=1.0",
+    "langgraph>=1.2",
+    "langsmith>=0.14",
+    "ragas>=0.4",
+    "pydantic>=2.0",
+    "mcp[cli]>=1.24,<2",               # langchain-mcp-adapters does not support the 2.x SDK yet
+    "langchain-mcp-adapters>=0.3.2",
+    # retrieval and ranking
+    "faiss-cpu>=1.8",
+    "rank-bm25>=0.2",
+    "lightgbm>=4.5",                   # learning-to-rank (LambdaMART) for the recommender in notebook 12
+    # fine-tuning and quantization (notebooks 07-09)
+    "transformers>=5.0",
+    "peft>=0.21",
+    "trl>=1.17",
+    "datasets>=4.0",
+    "accelerate>=1.0",
+    "bitsandbytes>=0.45",              # 4-bit NF4 weights for QLoRA (notebook 07)
+    "optimum-quanto>=0.2",
 ]
 
 [project.optional-dependencies]
-# The application layer: everything the notebooks 07-16 use.
-apps = [
-    "langchain>=1.4", "langchain-core>=1.7", "langchain-community>=0.4", "langchain-classic>=1.0", "langchain-ollama>=1.1",
-    "langchain-text-splitters>=1.0", "langgraph>=1.2", "langsmith>=0.14", "ragas>=0.4",
-    "faiss-cpu>=1.8", "rank-bm25>=0.2", "pydantic>=2.0",
-    "transformers>=5.0", "peft>=0.21", "trl>=1.17", "datasets>=4.0", "accelerate>=1.0", "optimum-quanto>=0.2",
-    "mcp[cli]>=1.24,<2", "langchain-mcp-adapters>=0.3.2",
-]
+# tests and notebooks
 dev = ["pytest>=7.0", "jupyterlab>=4.0", "ipykernel>=6.0", "nbclient>=0.8", "nbformat>=5.7"]
+# only if you switch LLM_PROVIDER in .env
+openai = ["langchain-openai>=1.0"]
+anthropic = ["langchain-anthropic>=1.0"]
 
 [tool.setuptools]
 packages = ["llm_edu_suite"]

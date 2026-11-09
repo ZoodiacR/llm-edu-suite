@@ -4,7 +4,7 @@
 
 > **Resumen.** Un curso práctico de ingeniería de LLMs en dos mitades: un modelo de lenguaje construido **desde cero en PyTorch** para entender cómo funciona por dentro, y aplicaciones construidas con **las herramientas que usa la industria** (Hugging Face `transformers`/`peft`/`trl`, LangChain, LangGraph, LangSmith, RAGAS y el SDK oficial de MCP), con modelos locales vía Ollama. 17 notebooks ejecutados y evaluados, docs en español e inglés y CI. El proyecto tuvo dos versiones: **v1** lo implementaba todo a mano y lo llevé a un estado verificado de punta a punta (bugs corregidos, experimentos rediseñados); **v2** reemplazó la capa de aplicaciones por frameworks reales. Cada decisión está documentada con números medidos.
 
-> La sección 11 describe la migración a v2 (frameworks reales). Las secciones 2–8 cuentan el trabajo de v1, que sigue siendo la base del modelo desde cero.
+> La sección 11 describe la migración a v2 (frameworks reales) y la 12, la versión 2.1 (teoría en todos los notebooks, un recomendador real sobre MovieLens-1M y evaluación con intervalos). Las secciones 2–8 cuentan el trabajo de v1, que sigue siendo la base del modelo desde cero.
 
 ## 1. Contexto y objetivo
 
@@ -144,6 +144,8 @@ Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, 
 
 **v2:** lo anterior para el modelo desde cero, más Hugging Face `transformers`, `peft`, `trl`, `datasets` y `optimum-quanto`; LangChain (`langchain-core`, `langchain-community`, `langchain-classic`, `langchain-ollama`), LangGraph, LangSmith, RAGAS, FAISS, BM25, Pydantic; el SDK oficial `mcp` (FastMCP) y `langchain-mcp-adapters`; Ollama para servir los modelos locales.
 
+**v2.1:** además LightGBM (LambdaMART), `bitsandbytes` (QLoRA), un índice HNSW de FAISS y MovieLens-1M como dataset real; `qwen2.5:7b` como juez opcional.
+
 ## 10. Próximos pasos
 
 Ver el [roadmap del README](../../README.md#roadmap). Lo más relevante: una vía con modelos más grandes (Qwen2.5 1,5–3B con QLoRA), un notebook de serving con vLLM y RAG a escala con una base de datos vectorial y un juez más fuerte.
@@ -191,3 +193,41 @@ Ver el [roadmap del README](../../README.md#roadmap). Lo más relevante: una ví
 1. **Un framework no te ahorra evaluar.** RAGAS, LangSmith `evaluate()` y las métricas de trayectoria fueron lo que permitió decir qué funcionaba y qué no.
 2. **El modelo pequeño cambia las conclusiones.** Con un 3B, ReAct gana a plan-and-execute y el re-ranking con LLM empeora la recomendación; con modelos grandes puede ser distinto. Por eso el curso enseña el **método** (sets etiquetados, mismas métricas para cada diseño), no un veredicto universal.
 3. **Ejecutar todo en local tiene costes de ingeniería reales** (VRAM, colas, timeouts) que hay que diseñar desde el principio.
+
+## 12. v2.1: teoría, un recomendador de verdad y evaluación con incertidumbre
+
+**Por qué.** v2 enseñaba con las herramientas reales, pero tenía tres huecos. La teoría estaba repartida y era desigual entre notebooks. El recomendador seguía siendo un juguete sintético (200 ítems, clusters de gusto inventados) con un re-ranker LLM que empeoraba la lista (hit@10 0,20 → 0,16). Y las comparaciones con 20 preguntas se leían sin intervalos, con un juez de 3B que se juzgaba a sí mismo. v2.1 ataca los tres.
+
+**Teoría en todos los notebooks.** Cada notebook tiene ahora apartados "Background: ..." antes del código que los usa (problema, idea con ecuaciones, por qué funciona, con qué compite, cómo falla), y hay una guía teórica completa en [fundamentos](fundamentos.md). Escribirla obligó a comprobar afirmaciones contra las versiones instaladas, y salió alguna corrección: en LangGraph 1.2 el `recursion_limit` por defecto es 10.007, no 25, así que un agente que entra en bucle no se detiene pronto por sí solo y cada ejecución del notebook 14 pasa su propio límite.
+
+**El recomendador, reconstruido desde cero** (notebook 12). Ahora es el embudo de la industria sobre MovieLens-1M (1.000.209 valoraciones, 6.040 usuarios, 3.706 películas), con un protocolo que no se deja engañar: *leave-last-two* en orden temporal, ranking completo sobre todo el catálogo (Krichene y Rendle, 2020), un 10% de las películas reservadas como estrenos fríos y bootstrap pareado en cada comparación. Y una regla: una etapa solo entra si mejora a la anterior en validación.
+
+- SASRec, el `TransformerLM` del notebook 02 entrenado con softmax completa, llega a hit@10 0,293 (ItemKNN 0,125, popularidad 0,036), dentro del rango publicado para este dataset.
+- **El primer ranker no pasó la puerta.** Entrenado con un único positivo por usuario (unos 4.000 grupos de consulta), LambdaMART no superaba a SASRec: la mejor feature era la propia puntuación de SASRec y los árboles la reaprendían con ruido. En lugar de ajustar hiperparámetros a ciegas, revisé cómo lo hacen los pipelines de dos etapas de RecTools y las mejores soluciones de Kaggle OTTO. Dos cambios lo arreglaron: ajustar los modelos de recuperación sobre el historial menos los 8 últimos eventos y convertir cada uno en una consulta del ranker (48.320 eventos → 35.762 consultas, 1,82 M filas), y darle features que SASRec no ve (valoraciones explícitas, demografía, co-visitas, tiempo desde el evento anterior, tendencias).
+- Con eso pasa la puerta (nDCG de validación +0,0059 [+0,0022, +0,0096]) y en test sube el hit@10 de 0,293 a **0,307** (+1,4 puntos [+0,7, +2,1]). Una ganancia modesta y real, del tamaño que suele aportar un ranker de segunda etapa sobre una primera etapa fuerte.
+- El re-ranking final mide lo que intercambia: una ranura de exploración lleva el hit@10 en estrenos de 0,009 a 0,044 por 0,7 puntos globales, y MMR con λ = 0,8 sube la diversidad de 0,659 a 0,719 por 0,4 puntos.
+
+**Dónde ayudó el LLM en recomendación, y dónde no**
+
+| Uso del LLM | Resultado |
+|---|---|
+| palabras clave por película (`qwen2.5:7b`, offline) mezcladas en el texto del ítem | **peor**: hit@10 del contenido 0,033 → 0,023; la validación las rechazó |
+| las mismas palabras clave como feature del ranker | +0,0012 [−0,0012, +0,0035]: nada medible, no compensa una hora de LLM |
+| entender peticiones en lenguaje natural y convertirlas en filtros | **claramente mejor**: cumplimiento de restricciones@5 0,60 → 0,87; 1 fallo de salida estructurada en 221 |
+| personalizar dentro del conjunto filtrado | lo hace el recomendador, no el LLM: hit@10 0,555 con SASRec frente a 0,285 con popularidad |
+| explicaciones ancladas en el historial | citan un ancla el 97%; mencionan una película fuera del historial el 7% frente al 13% sin anclas |
+
+Los LLMs pequeños no superan a los modelos colaborativos ordenando, pero son excelentes en el lenguaje que rodea al recomendador.
+
+**Evaluación con incertidumbre, y un juez más fuerte** (notebook 10). `evaluation` ganó `bootstrap_ci` y `paired_bootstrap_diff`, y `config` ganó `judge_model()`: `qwen2.5:7b` si está descargado (o `JUDGE_MODEL`), el modelo de chat si no. Con el juez de 7B y sus intervalos, de las cuatro métricas de RAGAS solo una muestra una diferencia clara entre recuperación densa e híbrida: context precision 0,79 → 0,92 (+0,13 [+0,03, +0,25]). Faithfulness (0,87 en ambas) y relevancy (0,78 → 0,75) no se mueven. El juez de 3B había informado de faithfulness 0,38 → 0,54 y relevancy 0,44 → 0,30: **un juez débil no solo mete ruido, inventa efectos**. El precio: 1038 s de puntuación frente a unos 7 minutos con el 3B. El notebook 15 sigue juzgado por el 3B (sus salidas no cambiaron; solo ganó teoría).
+
+**QLoRA** (notebook 07). La misma LoRA sobre el base en NF4 con doble cuantización y `paged_adamw_8bit`: 37,5% de exact match frente a 32,5% de LoRA, con el mismo 86,5% de campos (dos peticiones de 40, ruido: la lectura honesta es "sin pérdida"). Los pesos bajan de 269 MB a 110 MB, pero el pico de entrenamiento apenas se mueve (1,41 → 1,34 GB) porque a 135M dominan las activaciones; para un 7B serían 14 GB → 3,6 GB. El 07 sube su presupuesto de VRAM a 2 GB porque entrena nueve modelos y el de 4 bits deja ~0,1 GB ocupados.
+
+**Dependencias e infraestructura.** `pyproject.toml` es la única fuente de dependencias (`requirements.txt` solo contiene `-e .[dev]`; `requirements-dev.txt` desapareció; `openai` y `anthropic` son extras opcionales), con dos nuevas: `lightgbm>=4.5` y `bitsandbytes>=0.45`. `tools/build_notebooks.py --keep-outputs` regenera un notebook desde su generador conservando las salidas de las celdas de código que no cambiaron, lo que permitió añadir la teoría sin volver a ejecutar horas de notebooks. La CI pasó a `actions/checkout@v5`, `setup-python@v6`, `ubuntu-24.04` y Python 3.11/3.12.
+
+**Lecciones v2.1**
+
+1. **Poner una puerta antes de cada etapa cambia cómo trabajas.** El primer ranker habría entrado en el sistema si solo hubiera mirado la pérdida de entrenamiento; la puerta lo rechazó y me obligó a entender por qué. La solución estaba documentada en la práctica de la industria, no en un hiperparámetro.
+2. **Medir el juez es parte de medir el sistema.** Las diferencias de faithfulness y relevancy que v2 contaba como resultado eran artefactos del juez. Sin intervalos y sin un juez más fuerte, habría seguido contándolas.
+3. **Usar el LLM donde aporta, y decir dónde no.** En recomendación, el mismo modelo empeoró el ranking y mejoró claramente la comprensión de peticiones. El resultado útil es la tabla, no un "los LLMs ayudan" o "no ayudan".
+4. **Un intervalo cambia la conversación.** "+1,4 puntos [+0,7, +2,1]" se defiende; "0,307 frente a 0,293" a secas, no.
