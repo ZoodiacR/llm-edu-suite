@@ -177,6 +177,45 @@ nb.md(r'''
 
 We use the paper's shape (2 layers, 64 dimensions, a 200-movie window, dropout 0.2) and **early stopping on validation nDCG**: we evaluate every 500 steps and keep the best checkpoint, the standard practice in the literature.
 ''')
+nb.md(r'''
+### A mini language model whose words are movies
+
+The model below is the `TransformerLM` of notebook 02, unchanged: token embedding, then blocks of pre-norm RMSNorm → causal multi-head attention with RoPE → residual, RMSNorm → SwiGLU feed-forward → residual, a final RMSNorm and an output layer that shares its weights with the embedding. What changes is the language it is trained on.
+
+```
+user history (left-padded):  [0, 0, ..., Bug's Life, Antz, Hercules, Mulan]
+            │ embedding (one 64-dim vector per movie)
+            ▼
+ 2 × [ RMSNorm → causal attention + RoPE → (+) → RMSNorm → SwiGLU → (+) ]
+            │
+            ▼
+ final RMSNorm → output layer (= embedding matrix, transposed)
+            │
+            ▼
+ logits at the LAST position: one score for each of the 3,706 movies → mask seen → top 10
+```
+
+| | notebook 02: language model | here: SASRec |
+|---|---|---|
+| vocabulary | text tokens (BPE) | 3,706 movie ids + id 0 for padding |
+| one sequence | a piece of text | one user's history, in time order |
+| "predict the next token" | the next word | the next movie the user watches |
+| sequences of different length | packed to equal length | **left-padded** with 0, and the loss ignores those positions (`-100`) |
+| how the output is used | generate token by token (sampling, temperature, KV-cache) | no generation: read the logits of the **last** position once, remove what the user has seen, take the top 10 |
+| size here | several configurations | $d = 64$, 2 layers, 4 heads with their own K/V (plain multi-head attention), dropout 0.2 |
+| stopping rule | loss or perplexity | **nDCG@10 on validation** |
+
+**How small it is.** With $V = 3{,}707$ ids and $d = 64$, the embedding table has $3{,}707 \times 64 = 237{,}248$ parameters and the two blocks about $100{,}700$ more: **about 338,000 in total**, some 9,000 times fewer than the 3B chat model used in section 8. Seventy percent of the model is the table that stores one vector per movie; the "reasoning" part is tiny, which is typical when the vocabulary is large and the model is small. It trains in a few minutes on a laptop GPU, and the heavy dropout (0.2) is there because 6,040 sequences is very little data for a transformer.
+
+**Three details that make the fit natural.**
+1. Left padding keeps the most recent movie in the last position, the one whose logits we read.
+2. RoPE encodes *relative* distance, so "what I watched one or two movies ago" means the same thing whatever the length of the history. (The original SASRec used learned absolute position embeddings.)
+3. Because the output layer is the embedding matrix, the trained embedding is a vector space of movies in which movies watched in similar contexts sit close together. Section 8 uses it to choose the "because you watched" anchors of an explanation.
+
+**Compared with the original SASRec (Kang and McAuley, 2018)**, our model swaps in the components of a modern LLM: RoPE instead of learned positions, RMSNorm instead of LayerNorm, SwiGLU instead of a ReLU feed-forward, and above all the full cross-entropy loss instead of a binary loss with one sampled negative. The last change is the one that matters most for accuracy.
+
+**Two kinds of "LLM" in this notebook.** This mini model understands *behaviour*: which movies people watch after which. It knows nothing about what a movie is; *Toy Story* is just id 1 that tends to appear near *A Bug's Life*. The chat model of section 8 understands *language*: what a user asks for and how to explain a recommendation. The industry is moving towards exactly this pairing, with large "foundation models" over interaction sequences (Netflix, Meta's HSTU) next to language models for the conversational layer.
+''')
 nb.code(r'''
 L = 200
 def pad_left(batch, n):
