@@ -15,7 +15,7 @@ else
     "$PY" -m pip install torch --index-url https://download.pytorch.org/whl/cpu
   fi
 fi
-"$PY" -m pip install -r requirements-dev.txt
+"$PY" -m pip install -r requirements.txt
 "$PY" -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
 
 # Local LLMs for notebooks 10-16 (Ollama). Install it from https://ollama.com if it is missing.

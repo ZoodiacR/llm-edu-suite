@@ -130,6 +130,31 @@ def evaluate_ranking(queries: list[tuple[list, set]], ks=(1, 5, 10)) -> dict:
     return out
 
 
+def bootstrap_ci(values, n_boot: int = 2000, alpha: float = 0.05, seed: int = 0) -> tuple[float, float, float]:
+    """
+    Mean and a (1 - alpha) percentile-bootstrap confidence interval: resample the per-example scores
+    with replacement, recompute the mean, and take the alpha/2 and 1 - alpha/2 quantiles. With 20
+    examples the interval is wide, which is the honest answer to "is 0.54 really better than 0.38?".
+    NaNs (for example, a judge call that failed) are dropped first.
+    """
+    v = np.asarray([x for x in values if x is not None and not np.isnan(x)], dtype=float)
+    if len(v) == 0:
+        return float("nan"), float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    means = rng.choice(v, size=(n_boot, len(v)), replace=True).mean(axis=1)
+    return float(v.mean()), float(np.quantile(means, alpha / 2)), float(np.quantile(means, 1 - alpha / 2))
+
+
+def paired_bootstrap_diff(a, b, n_boot: int = 2000, alpha: float = 0.05, seed: int = 0) -> tuple[float, float, float]:
+    """
+    Mean difference b - a over paired examples (same questions or users, two systems) with a bootstrap CI.
+    If the interval excludes 0, the difference is unlikely to be noise. Pairs with a NaN are dropped.
+    """
+    pairs = [(x, y) for x, y in zip(a, b) if not (np.isnan(x) or np.isnan(y))]
+    d = np.array([y - x for x, y in pairs], dtype=float)
+    return bootstrap_ci(d, n_boot=n_boot, alpha=alpha, seed=seed)
+
+
 # RAG-specific metrics
 
 def context_support(answer: str, context: str, min_len: int = 4) -> float:

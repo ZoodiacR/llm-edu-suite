@@ -205,3 +205,124 @@ def embedding_rank(E: np.ndarray, history: list[int], k: int = 10, recency_decay
     scores[0] = -np.inf
     scores[history] = -np.inf
     return np.argsort(-scores)[:k].tolist()
+
+
+# MovieLens-1M: real data for the v3 recommender (notebook 12)
+#
+# MovieLens is published by GroupLens (University of Minnesota) for research use; it may not be
+# redistributed, so it is downloaded on first use into data/cache/ (git-ignored) instead of being
+# committed. Cite: F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History and
+# Context. ACM TiiS 5(4).
+
+ML1M_URL = "https://files.grouplens.org/datasets/movielens/ml-1m.zip"
+
+
+def download_movielens_1m(cache_dir: str | None = None) -> str:
+    """Download and unzip MovieLens-1M once; return the folder with movies.dat, ratings.dat and users.dat."""
+    import os
+    import urllib.request
+    import zipfile
+    if cache_dir is None:
+        cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cache")
+    folder = os.path.join(cache_dir, "ml-1m")
+    if not os.path.exists(os.path.join(folder, "ratings.dat")):
+        os.makedirs(cache_dir, exist_ok=True)
+        zpath = os.path.join(cache_dir, "ml-1m.zip")
+        if not os.path.exists(zpath):
+            print("downloading MovieLens-1M (6 MB) from grouplens.org ...")
+            urllib.request.urlretrieve(ML1M_URL, zpath)
+        with zipfile.ZipFile(zpath) as z:
+            z.extractall(cache_dir)
+    return folder
+
+
+@dataclass
+class MovieLens:
+    """MovieLens-1M re-indexed so that item ids run 1..n_items (0 is padding, as in a language model's vocabulary)."""
+    titles: list[str]                   # index = item id; titles[0] == ""
+    genres: list[list[str]]
+    years: np.ndarray                   # release year per item id (0 for padding)
+    genre_names: list[str]
+    events: dict                        # user id -> list of (timestamp, item id, rating), in time order
+    demographics: dict                  # user id -> (gender, age code, occupation code)
+
+    @property
+    def n_items(self) -> int:
+        return len(self.titles) - 1
+
+
+def load_movielens_1m(folder: str) -> MovieLens:
+    """Parse the three .dat files. Ties in timestamp keep the file order, so the sequence is deterministic."""
+    import os
+    raw = {}
+    for line in open(os.path.join(folder, "movies.dat"), encoding="latin-1"):
+        mid, title, genres = line.rstrip("\n").split("::")
+        raw[int(mid)] = (title, genres.split("|"))
+    rows = [tuple(map(int, line.split("::"))) for line in open(os.path.join(folder, "ratings.dat"), encoding="latin-1")]
+    rated = sorted({m for _, m, _, _ in rows})
+    idx = {m: i + 1 for i, m in enumerate(rated)}         # only movies that have at least one rating
+    titles, genres, years = [""], [[]], [0]
+    for m in rated:
+        t, g = raw[m]
+        titles.append(t); genres.append(g)
+        y = re.search(r"\((\d{4})\)\s*$", t)
+        years.append(int(y.group(1)) if y else 0)
+    events: dict = {}
+    for k, (u, m, r, t) in enumerate(rows):
+        events.setdefault(u, []).append((t, k, idx[m], r))
+    events = {u: [(t, i, r) for t, _, i, r in sorted(v)] for u, v in events.items()}
+    demo = {}
+    for line in open(os.path.join(folder, "users.dat"), encoding="latin-1"):
+        u, g, a, o, _ = line.strip().split("::")
+        demo[int(u)] = (g, int(a), int(o))
+    names = sorted({g for gs in genres for g in gs})
+    return MovieLens(titles, genres, np.array(years), names, events, demo)
+
+
+def temporal_split(data: MovieLens, cold_frac: float = 0.1, min_count: int = 20, seed: int = 0) -> dict:
+    """
+    Leave-last-two split in time order, the standard protocol for sequential recommenders: for every user the
+    last event is the test target, the one before it the validation target, and everything earlier is training
+    history. A fraction of items (among those with at least `min_count` ratings, so they do appear as targets)
+    is held out as *cold*: removed from every history and every training sequence, as if they were new releases
+    the system has never seen anybody watch. They can still be targets, which is what the cold segment measures.
+    """
+    users = sorted(data.events)
+    seqs = {u: [i for _, i, _ in data.events[u]] for u in users}
+    counts = np.bincount([i for s in seqs.values() for i in s], minlength=data.n_items + 1)
+    eligible = np.where(counts >= min_count)[0]
+    eligible = eligible[eligible > 0]
+    rng = np.random.default_rng(seed)
+    cold = set(rng.choice(eligible, size=int(cold_frac * data.n_items), replace=False).tolist())
+    clean = lambda s: [i for i in s if i not in cold]
+    return dict(
+        users=users, cold=cold,
+        train=[clean(seqs[u][:-2]) for u in users],
+        valid=[(clean(seqs[u][:-2]), seqs[u][-2]) for u in users],
+        test=[(clean(seqs[u][:-1]), seqs[u][-1]) for u in users],
+        valid_time=[data.events[u][-2][0] for u in users],
+        test_time=[data.events[u][-1][0] for u in users],
+    )
+
+
+def target_ranks(scores, histories: list[list[int]], targets: list[int]):
+    """
+    Full-ranking evaluation: the rank (0 = first) of each user's target among *all* items, after removing the
+    padding id and the items the user has already seen. `scores` is a (users, n_items + 1) tensor. Ranking
+    against every item, instead of against 100 sampled negatives, is the honest protocol (Krichene & Rendle, 2020).
+    """
+    s = scores.clone().float()
+    s[:, 0] = -float("inf")
+    for j, h in enumerate(histories):
+        if h:
+            s[j, torch.as_tensor(h, device=s.device)] = -float("inf")
+    tgt = torch.as_tensor(targets, device=s.device)
+    return (s > s.gather(1, tgt[:, None])).sum(1)
+
+
+def rank_metrics(ranks, k: int = 10) -> dict:
+    """Per-user hit@k, nDCG@k and reciprocal rank from target ranks (arrays, so they can be bootstrapped or segmented)."""
+    r = np.asarray(ranks.cpu() if hasattr(ranks, "cpu") else ranks, dtype=float)
+    return {f"hit@{k}": (r < k).astype(float),
+            f"ndcg@{k}": np.where(r < k, 1.0 / np.log2(r + 2), 0.0),
+            "rr": 1.0 / (r + 1)}

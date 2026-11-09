@@ -31,6 +31,59 @@ We build it with the tools most teams use today:
 **The corpus** is the course's own documentation (`data/knowledge_base/*.md`, a snapshot of the docs: installation, glossary, CLI scripts, module reference and notebooks guide, about 190 KB). It is a realistic target: technical prose, tables, code blocks and many exact strings such as flag names and numbers.
 
 **What you will learn:** what each component does and how to tune it, and above all how to **evaluate retrieval and generation separately**, so that when the system is wrong you know which half to fix.
+
+## Background: retrieval-augmented generation
+
+### Parametric and non-parametric knowledge
+
+A language model stores what it knows **parametrically**, spread across its weights. That knowledge is frozen at training time, cannot be inspected or cited, cannot be deleted for one user, and is unreliable for rare facts: the model produces a fluent answer whether or not it actually stored the fact. A **non-parametric** memory is an external collection of documents that the system searches at query time. RAG combines the two: the retriever supplies the facts, the model supplies the language and the reasoning.
+
+The term comes from Lewis et al. (2020, *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks*), who trained a dense retriever and a seq2seq generator end to end. REALM (Guu et al., 2020) used retrieval during pre-training, and RETRO (Borgeaud et al., 2022) showed that a smaller model with retrieval over a very large database can match larger models on language modelling. What the industry calls RAG today is simpler: an off-the-shelf embedding model, a search index, and an instruction-tuned LLM that reads the retrieved passages in its prompt, with no joint training. It became the default because each piece can be swapped and updated independently, and because documents can be added or removed without touching the model.
+
+| approach | knowledge update | citations | access control | cost to add facts |
+|---|---|---|---|---|
+| rely on the model | retrain | no | no | a training run |
+| fine-tune on the documents | retrain | no | no | a training run; weak at injecting facts (notebook 07) |
+| RAG | re-index | yes | filter at retrieval time | embed the new documents |
+| long context (paste everything) | edit the prompt | possible | per request | tokens on every call |
+
+Ovadia et al. (2024, *Fine-Tuning or Retrieval? Comparing Knowledge Injection in LLMs*) found retrieval clearly better than unsupervised fine-tuning for injecting new facts. Long-context models are a real alternative for small corpora, but every query pays for the whole context, and models use information in the middle of a long prompt less reliably (Liu et al., 2024, *Lost in the Middle*). Retrieval keeps the prompt short and focused.
+
+### A two-stage system, and why the stages are evaluated separately
+
+RAG is retrieve-then-read. Roughly,
+$$P(\text{correct answer}) \approx P(\text{evidence retrieved}) \times P(\text{correct answer} \mid \text{evidence in context})$$
+The two factors fail for different reasons and are fixed with different tools (chunking, indexing and query processing for the first; prompting, model choice and context size for the second). A single end-to-end score hides which factor is low, which is why this notebook measures retrieval with its own labelled metrics (section 10) and generation with RAGAS (section 11).
+
+### Sparse and dense retrieval
+
+**Sparse (lexical) retrieval** represents a text by the words it contains: a vector as long as the vocabulary, mostly zeros. TF-IDF and BM25 score a document by the query terms it contains, weighted by how rare they are. It needs no training, it is exact on identifiers, and it was hard to beat for decades. Its weakness is the **vocabulary mismatch** problem: "lower the memory of the attention cache" and "shrink the KV-cache" share almost no words.
+
+**Dense retrieval** represents a text by a learned embedding of a few hundred dimensions, so that paraphrases land close together. DPR (Karpukhin et al., 2020, *Dense Passage Retrieval for Open-Domain Question Answering*) showed that a BERT **bi-encoder** trained on question-passage pairs beats BM25 on open-domain QA. Its weakness is the mirror image: exact strings, rare names and numbers are blurred into the general topic, and quality drops on domains unlike its training data. The BEIR benchmark (Thakur et al., 2021) found BM25 a strong baseline out of domain, with many dense models of that time falling below it.
+
+There are three common architectures for scoring a (query, document) pair:
+
+```
+bi-encoder      query -> enc -> q          doc -> enc -> d        score = q . d          (docs pre-computed: fast, used for search)
+late interaction  query -> one vector per token, doc -> one vector per token, score = sum of max-sims  (ColBERT)
+cross-encoder   [query ; doc] -> one model reading both -> score                         (accurate, slow: used to rerank the top 20-100)
+```
+
+Only the bi-encoder lets you embed all documents ahead of time, which is why it is the first stage; a cross-encoder reranker (Nogueira & Cho, 2019, *Passage Re-ranking with BERT*) is the usual second stage when quality matters more than latency. ColBERT (Khattab & Zaharia, 2020) sits in between.
+
+### Hybrid retrieval as the industry default
+
+Because sparse and dense retrieval fail on different queries, running both and fusing the rankings is the robust default in production search stacks (Elasticsearch, OpenSearch, Weaviate, Qdrant and Vespa all ship a hybrid mode). Sections 5 and 6 cover BM25 and the fusion step.
+
+### Key papers
+
+- Lewis et al., 2020. *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks.*
+- Karpukhin et al., 2020. *Dense Passage Retrieval for Open-Domain Question Answering.*
+- Robertson & Zaragoza, 2009. *The Probabilistic Relevance Framework: BM25 and Beyond.*
+- Cormack, Clarke & Büttcher, 2009. *Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods.*
+- Thakur et al., 2021. *BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models.*
+- Es et al., 2023. *RAGAS: Automated Evaluation of Retrieval Augmented Generation.*
+- Liu et al., 2024. *Lost in the Middle: How Language Models Use Long Contexts.*
 ''')
 nb.code(setup_apps("llm-edu-suite-10-rag"))
 nb.md(r'''
@@ -62,6 +115,19 @@ We cannot embed a 110 KB file as one vector: an embedding is a fixed-size summar
 - *Large chunks* keep context but dilute the embedding (one vector for many topics) and spend the prompt budget on irrelevant text.
 
 There is no universal right size: it depends on the documents and the questions, so we will **measure** three sizes in the evaluation. `chunk_size` here counts characters (about 4 per token for English).
+
+**The chunking strategies in use today.**
+
+| strategy | how it splits | strength | weakness |
+|---|---|---|---|
+| fixed size (tokens or characters) | every $n$ units, with overlap | simple, predictable | cuts sentences and tables anywhere |
+| recursive (this notebook) | by separators, from paragraphs down to characters | respects natural boundaries when it can | still blind to document structure |
+| structure-aware | by Markdown or HTML headings, code blocks, pages (`MarkdownHeaderTextSplitter`) | chunks match sections; the heading can go into metadata | sections vary wildly in length |
+| semantic | starts a new chunk where the embedding of consecutive sentences changes sharply | topic-coherent chunks | needs an embedding call per sentence; results vary |
+| small-to-big (parent document) | retrieve small chunks, return their larger parent section to the LLM | precise matching *and* enough context | two levels to store and keep in sync |
+| contextual chunks | prepend a short LLM-written description of where the chunk sits in the document before embedding it | fixes chunks that make no sense alone | one LLM call per chunk at indexing time |
+
+The underlying tension is that **retrieval wants small, single-topic units and generation wants enough surrounding context**. The last two strategies decouple the two: what is matched and what is shown to the model need not be the same text. Overlap is a cheap partial fix for the boundary problem; it costs index size (with an overlap of 1/8, about 12 % more text to embed) and can return near-duplicate chunks.
 ''')
 nb.code(r'''
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -88,6 +154,15 @@ Many chunks are shorter than `chunk_size`: Markdown has many blank lines, so the
 An **embedding model** maps a text to a vector (768 numbers for `nomic-embed-text`) so that texts with similar meaning point in similar directions. It is trained contrastively: pairs that belong together (a question and the passage that answers it) are pulled together, random pairs are pushed apart. Similarity is the **cosine** of the angle between two vectors, which for unit-length vectors is just the dot product.
 
 Notice in the output that a paraphrase with no word in common still scores high. That is what keyword search cannot do.
+
+**How the training objective shapes the geometry.** Retrieval embedding models are trained with a contrastive loss, usually InfoNCE. For a query $q$ with its positive passage $d^+$ and a set of negatives $d^-_j$ (often the other passages in the same batch, "in-batch negatives"):
+$$\mathcal{L} = -\log\frac{\exp(\mathrm{sim}(q, d^+)/\tau)}{\exp(\mathrm{sim}(q, d^+)/\tau) + \sum_j \exp(\mathrm{sim}(q, d^-_j)/\tau)}$$
+It is a softmax classification of the right passage among many, with temperature $\tau$. The model learns whatever features separate positives from negatives *in its training data*. If those pairs were mostly topical (question and Wikipedia paragraph), the model learns topic similarity, which is why two texts on the same topic with different specifics score high. **Hard negatives** (passages that look relevant but are not) are what teach finer distinctions.
+
+**Practical details that change results.**
+- **Asymmetric prefixes.** Many current models are trained with task instructions or prefixes. `nomic-embed-text` expects `search_query: ` before queries and `search_document: ` before documents; other families (E5, BGE) have their own conventions. LangChain's `OllamaEmbeddings` sends the text as is, so here we use the model without them, which is simpler but may leave some quality on the table.
+- **Normalization.** Cosine similarity ignores length; if vectors are normalized, dot product, cosine and L2 distance all give the same ranking.
+- **Choosing a model.** The MTEB leaderboard (Muennighoff et al., 2023) compares embedding models across many retrieval tasks, but its scores are averages over public datasets. As with chunk size, your own labelled questions are the benchmark that matters.
 ''')
 nb.code(r'''
 emb = get_embeddings()
@@ -106,6 +181,13 @@ nb.md(r'''
 A vector store keeps the chunk vectors and answers "which k vectors are closest to this query vector?". **FAISS** (Meta) is the standard library for it. LangChain's `FAISS` wrapper uses an exact `IndexFlatL2` index by default: it compares the query with every vector, which is perfectly fast for a few thousand chunks. With millions of vectors you would switch to an approximate index (HNSW, IVF) or a database such as pgvector or Qdrant; the retriever interface stays the same.
 
 FAISS returns an **L2 distance** (lower = closer). The vectors are unit length, so `L2² = 2 − 2·cosine` and the ranking is identical to ranking by cosine.
+
+**Exact versus approximate search.** An exact search over $N$ vectors of dimension $d$ costs $O(Nd)$ per query. That is nothing for our few thousand chunks and becomes the bottleneck around tens of millions. Approximate nearest-neighbour (ANN) indexes trade a little recall for orders of magnitude in speed:
+- **IVF** (inverted file): cluster the vectors with k-means, and at query time search only the `nprobe` clusters closest to the query.
+- **HNSW** (Malkov & Yashunin, 2018): a layered proximity graph; a query walks greedily from a coarse layer to fine ones. It is the default in most vector databases, fast and accurate, but memory-hungry.
+- **Product quantization** (Jégou et al., 2011): compress each vector into a few bytes by quantizing sub-vectors, so billions of vectors fit in RAM, at some loss of precision. Often combined with IVF (FAISS `IVFPQ`).
+
+ANN recall (the fraction of true nearest neighbours returned) is a separate quality knob from the embedding model's quality: a perfect embedding model behind a badly tuned index still misses evidence.
 
 One practical detail: we embed in batches of 64. Sending all chunks in one request can overload a local embedding server (it crashed Ollama in our tests), and hosted APIs cap the batch size anyway.
 ''')
@@ -136,6 +218,13 @@ $$\text{BM25}(q, d) = \sum_{t \in q} \text{IDF}(t)\cdot\frac{f(t,d)\,(k_1+1)}{f(
 
 Rare terms (high IDF) count much more than common ones, repeated terms saturate (controlled by $k_1$), and long chunks are penalised (controlled by $b$). It needs no model and no GPU.
 
+**Reading the formula term by term.** $f(t,d)$ is how many times term $t$ occurs in chunk $d$, $|d|$ is the chunk length and avgdl the average chunk length in the collection.
+- **IDF.** A common form (the one Lucene uses) is $\text{IDF}(t) = \ln\!\Big(1 + \frac{N - n(t) + 0.5}{n(t) + 0.5}\Big)$, with $N$ chunks in total and $n(t)$ chunks containing $t$. A term that appears in every chunk is worth almost nothing; a term in one chunk out of thousands dominates the score. Implementations differ in this detail (the `rank_bm25` package used by LangChain uses the original form without the $1+$ and replaces negative values with a small positive constant), which is one reason BM25 scores are not comparable across libraries.
+- **Term-frequency saturation.** The fraction $\frac{f\,(k_1+1)}{f + k_1(\dots)}$ equals 1 for one occurrence (with average length) and approaches $k_1 + 1$ as $f$ grows: the tenth occurrence adds much less than the second. Plain TF-IDF grows linearly and rewards keyword stuffing. Typical values are $k_1 \in [1.2, 2.0]$.
+- **Length normalization.** With $b = 1$ term frequencies are fully normalized by relative length; with $b = 0$ length is ignored. The default $b = 0.75$ partially compensates for long chunks matching more terms by chance.
+
+BM25 comes from the probabilistic relevance framework developed by Robertson, Spärck Jones and colleagues in the 1970s-90s; the "Okapi" name is the system in which it was tested at TREC. It is still the first-stage ranker of most search engines, and a baseline any learned retriever has to beat on your data.
+
 `BM25Retriever` splits text on whitespace by default, so `"Llama-3-8B?"` and `"llama-3-8b"` would be different tokens. A tokenizer that lowercases and splits on word characters fixes that; it is the kind of small detail that changes lexical retrieval quality noticeably.
 ''')
 nb.code(r'''
@@ -161,6 +250,12 @@ Dense and BM25 fail on different questions, so we run both and merge the ranking
 $$\text{RRF}(d) = \sum_{r \in \text{retrievers}} w_r \cdot \frac{1}{c + \text{rank}_r(d)}, \qquad c = 60$$
 
 A chunk ranked high by either retriever rises; a chunk ranked high by both rises most. The constant $c$ damps the difference between rank 1 and rank 2 so that one retriever cannot dominate. LangChain's `EnsembleRetriever` implements exactly this (it lives in `langchain_classic` in LangChain 1.x). It returns the union of both lists, so we keep the first `K`.
+
+**Where RRF comes from, and the alternatives.** Cormack, Clarke & Büttcher (2009) proposed RRF for combining the result lists of many search systems at TREC and found that this almost parameter-free rule beat more elaborate fusion methods; $c = 60$ is the value from their paper and has become the default everywhere. Two properties explain its robustness. It ignores score *magnitudes*, so it needs no calibration between a BM25 sum and a cosine. And $1/(c + \text{rank})$ decays slowly: with $c = 60$, rank 1 is worth $1/61$ and rank 10 is worth $1/70$, so agreement between retrievers matters more than being first in one of them.
+
+The alternative is **score fusion**: normalize each retriever's scores (for example min-max per query) and take a weighted sum, $s(d) = \alpha\, \tilde s_{\text{dense}}(d) + (1-\alpha)\, \tilde s_{\text{bm25}}(d)$. It uses more information (how *much* better the top result is), but the normalization is fragile and $\alpha$ must be tuned. Bruch, Gai & Ingber (2023, *An Analysis of Fusion Functions for Hybrid Retrieval*) found that a tuned convex combination can outperform RRF and that RRF is sensitive to $c$, so "RRF is always best" is not settled. RRF wins on simplicity and is the safe default when you have no labelled data to tune with.
+
+A small worked example with $c = 60$ and equal weights: a chunk ranked 1st by BM25 and absent from the dense list scores $1/61 \approx 0.0164$; a chunk ranked 3rd by both scores $2/63 \approx 0.0317$ and comes out on top.
 
 Below, a short "under the hood" cell re-implements RRF in six lines and checks it gives the same order.
 ''')
@@ -236,6 +331,18 @@ The starred sources are the ones the answer cites. When LangSmith is enabled, ea
 ## 8. Query rewriting: multi-query (RAG-Fusion)
 
 Users phrase questions differently from documents. **Multi-query** retrieval asks the LLM for a few rephrasings, retrieves for each, and fuses all the rankings with RRF ("RAG-Fusion"). It costs one extra LLM call per question. LangChain ships a ready-made `MultiQueryRetriever` (in `langchain_classic.retrievers`), but it concatenates the results instead of fusing them, so we build the fused version in a few lines of LCEL, reusing `rrf` from section 6. We will see in the evaluation whether it is worth the extra call here.
+
+**The family of query transformations.** All of them attack the vocabulary mismatch between how people ask and how documents are written, by spending LLM calls before retrieval:
+
+| technique | what the LLM produces | idea | reference |
+|---|---|---|---|
+| multi-query / RAG-Fusion | several rephrasings of the question | retrieve for each and fuse; more chances that one phrasing matches | Raudaschl, 2023 (RAG-Fusion) |
+| HyDE | a *hypothetical answer* passage | embed the fake answer instead of the question: answers look more like documents than questions do | Gao et al., 2022, *Precise Zero-Shot Dense Retrieval without Relevance Labels* |
+| query2doc | a pseudo-document appended to the query | expands the query with likely terms; helps BM25 too | Wang et al., 2023 |
+| step-back | a more general question | retrieve background principles as well as specifics | Zheng et al., 2023 |
+| decomposition | sub-questions | multi-hop questions need several retrievals | (common practice; see agentic RAG, notebook 14) |
+
+The risks are the same for all of them: added latency and cost on every query, and **drift**, where a rewrite changes the meaning (a small model may "rephrase" a question about `chunk_size // 4` into a generic one about chunking). Fusing the rewrites with the original question, as we do, limits the damage of a bad rewrite.
 ''')
 nb.code(r'''
 REWRITE_PROMPT = ChatPromptTemplate.from_template(
@@ -276,6 +383,18 @@ Retrieval is evaluated without the LLM, which makes it fast and deterministic. W
 - **Evidence level**: does one of the top-k *chunks* contain the evidence string? This is stricter and closer to what the LLM needs: retrieving the right file but the wrong section of a 110 KB reference is a miss.
 
 The question to answer: which retriever, and which chunk size, puts the evidence in front of the model most often?
+
+**The metrics, defined.** For a query $q$ let $\text{rank}_q$ be the position of the first relevant result (undefined if none is in the top $k$), and $\text{rel}_q(i) \in \{0, 1\}$ say whether the result at position $i$ is relevant.
+
+$$\text{hit@}k = \frac{1}{|Q|}\sum_q \mathbb{1}[\text{rank}_q \le k] \qquad \text{MRR} = \frac{1}{|Q|}\sum_q \frac{1}{\text{rank}_q} \;\;(\text{0 if not found})$$
+
+$$\text{precision@}k = \frac{1}{k}\sum_{i=1}^{k} \text{rel}_q(i) \qquad \text{recall@}k = \frac{\#\{\text{relevant in top } k\}}{\#\{\text{relevant in total}\}}$$
+
+$$\text{nDCG@}k = \frac{\text{DCG@}k}{\text{IDCG@}k}, \qquad \text{DCG@}k = \sum_{i=1}^{k} \frac{\text{rel}_q(i)}{\log_2(i+1)}$$
+
+hit@k equals recall@k when each question has a single relevant item, which is nearly our setting (we only ask whether *some* relevant chunk was found), so we report hit@k and MRR. MRR rewards putting the evidence *first*: rank 1 counts 1, rank 2 counts 0.5, rank 4 counts 0.25. That matters for RAG because the model reads the top chunks most reliably and a smaller $k$ means a shorter, cheaper prompt. nDCG (Järvelin & Kekäläinen, 2002) generalizes this to several relevant items with graded relevance and is the standard metric of IR benchmarks such as BEIR; it would be the right choice if our questions had several evidence chunks of different usefulness.
+
+Matching an evidence string is a deliberately simple relevance label: cheap, deterministic and transparent, but it misses a chunk that states the same fact in other words. The alternative, asking an LLM whether each chunk is relevant, is what RAGAS context precision does in section 11.
 ''')
 nb.code(r'''
 def norm(text):
@@ -389,7 +508,7 @@ from ragas.metrics.collections import Faithfulness, AnswerRelevancy, ContextPrec
 
 judge_client = AsyncOpenAI(base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/") + "/v1", api_key="ollama",
                            timeout=180, max_retries=1)        # a stuck judge call becomes a missing score instead of a hung notebook
-judge = llm_factory(info["chat_model"], client=judge_client, temperature=0)
+judge = llm_factory(info["judge_model"], client=judge_client, temperature=0)     # qwen2.5:7b if pulled: a judge stronger than the 3B it grades
 judge_emb = RagasEmbeddings(client=judge_client, model=info["embedding_model"])
 
 METRICS = {
@@ -413,10 +532,43 @@ async def ragas_scores(item, result, sem):
         async with sem:
             try:
                 return name, (await METRICS[name].ascore(**args[name])).value
-            except Exception as e:            # a 3B judge sometimes returns JSON that does not validate; count it as missing
+            except Exception as e:            # a small judge sometimes returns JSON that does not validate; count it as missing
                 return name, float("nan")
     return dict(await asyncio.gather(*(one(n) for n in METRICS)))
-print("judge:", info["chat_model"], "| embeddings:", info["embedding_model"])
+print("generator:", info["chat_model"], "| judge:", info["judge_model"], "| embeddings:", info["embedding_model"])
+''')
+nb.md(r'''
+### The RAGAS metrics as formulas, and the limits of an LLM judge
+
+RAGAS (Es et al., 2023, *RAGAS: Automated Evaluation of Retrieval Augmented Generation*) decomposes "is this RAG answer good?" into checks that a judge model can perform reliably one at a time. Written out, for a question $q$, retrieved contexts $c_1, \dots, c_K$, an answer $a$ and a reference answer $g$:
+
+- **Faithfulness.** The judge rewrites $a$ as a list of atomic claims $S(a)$ and decides, for each, whether it can be inferred from the contexts:
+$$\text{faithfulness} = \frac{|\{s \in S(a) : s \text{ supported by } c_{1..K}\}|}{|S(a)|}$$
+It measures *groundedness*, not correctness: an answer that faithfully repeats a wrong passage scores 1, and a correct answer from the model's own memory scores low. An answer with no claims ("I don't know") is an edge case that implementations treat differently.
+- **Answer relevancy.** The judge generates $n$ questions $\hat q_i$ that the answer would be a response to, and the score is their mean embedding similarity to the real question:
+$$\text{answer relevancy} = \frac{1}{n}\sum_{i=1}^{n}\cos\big(E(\hat q_i), E(q)\big)$$
+Incomplete or evasive answers produce generated questions that drift from $q$. RAGAS also asks the judge whether the answer is *noncommittal* and sets the score to 0 if so, which is why a hedged but correct answer can score 0. With an embedding model the cosine rarely reaches 1 even for perfect answers, so the scale is relative.
+- **Context precision.** For each retrieved chunk the judge decides whether it was useful for arriving at $g$ ($v_k \in \{0,1\}$), and the score is an average precision over the ranking:
+$$\text{context precision@}K = \frac{\sum_{k=1}^{K} \text{precision@}k \cdot v_k}{\sum_{k=1}^{K} v_k}$$
+It rewards rankings that put useful chunks first, like MRR in section 10, but with an LLM deciding relevance instead of an evidence string.
+- **Context recall.** The judge splits the *reference* $g$ into claims and checks whether each can be attributed to the retrieved contexts:
+$$\text{context recall} = \frac{|\{s \in S(g) : s \text{ attributable to } c_{1..K}\}|}{|S(g)|}$$
+It is the generation-side counterpart of our evidence hit rate, and the only one of the four that tells you whether retrieval *missed* something the answer needed.
+
+Together they localize a failure: low context recall points to retrieval, high recall with low faithfulness points to the generator, low answer relevancy with high faithfulness points to an answer that is grounded but does not address the question.
+
+**LLM-as-judge: what is known about its biases.** Using a model to grade text was studied systematically by Zheng et al. (2023, *Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena*), who found strong judges agreeing with humans about as often as humans agree with each other, but also documented biases that apply to RAGAS too:
+
+| bias | what happens | mitigation |
+|---|---|---|
+| position bias | in comparisons, the judge favours the first (or second) option | swap the order and average; RAGAS mostly scores single items, which reduces it |
+| verbosity bias | longer answers are judged better or more complete | compare systems with similar answer lengths; read low-scoring short answers |
+| self-preference | a judge rates text from its own model family higher | use a judge from a different family than the generator when possible |
+| limited capability | a judge cannot verify what it cannot understand; weak judges misread tables, numbers and code | use a judge clearly stronger than the system under test |
+| format failures | the judge's structured output does not validate and the score is missing | count missing scores and report them, as the code above does |
+| run-to-run variance | the same item gets different scores across runs | fixed judge, temperature 0, repeated runs or confidence intervals |
+
+The working rule follows from the table: an LLM judge is a **measurement instrument that must itself be validated**. Before trusting it, compare its verdicts with human labels on a sample (agreement rate or Cohen's kappa), keep the judge model and prompts fixed while comparing system versions, and read differences between systems more than absolute values. ARES (Saad-Falcon et al., 2023) goes one step further and fine-tunes small judges on synthetic data, then corrects their scores with a small human-labelled set through prediction-powered inference.
 ''')
 nb.md(r'''
 We compare two configurations that differ only in the retriever: **dense-only** and **hybrid**, both with 800-character chunks and k = 4. `chain.batch(..., max_concurrency=4)` sends the 20 questions in parallel; Ollama queues what the GPU cannot run at once.
@@ -455,15 +607,29 @@ print(f"{'config':8s}" + "".join(f"{m:>19s}" for m in METRICS) + "   unscored")
 for name, s in ragas_summary.items():
     print(f"{name:8s}" + "".join(f"{s[m]:19.2f}" for m in METRICS) + f"   {missing[name]:5d}")
 ''')
+nb.md(r'''
+**How sure are we?** Twenty questions is a small sample, so before reading a difference we put an interval around it. The **bootstrap** resamples the 20 per-question scores with replacement 2,000 times and looks at how much the mean moves; the 2.5 % and 97.5 % quantiles give a 95 % interval. For the comparison we use the **paired** version: per question, hybrid minus dense, because both systems answered the same questions. If the interval of the difference excludes 0, the difference is unlikely to be noise. (`bootstrap_ci` and `paired_bootstrap_diff` are ten lines each in `llm_edu_suite/evaluation.py`.)
+''')
+nb.code(r'''
+from llm_edu_suite.evaluation import bootstrap_ci, paired_bootstrap_diff
+ragas_ci = {name: {m: bootstrap_ci([r[m] for r in rows]) for m in METRICS} for name, rows in ragas_rows.items()}
+print(f"{'metric':18s} {'dense [95% CI]':>20s} {'hybrid [95% CI]':>20s} {'hybrid - dense [95% CI]':>26s}")
+for m in METRICS:
+    d, h = ragas_ci["dense"][m], ragas_ci["hybrid"][m]
+    diff = paired_bootstrap_diff([r[m] for r in ragas_rows["dense"]], [r[m] for r in ragas_rows["hybrid"]])
+    verdict = "hybrid better" if diff[1] > 0 else "dense better" if diff[2] < 0 else "no clear difference"
+    print(f"{m:18s} {d[0]:5.2f} [{d[1]:.2f}, {d[2]:.2f}]   {h[0]:5.2f} [{h[1]:.2f}, {h[2]:.2f}]   {diff[0]:+.2f} [{diff[1]:+.2f}, {diff[2]:+.2f}]  {verdict}")
+''')
 nb.code(r'''
 fig, ax = plt.subplots(figsize=(9, 3.8))
 x = np.arange(len(METRICS)); w = 0.38
 for i, name in enumerate(CONFIGS):
     vals = [ragas_summary[name][m] for m in METRICS]
-    bars = ax.bar(x + (i - 0.5) * w, vals, w * 0.92, color=COLORS[name], label=name)
+    err = np.array([[ragas_ci[name][m][0] - ragas_ci[name][m][1], ragas_ci[name][m][2] - ragas_ci[name][m][0]] for m in METRICS]).T
+    bars = ax.bar(x + (i - 0.5) * w, vals, w * 0.92, color=COLORS[name], label=name, yerr=err, capsize=3, error_kw=dict(lw=0.8, alpha=0.6))
     ax.bar_label(bars, fmt="%.2f", fontsize=8, padding=2)
 ax.set_xticks(x); ax.set_xticklabels(list(METRICS)); ax.set_ylim(0, 1.12); ax.set_ylabel("mean score (0-1)")
-ax.set_title("RAGAS, judged by the local qwen2.5:3b (20 questions)"); ax.legend(loc="lower right")
+ax.set_title(f"RAGAS judged by {info['judge_model']} (20 questions, 95% bootstrap intervals)"); ax.legend(loc="lower right")
 ax.grid(axis="y", alpha=.3); ax.spines[["top", "right"]].set_visible(False); plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''

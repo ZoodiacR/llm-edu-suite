@@ -143,6 +143,122 @@ The model never executes anything; your code always does. An **agent** is this e
 
 **Stack:** `langchain-core` (tools, messages), `langchain-ollama` (`ChatOllama` running `qwen2.5:3b` locally), `langchain` (`create_agent`), `pydantic`. If `.env` has a LangSmith key, every call below is traced to the project `llm-edu-suite-11-tools`; without one, nothing changes.
 ''')
+    nb.md(r'''
+## Background: how a text generator learned to use tools
+
+### The problem tool calling solves
+
+A pretrained language model has four limits that no amount of prompting removes. Its knowledge stops at the training cut-off. It has never seen your private data (orders, tickets, internal docs). It is unreliable at exact symbolic work such as arithmetic, counting or date maths, because it predicts tokens rather than executing algorithms. And it cannot *act*: it cannot send an email or write to a database. Retrieval (notebook 10) addresses the first two for read-only knowledge. Tools address all four, as long as the model can express a request that a program can execute.
+
+That last condition is the real difficulty. The model emits a stream of tokens; a program needs a function name and typed arguments. Everything in this notebook is about building a reliable bridge between the two.
+
+### A short history of the bridge
+
+| year | work | idea |
+|---|---|---|
+| 2022 | MRKL (Karpas et al., *MRKL Systems*) | a language model routes sub-problems to external "expert" modules (calculator, APIs) |
+| 2022 | ReAct (Yao et al., *ReAct: Synergizing Reasoning and Acting in Language Models*) | prompt the model to write `Thought / Action / Observation` lines; the program parses the `Action` line with string matching |
+| 2023 | Toolformer (Schick et al., *Toolformer: Language Models Can Teach Themselves to Use Tools*) | self-supervised: the model inserts candidate API calls into text, and a call is kept for training only if its result makes the following tokens easier to predict |
+| 2023 | Gorilla (Patil et al., *Gorilla: Large Language Model Connected with Massive APIs*) | fine-tune on API documentation so the model writes correct calls for thousands of APIs |
+| 2023 | OpenAI function calling (June 2023) | the product form used today: JSON schemas in the request, a structured `tool_calls` field in the response, models fine-tuned for it |
+| 2023-24 | ToolLLM (Qin et al.), Berkeley Function-Calling Leaderboard (Yan et al.) | large tool-use datasets and benchmarks that measure tool selection and argument correctness separately |
+
+The early approaches parsed free text, and they broke whenever the model added a word, forgot a bracket or wrote the action in a slightly different format. The industry converged on *native* tool calling: the format is part of the model's training, and the serving layer turns it into structured data.
+
+### Why tool calling is trained into the model
+
+A model that has only been prompted to "reply with JSON when you need a tool" spreads its probability over many plausible continuations, and some of them are not valid calls. Fine-tuning on thousands of conversations that contain tool schemas, tool calls and tool results concentrates that probability on the exact format. The chat template marks the parts with special tags; Qwen2.5, the model we use, lists the tools inside `<tools>` tags in the system prompt and writes each call as JSON inside `<tool_call>` tags, which Ollama parses into `tool_calls`.
+
+Training teaches four distinct skills, and it helps to keep them apart because they fail independently:
+
+1. **Deciding** whether a tool is needed at all (or whether to answer directly).
+2. **Selecting** the right tool among the ones offered.
+3. **Filling the arguments**: extracting values from the conversation and mapping them onto the schema, essentially the slot-filling task of classic dialogue systems.
+4. **Using the result**: reading the tool output and either calling another tool or writing an answer grounded in it.
+
+Section 7 measures the first three separately (tool selection, argument validity) and the fourth through task success.
+
+### Schemas are the contract
+
+The interface between model and code is a **JSON Schema** per tool. It plays two roles at once. For the model it is *documentation*: names, descriptions, enums and field descriptions are the only information it has about what a tool does. For your code it is a *validator*: arguments that do not match are rejected before the function runs. This double role is why a Pydantic model is a convenient source of truth: one class produces the schema the model reads and the validator that checks what it wrote. Providers support different subsets of JSON Schema (keywords such as `pattern`, `minLength` or nested `oneOf` are not honoured everywhere), so do not rely on the model respecting a constraint just because it appears in the schema; validate on your side.
+
+### Three levels of guarantee for structured output
+
+When you want *data* back instead of an action, there are three increasingly strong ways to get it, and they matter again in section 6:
+
+| level | mechanism | what is guaranteed |
+|---|---|---|
+| prompting | "answer in JSON with keys ..." in the prompt, then parse | nothing; the model usually complies |
+| JSON mode | the decoder only allows tokens that keep the output valid JSON | syntactically valid JSON, any keys |
+| schema-constrained decoding | the decoder only allows tokens that keep the output valid *for your schema* | valid JSON with the right keys, types and enum values |
+
+Whatever the level, validate the result in your own code. Business rules ("at most 12 words", "the refund cannot exceed the order total") are beyond what any decoder enforces.
+
+### How constrained decoding enforces a schema
+
+At every step a language model produces a vector of logits $z_t \in \mathbb{R}^{|V|}$, one per token of the vocabulary $V$, and samples the next token from $\mathrm{softmax}(z_t)$. Constrained decoding adds a **mask** computed from a formal grammar:
+
+$$
+p(y_t \mid y_{<t}) \;\propto\; \exp\big(z_{t,y_t} + m_t(y_t)\big), \qquad
+m_t(v) = \begin{cases} 0 & \text{if } y_{<t}\,v \text{ is a valid prefix of the language} \\ -\infty & \text{otherwise} \end{cases}
+$$
+
+Tokens that would break the grammar get probability zero, so whatever the model samples is, by construction, a prefix of a valid document. When generation stops, the output is valid. A JSON schema is first compiled into a grammar (a regular expression or a context-free grammar), and the decoder tracks the grammar state as tokens are produced. A small example, partway through a `Ticket`:
+
+```
+generated so far:   {"category": "refund", "urgency": "
+grammar says:       the next characters must spell low, medium or high, then a closing quote
+allowed tokens:     "low", "lo", "l", "medium", "med", "m", "high", "h", ...   (prefixes of the enum)
+masked (-inf):      "urgent", "very", "}", "\n", digits, every other token
+```
+
+The hard part is efficiency. The grammar works on characters, the model on tokens that can span several grammar symbols (a single token might be `": "` or `"},`), and the vocabulary has on the order of 150,000 entries. Checking every token at every step would be slow. Willard and Louf (2023, *Efficient Guided Generation for Large Language Models*, the Outlines library) showed how to precompute, for each state of a finite-state machine, the set of tokens that are allowed, turning the mask into a table lookup. XGrammar (Dong et al., 2024) extends this to context-free grammars, which JSON needs for nesting, by precomputing the masks for the tokens that do not depend on the parser stack. llama.cpp, the engine underneath Ollama, implements the same idea with its GBNF grammar format; when you pass a schema as Ollama's `format`, it is converted into such a grammar. Earlier work applied the same principle to SQL (PICARD, Scholak et al., 2021) and to code (Synchromesh, Poesia et al., 2022).
+
+With precomputation the overhead per token is small, and some engines are even *faster* with a grammar, because they can emit forced tokens (a closing quote, a fixed key name) without running the model ("jump-forward" decoding in SGLang).
+
+### What constrained decoding does not guarantee
+
+- **Content.** The mask guarantees the shape. A field can be perfectly typed and still wrong, or `null` when a value was present; section 6 shows exactly this.
+- **An unbiased distribution.** The mask is applied greedily, token by token. The model is pushed down paths it may consider unlikely, and the result is not the same as sampling from the model's distribution restricted to valid outputs. Park et al. (2024, *Grammar-Aligned Decoding*) analyse this distortion.
+- **The same quality of reasoning.** Tam et al. (2024, *Let Me Speak Freely?*) reported that strict format restrictions can hurt reasoning tasks; other practitioners argued that the effect came from prompt differences and disappears with good prompts. This is still debated. A practical habit that both sides agree on: put a free-text `reasoning` field *before* the answer fields, because the model generates keys in schema order and can then "think" before committing.
+- **Every schema feature.** Recursive schemas, `pattern`, numeric bounds or length limits may be ignored or unsupported, depending on the engine.
+
+Note also that, in most open-source serving stacks including Ollama, *tool calls* are not grammar-constrained by default: the model writes the call as text and the server parses it. Several hosted providers offer a "strict" option that applies schema-constrained decoding to tool arguments as well.
+
+### An agent is a loop, and loops have a cost structure
+
+An agent repeats: call the model, run the requested tools, append the results, call the model again. Every model call re-sends the whole conversation, including the tool schemas. If the fixed part of the prompt (system prompt and schemas) is $P$ tokens and each step adds about $g$ tokens of calls and results, then $k$ steps cost roughly
+
+$$
+\text{input tokens} \approx kP + g\,\frac{k(k-1)}{2},
+$$
+
+linear in the fixed prompt and quadratic in the history. That is why the number of steps, not the length of the final answer, dominates the cost and latency of an agent, and why limits on steps are not optional (notebook 14). Prompt caching on hosted APIs reduces the price of the repeated prefix, but not the fact that it is processed.
+
+### Common failure modes
+
+| failure | what it looks like | usual mitigation |
+|---|---|---|
+| wrong decision | the model answers from memory when it should call a tool, or calls a tool for chit-chat | clearer descriptions, a system prompt that says when tools are required, evaluation |
+| wrong selection | a similar-sounding tool is picked | fewer tools per prompt, distinct names, routing (notebook 14) |
+| bad arguments | missing fields, wrong types, invented ids | schema validation, errors returned to the model, normalisation inside the tool |
+| hallucinated tool | a call to a tool that does not exist | reject with a clear message |
+| loops | the same call repeated | step and spend limits |
+| prompt injection through tool output | a retrieved document says "ignore your instructions and ..." | treat tool output as data, gate actions behind confirmation (Greshake et al., 2023, *Not what you've signed up for*; notebook 13) |
+| excessive agency | a tool can do far more than the task needs | least privilege: narrow tools, read-only by default |
+
+### Key references
+
+- Yao et al., 2022. *ReAct: Synergizing Reasoning and Acting in Language Models.*
+- Karpas et al., 2022. *MRKL Systems: A modular, neuro-symbolic architecture.*
+- Schick et al., 2023. *Toolformer: Language Models Can Teach Themselves to Use Tools.*
+- Patil et al., 2023. *Gorilla: Large Language Model Connected with Massive APIs.*
+- Qin et al., 2023. *ToolLLM: Facilitating Large Language Models to Master 16000+ Real-world APIs.*
+- Willard and Louf, 2023. *Efficient Guided Generation for Large Language Models.*
+- Dong et al., 2024. *XGrammar: Flexible and Efficient Structured Generation Engine for Large Language Models.*
+- Tam et al., 2024. *Let Me Speak Freely? A Study on the Impact of Format Restrictions on Performance of Large Language Models.*
+- Greshake et al., 2023. *Not what you've signed up for: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection.*
+''')
     nb.code(setup_apps("llm-edu-suite-11-tools"))
     nb.md(r'''
 ## 1. Describing tools
@@ -187,6 +303,10 @@ Under the hood, Ollama's chat template for Qwen2.5 writes the schemas into the s
 ## 3. The loop by hand
 
 To answer, the model needs the tool result. We run the tool and append a `ToolMessage` whose `tool_call_id` matches the call, then call the model again with the whole conversation. Calling `tool.invoke(tool_call)` with the full tool-call dict does the bookkeeping for us: it validates the arguments against the schema, runs the function and returns a `ToolMessage` with the right id.
+
+**Why every call carries an id.** A model can request several tools in a single turn (*parallel tool calling*), for example the weather in two cities at once. The id pairs each result with its request, so the results can arrive in any order and the model still knows which is which. Most providers reject a conversation in which a tool call has no matching result, which is why even a failed call must be answered with a `ToolMessage`.
+
+**The message list is the whole state.** The model keeps nothing between calls; it is a stateless function from a list of messages to a new message. Everything the agent "knows" during a run (the question, its own earlier calls, every tool result) lives in that list, which you re-send each time. This is what makes agents easy to log, replay and test, and also what makes them expensive as runs get longer.
 ''')
     nb.code(BY_HAND_CELL + r'''
 messages = run_by_hand(llm, TOOLS, "What is the total of order A100 plus 21% tax?")
@@ -199,6 +319,8 @@ That loop is all an agent is. The production versions add the parts we left out:
 ## 4. The same loop with `create_agent`
 
 `langchain.agents.create_agent` (LangChain 1.x; it replaces the deprecated `langgraph.prebuilt.create_react_agent`) builds this loop as a LangGraph graph: a `model` node and a `tools` node with an edge back. Its input and output are a dict with the list of `messages`.
+
+The reason to express a dozen-line loop as a graph is everything around it. Once the loop is a graph, each step is a node with a recorded input and output, so the framework can save the state after every step (and resume after a crash or a human approval), stream intermediate steps, enforce a step limit, and let **middleware** hook in before and after each model or tool call. Middleware is the extension point used below for error handling and in notebook 14 for limits, approvals and memory. The design idea is the same as web-framework middleware: cross-cutting policies live in small composable wrappers instead of being mixed into the loop.
 ''')
     nb.code(r'''
 from langchain.agents import create_agent
@@ -217,6 +339,10 @@ print(agent.get_graph().draw_mermaid())       # paste into https://mermaid.live 
 ## 5. Errors go back to the model
 
 Two different things can go wrong, and the agent treats them differently.
+
+**Errors as observations.** In the ReAct view of an agent, an error is simply another observation: the model acted, the world answered "that did not work, because ...", and the next step can take that into account. This works for a specific reason. Language models are poor at finding their own mistakes without outside help (Huang et al., 2024, *Large Language Models Cannot Self-Correct Reasoning Yet*), but they are reasonably good at fixing a mistake once an external checker has pointed at it (Gou et al., 2024, *CRITIC*, uses tools as that checker). A schema validator or a failing function is exactly such a checker. The quality of the error message is therefore part of the design: "order_id must match ^[A-Z]\d{3}$, e.g. A100" gives the model something to act on; "invalid input" does not.
+
+There is also a security side. Exception text can contain file paths, SQL, stack traces or secrets, and whatever you send to the model may end up in its answer to the user. That is why LangChain returns validation errors automatically (they only describe the schema) but makes you opt in for execution errors.
 
 **Invalid arguments.** The arguments do not match the schema (a missing field, a wrong type, here the `order_id` pattern). The tool node catches the validation error *before* running the function and returns it as a `ToolMessage` with `status="error"`, so the model can read what was wrong and try again. To show it deterministically, we replace the model with a scripted fake (`GenericFakeChatModel` from `langchain_core`, the same one used in the tests) that first sends a bad id and then a corrected one.
 ''')
@@ -272,6 +398,8 @@ Often you do not want an action but **data**: the fields of a support ticket, a 
 | `json_schema` (default) | the schema is sent as Ollama's `format`; the server constrains decoding with a grammar so only tokens that keep the JSON valid can be sampled | valid JSON with the right keys and types |
 | `function_calling` | the schema is offered as a tool the model must call | as good as the model's tool calling |
 | `json_mode` | the server only guarantees *some* valid JSON; the schema has to be described in the prompt | valid JSON, nothing more |
+
+**Trade-offs between the methods.** `json_schema` relies on the grammar-masked decoding described in the Background: the shape is guaranteed, at the price of the distortions discussed there and of depending on what subset of JSON Schema the server compiles. `function_calling` reuses the model's tool-calling training, which for many models is the format they have seen most often in fine-tuning, but on Ollama the call is parsed from free text, so the shape is not guaranteed. `json_mode` is the most portable and the weakest: it works with any server that has a JSON grammar, and everything about the schema depends on the prompt. None of the three changes the cost much; the prompt (schema plus instructions) dominates the tokens, and the grammar adds little latency per token.
 
 Whatever the method, **Pydantic validates the result on the client**: types, enums (`Literal`), and any custom validators with business rules. Below, the ticket summary must be at most 12 words, a rule the decoder cannot enforce.
 ''')
@@ -416,6 +544,12 @@ Agents are evaluated on the **trajectory**, not just on the final text. For each
 - **latency** and **tokens** (summed over all model calls in the run, from `usage_metadata`).
 
 Run this after every change to a prompt, a tool description or the model: these numbers move with small wording changes.
+
+### How tool use is evaluated in the literature
+
+Our metrics follow the same decomposition used by public benchmarks. The **Berkeley Function-Calling Leaderboard** (Yan et al., 2024) checks calls in two ways: by comparing the call's abstract syntax tree with the expected one (right function, right argument names and values, independent of formatting) and by executing it and comparing results. It also has a *relevance* category in which no tool should be called, the equivalent of our chit-chat cases. **ToolLLM / ToolBench** (Qin et al., 2023) evaluates multi-step tool use over thousands of real APIs. **τ-bench** (Yao et al., 2024) simulates a user and checks the final state of a database, and it reports *pass^k*: the probability that the agent succeeds on **all** of $k$ independent attempts at the same task. Pass^k exposes inconsistency that a single run hides, which matters for agents because users repeat similar requests many times.
+
+Two points from that literature are worth keeping in mind for our small set. First, **trajectory and outcome are different things**: an agent can reach the right answer by the wrong path (guessing a number instead of computing it), and an outcome-only metric rewards that. Second, **variance is large**: with 14 cases, one case is about 7 percentage points, and a small model's behaviour shifts between runs, so treat differences of one or two cases as noise.
 ''')
     nb.code(EVAL_HELPERS_CELL + r'''
 city_is = lambda name: (lambda calls: any(c["args"].get("city", "").lower() == name for c in calls))

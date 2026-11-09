@@ -14,6 +14,7 @@ in `.env`, not a code change.
 Environment variables (all optional):
     LLM_PROVIDER        ollama (default) | openai | anthropic
     LLM_MODEL           default: qwen2.5:3b for Ollama
+    JUDGE_MODEL         the LLM-as-judge for evaluations; default: qwen2.5:7b if it is pulled, else LLM_MODEL
     EMBEDDING_MODEL     default: nomic-embed-text for Ollama
     OLLAMA_BASE_URL     default: http://localhost:11434
     LANGSMITH_TRACING   true to send traces to LangSmith (needs LANGSMITH_API_KEY)
@@ -28,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULTS = {
-    "ollama": {"chat": "qwen2.5:3b", "embeddings": "nomic-embed-text"},
+    "ollama": {"chat": "qwen2.5:3b", "embeddings": "nomic-embed-text", "judge": "qwen2.5:7b"},
     "openai": {"chat": "gpt-4o-mini", "embeddings": "text-embedding-3-small"},
     "anthropic": {"chat": "claude-haiku-4-5", "embeddings": None},
 }
@@ -66,6 +67,39 @@ def get_llm(model: str | None = None, temperature: float = 0.0, **kwargs):
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=model, temperature=temperature, **kwargs)
     raise ValueError(f"unknown LLM_PROVIDER {p!r} (use ollama, openai or anthropic)")
+
+
+def ollama_models(timeout: float = 2.0) -> list[str]:
+    """Names of the models pulled into the local Ollama server (empty if it does not answer)."""
+    import json
+    import urllib.request
+    url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/") + "/api/tags"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return [m["name"] for m in json.load(r).get("models", [])]
+    except Exception:
+        return []
+
+
+def judge_model() -> str:
+    """
+    The model used as LLM-as-judge (RAGAS, LangSmith evaluators). A judge should be stronger than the
+    system it grades, so with Ollama the default is qwen2.5:7b when it is pulled; otherwise the chat model.
+    """
+    load_env()
+    if os.environ.get("JUDGE_MODEL"):
+        return os.environ["JUDGE_MODEL"]
+    p = provider()
+    chat = os.environ.get("LLM_MODEL") or DEFAULTS[p]["chat"]
+    if p == "ollama":
+        want = DEFAULTS["ollama"]["judge"]
+        return want if any(m == want or m == want + ":latest" for m in ollama_models()) else chat
+    return chat
+
+
+def get_judge_llm(**kwargs):
+    """A chat model for grading: `judge_model()` at temperature 0."""
+    return get_llm(model=judge_model(), temperature=0.0, **kwargs)
 
 
 def get_embeddings(model: str | None = None):
@@ -107,6 +141,7 @@ def setup(project: str | None = None, quiet: bool = False) -> dict:
     info = {
         "provider": provider(),
         "chat_model": os.environ.get("LLM_MODEL") or DEFAULTS[provider()]["chat"],
+        "judge_model": judge_model(),
         "embedding_model": os.environ.get("EMBEDDING_MODEL") or DEFAULTS["ollama" if provider() == "anthropic" else provider()]["embeddings"],
         "ollama_running": ollama_available() if provider() == "ollama" else None,
         "langsmith": f"on (project: {os.environ.get('LANGSMITH_PROJECT', 'default')})" if langsmith_enabled() else "off (add LANGSMITH_API_KEY to .env to enable)",

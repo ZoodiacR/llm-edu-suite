@@ -28,7 +28,7 @@ No hace falta ninguna clave de API. Por defecto todo funciona en local.
 | Disco: modelos de Ollama | ~2,2 GB (`qwen2.5:3b` 1,9 GB + `nomic-embed-text` 0,27 GB) | |
 | Disco: caché de Hugging Face | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB) | |
 
-Las librerías están fijadas con cotas inferiores en `requirements.txt`. Estas son las versiones con las que se verificó el curso:
+Las dependencias se declaran una sola vez, en `pyproject.toml` (con cotas inferiores); `requirements.txt` solo instala el proyecto desde ahí (`-e .[dev]`). Estas son las versiones con las que se verificó el curso:
 
 | Paquete | Versión | Paquete | Versión |
 |---|---|---|---|
@@ -67,7 +67,7 @@ El script hace, en orden:
 
 1. Crea `.venv/` si no existe y actualiza `pip`.
 2. Instala PyTorch: la build **CUDA** (índice `cu128`) si encuentra `nvidia-smi`, o la build **CPU** (pequeña) si no. En macOS instala el wheel por defecto, que incluye soporte MPS.
-3. Instala `requirements-dev.txt`, que incluye `requirements.txt` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, transformers, peft, trl, datasets, accelerate, optimum-quanto, mcp, langchain-mcp-adapters) más pytest, JupyterLab, ipykernel, nbclient y nbformat.
+3. Instala `requirements.txt`, que instala el proyecto con su extra `dev` desde `pyproject.toml` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, LightGBM, transformers, peft, trl, datasets, accelerate, optimum-quanto, mcp, langchain-mcp-adapters) más pytest, JupyterLab, ipykernel, nbclient y nbformat.
 4. Registra el entorno como kernel de Jupyter con el nombre **"Python (llm-edu-suite)"**.
 5. Si existe el comando `ollama`, ejecuta `ollama pull qwen2.5:3b` y `ollama pull nomic-embed-text`. Si no existe, indica cómo instalar Ollama y continúa.
 6. Crea `.env` a partir de `.env.example` si todavía no hay `.env`.
@@ -82,7 +82,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cu128    # sin GPU NVIDIA: .../whl/cpu
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 python -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
 ollama pull qwen2.5:3b
 ollama pull nomic-embed-text
@@ -96,7 +96,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cu128    # sin GPU NVIDIA: .../whl/cpu ; macOS: pip install torch
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 python -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
 ollama pull qwen2.5:3b
 ollama pull nomic-embed-text
@@ -181,7 +181,7 @@ pip install langchain-anthropic
 # .env:  LLM_PROVIDER=anthropic   ANTHROPIC_API_KEY=sk-ant-...   (los embeddings siguen saliendo de Ollama)
 ```
 
-`langchain-openai` y `langchain-anthropic` no están en `requirements.txt` porque la instalación por defecto no los necesita. Un modelo en la nube cuesta dinero por llamada, y algunos resultados de los notebooks (los números comentados en el texto) se obtuvieron con `qwen2.5:3b`, así que los tuyos serán distintos. `scripts/rag_demo.py --ragas` siempre llama a su juez a través del endpoint compatible con OpenAI de Ollama, así que necesita Ollama sea cual sea el proveedor.
+`langchain-openai` y `langchain-anthropic` son extras opcionales (`pip install -e ".[openai]"` o `".[anthropic]"`) porque la instalación por defecto no los necesita. Un modelo en la nube cuesta dinero por llamada, y algunos resultados de los notebooks (los números comentados en el texto) se obtuvieron con `qwen2.5:3b`, así que los tuyos serán distintos. `scripts/rag_demo.py --ragas` siempre llama a su juez a través del endpoint compatible con OpenAI de Ollama, así que necesita Ollama sea cual sea el proveedor.
 
 ## Qué ejecutar después
 

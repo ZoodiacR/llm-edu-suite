@@ -24,6 +24,111 @@ $$\mathcal{L}_{\text{DPO}} = -\log\sigma\Big(\beta\Big[\underbrace{\log\tfrac{\p
 3. GRPO with `trl.GRPOTrainer` on arithmetic, with a **sparse** (exact) vs a **dense** (partial-credit) reward.
 4. Held-out evaluation of everything, and an honest discussion.
 ''')
+nb.md(r'''
+## Background: from RLHF to direct preference optimization and verifiable rewards
+
+### The limits of imitation
+
+SFT maximizes the likelihood of demonstrations. That has two blind spots. It gives no signal about *how bad* a wrong answer is (every token of every demonstration counts the same), and it only shows the model good behaviour in states taken from the data, never in the states its own mistakes lead to. For many goals it is also easier for people to **compare** two answers than to **write** the ideal one: which reply is more helpful, which summary is more faithful, which proof is correct. Post-training after SFT turns those judgements into a training signal.
+
+### Classic RLHF: reward model plus PPO
+
+The pipeline popularized by Christiano et al. (2017), Stiennon et al. (2020) and InstructGPT (Ouyang et al., 2022) has three stages:
+
+```
+1. SFT on demonstrations                         -> pi_ref
+2. fit a reward model r_phi on human comparisons  -> r_phi(x, y)
+3. RL: maximize r_phi with PPO, staying close to pi_ref
+```
+
+**Step 2: the Bradley-Terry model.** Preferences are modelled as noisy comparisons of a latent score. The probability that a person prefers $y_w$ (winner) over $y_l$ (loser) for prompt $x$ is
+$$P(y_w \succ y_l \mid x) = \sigma\big(r(x, y_w) - r(x, y_l)\big) = \frac{1}{1 + e^{-(r(x,y_w) - r(x,y_l))}}$$
+This is the model Bradley and Terry (1952) proposed for ranking from paired comparisons; Elo ratings in chess rest on the same idea. A reward model $r_\phi$ (usually the SFT model with a scalar head) is fitted by maximum likelihood: $\mathcal{L}_{\text{RM}} = -\mathbb{E}\,\log\sigma\big(r_\phi(x,y_w) - r_\phi(x,y_l)\big)$. Only *differences* of rewards are identified, so the reward has an arbitrary offset per prompt.
+
+**Step 3: the KL-regularized objective.** The policy is trained to maximize
+$$\max_{\pi}\; \mathbb{E}_{x\sim\mathcal{D},\,y\sim\pi(\cdot|x)}\big[r_\phi(x,y)\big] \;-\; \beta\,\mathrm{KL}\big(\pi(\cdot|x)\,\|\,\pi_{\text{ref}}(\cdot|x)\big)$$
+The KL term matters as much as the reward. The reward model is only accurate near the data it was trained on; without the leash, the policy finds outputs the reward model scores highly for the wrong reasons (**reward hacking**, or *over-optimization*: Gao et al., 2023, *Scaling Laws for Reward Model Overoptimization*, measured how the true quality first rises and then falls as the policy optimizes a proxy reward harder). The KL also keeps the language fluent.
+
+**Why PPO was hard to live with.** PPO (Schulman et al., 2017) is an actor-critic method. For LLMs it needs four models at once: the policy, the frozen reference, the reward model, and a **value network** (critic) of similar size that estimates expected future reward per token to compute advantages. It samples from the policy in the loop, which is slow, and it has many sensitive hyperparameters (clip range, value-loss weight, GAE $\lambda$, KL coefficient). It works, as InstructGPT and many later models show, but it is expensive and fragile, which pushed the field toward two simplifications.
+
+### DPO: the reward model is hidden inside the policy
+
+Rafailov et al. (2023) noticed that the KL-regularized objective has a closed-form optimum for any reward $r$:
+$$\pi^*(y \mid x) = \frac{1}{Z(x)}\,\pi_{\text{ref}}(y \mid x)\,\exp\!\Big(\frac{1}{\beta} r(x,y)\Big), \qquad Z(x) = \sum_y \pi_{\text{ref}}(y\mid x)\exp\!\Big(\frac{1}{\beta} r(x,y)\Big)$$
+$Z(x)$ sums over every possible answer, so this cannot be computed directly. But it can be **inverted**: take logs and solve for the reward,
+$$r(x,y) = \beta \log\frac{\pi^*(y\mid x)}{\pi_{\text{ref}}(y\mid x)} + \beta \log Z(x)$$
+Every reward corresponds to a policy and vice versa. Now substitute this into the Bradley-Terry likelihood. Both answers share the same prompt, so the intractable $\beta\log Z(x)$ appears in both rewards and **cancels in the difference**. What is left depends only on the policy and the reference, and maximizing the preference likelihood over policies gives exactly the DPO loss written above:
+$$\mathcal{L}_{\text{DPO}} = -\,\mathbb{E}\,\log\sigma\big(\hat r(x,y_w) - \hat r(x,y_l)\big), \qquad \hat r(x,y) = \beta\log\frac{\pi_\theta(y\mid x)}{\pi_{\text{ref}}(y\mid x)}$$
+The policy *is* the reward model; $\hat r$ is called the **implicit reward**. Training is a classification loss on pairs: no sampling, no value network, no separate reward model. Only the policy and a frozen reference are needed, and with LoRA the reference is the same network with the adapter switched off.
+
+**What the gradient does.** Differentiating gives
+$$\nabla_\theta \mathcal{L}_{\text{DPO}} = -\beta\,\mathbb{E}\Big[\underbrace{\sigma\big(\hat r(x,y_l) - \hat r(x,y_w)\big)}_{\text{large when the pair is ranked wrongly}}\big(\nabla_\theta \log\pi_\theta(y_w\mid x) - \nabla_\theta \log\pi_\theta(y_l\mid x)\big)\Big]$$
+Pairs the model already ranks correctly get a small weight; pairs it gets wrong get a large one. And the update only constrains the *difference* of the two log-probabilities, which is the root of the failure studied in section 3.
+
+**The role of $\beta$.** Small $\beta$ means a weak leash: the policy may move far from the reference to fit the preferences. Large $\beta$ keeps it close. Typical values are 0.01 to 0.5; 0.1 is the common default.
+
+### What DPO gives up, and its variants
+
+DPO optimizes the same objective as RLHF only under assumptions that rarely hold exactly: the preference data must cover the answers the policy will produce, and the Bradley-Terry model must be right. In practice:
+
+- **It is offline.** It learns from a fixed set of pairs and never explores. If the pairs come from another model, the policy is pushed around in regions it does not visit. Iterative or "online" DPO (regenerate pairs from the current policy, label, repeat) closes much of the gap.
+- **It can overfit deterministic preferences.** When one answer always wins, the Bradley-Terry likelihood is maximized by an infinite reward gap, and the KL regularization is not enforced by the loss on finite data (Azar et al., 2023, who proposed IPO with a squared loss on the margin instead).
+- **It can exploit length** and other surface features that correlate with preference.
+- **Chosen likelihood can fall** (likelihood displacement, section 3).
+
+| method | data | idea | reference |
+|---|---|---|---|
+| DPO | pairs | Bradley-Terry on implicit rewards | Rafailov et al., 2023 |
+| IPO | pairs | regress the margin to a fixed target, avoids overfitting | Azar et al., 2023 |
+| KTO | single answers labelled good / bad | prospect-theory utility, no pairs needed | Ethayarajh et al., 2024 |
+| ORPO | pairs | odds-ratio penalty added to SFT, no reference model | Hong et al., 2024 |
+| SimPO | pairs | length-normalized log-probability as reward, no reference model | Meng et al., 2024 |
+| DPO + NLL / RPO | pairs | add the SFT loss on the chosen answer | Pang et al., 2024; Liu et al., 2024 |
+
+Whether DPO matches well-tuned PPO is **debated**. Xu et al. (2024, *Is DPO Superior to PPO for LLM Alignment? A Comprehensive Study*) found PPO ahead on harder tasks such as code when tuned carefully; DPO's popularity in open models comes mostly from its simplicity and stability, not from a proven quality advantage.
+
+### RL with verifiable rewards and GRPO
+
+For math, code and other tasks with a checkable answer, the reward model can be replaced by a program: a unit test, a numeric comparison, a JSON schema. This setting is called **RL with verifiable rewards (RLVR)** (the term was popularized by the Tülu 3 report, Lambert et al., 2024). A program cannot be flattered the way a learned reward model can, which removes one source of reward hacking (but not all: a lenient checker can still be gamed).
+
+**The policy gradient.** Treat a whole answer $y$ as one action with reward $r(x,y)$. The REINFORCE identity gives
+$$\nabla_\theta\, \mathbb{E}_{y\sim\pi_\theta}[r] = \mathbb{E}_{y\sim\pi_\theta}\big[(r - b)\,\nabla_\theta \log\pi_\theta(y\mid x)\big]$$
+for any baseline $b$ that does not depend on $y$. The baseline does not change the expected gradient but can reduce its variance enormously; the best simple choice is the expected reward of the prompt. PPO learns that baseline with a value network. **GRPO** (Shao et al., 2024, *DeepSeekMath*) estimates it instead from a *group* of $G$ samples for the same prompt:
+$$A_i = \frac{r_i - \operatorname{mean}(r_1,\dots,r_G)}{\operatorname{std}(r_1,\dots,r_G)}$$
+and applies the same advantage to every token of answer $i$. The full objective keeps PPO's clipped importance ratio and adds a KL penalty to the reference:
+$$\mathcal{J}(\theta) = \mathbb{E}\Bigg[\frac{1}{G}\sum_{i=1}^{G}\frac{1}{|y_i|}\sum_{t=1}^{|y_i|}\Big(\min\big(\rho_{i,t}A_i,\; \operatorname{clip}(\rho_{i,t}, 1-\epsilon, 1+\epsilon)A_i\big) - \beta\, \mathbb{D}_{\text{KL}}^{(i,t)}\Big)\Bigg],\quad \rho_{i,t} = \frac{\pi_\theta(y_{i,t}\mid x, y_{i,<t})}{\pi_{\theta_{\text{old}}}(y_{i,t}\mid x, y_{i,<t})}$$
+The per-token KL is estimated with the low-variance, always non-negative estimator $\frac{\pi_{\text{ref}}}{\pi_\theta} - \log\frac{\pi_{\text{ref}}}{\pi_\theta} - 1$. When each batch of samples is used for a single gradient step, $\rho = 1$ and the clipping never activates; the objective reduces to a group-baselined policy gradient with a KL term.
+
+**Consequences of the group baseline.**
+- No critic: one fewer large model in memory, no value-loss tuning.
+- A group in which all answers get the same reward has zero advantage everywhere and contributes no gradient. Prompts must be neither too easy nor too hard for the current policy; this is why the fraction of zero-variance groups is a key diagnostic (and why DAPO, Yu et al., 2025, filters such groups out, "dynamic sampling").
+- The normalization introduces biases that later work examined. Liu et al. (2025, *Understanding R1-Zero-Like Training: A Critical Perspective*, "Dr. GRPO") argued that dividing by $|y_i|$ favours long wrong answers and dividing by the std over-weights prompts whose samples are nearly all right or nearly all wrong (small std), and proposed dropping both. TRL exposes these choices as `GRPOConfig(loss_type=..., scale_rewards=...)`.
+
+The DeepSeek-R1 report (DeepSeek-AI, 2025) showed with its R1-Zero model that GRPO with simple correctness and format rewards, applied directly to a strong base model, produces long chain-of-thought reasoning without any supervised reasoning traces (the released R1 adds a small SFT "cold start" and further stages for readability). How much RLVR *creates* new abilities versus *sharpens* ones the base model can already sample is an open question: Yue et al. (2025, *Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model?*) found that at large sample counts (pass@k with big k) base models often solve as many problems as their RL-trained versions.
+
+### The three approaches side by side
+
+| | RLHF with PPO | DPO | GRPO (RLVR) |
+|---|---|---|---|
+| signal | learned reward model from comparisons | comparisons, used directly | a program that checks the answer |
+| models in memory | policy, reference, reward, value | policy, reference | policy, reference (none if $\beta = 0$) |
+| sampling during training | yes | no | yes, $G$ samples per prompt |
+| online / exploration | yes | no (unless iterated) | yes |
+| main cost | compute, tuning effort | preference data collection | sampling time |
+| typical failure | reward hacking, instability | overfitting, likelihood displacement | reward hacking of a lenient checker, zero-variance groups |
+| where it is used today | large labs' chat alignment | open-model alignment, style and safety tuning | reasoning: math, code, tool use |
+
+### Key papers
+
+- Christiano et al., 2017. *Deep Reinforcement Learning from Human Preferences.*
+- Schulman et al., 2017. *Proximal Policy Optimization Algorithms.*
+- Ouyang et al., 2022. *Training Language Models to Follow Instructions with Human Feedback* (InstructGPT).
+- Rafailov et al., 2023. *Direct Preference Optimization: Your Language Model is Secretly a Reward Model.*
+- Azar et al., 2023. *A General Theoretical Paradigm to Understand Learning from Human Preferences* (IPO).
+- Shao et al., 2024. *DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models* (GRPO).
+- DeepSeek-AI, 2025. *DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning.*
+- Razin et al., 2024. *Unintentional Unalignment: Likelihood Displacement in Direct Preference Optimization.*
+''')
 nb.code(SETUP_HF)
 nb.md(r'''
 ## 1. The starting point: a partially trained SFT model
@@ -73,6 +178,10 @@ As in notebook 07, the SFT model always writes valid JSON and gets names, places
 ## 2. Preference pairs
 
 DPO needs (prompt, chosen, rejected). The best rejected answers are the model's **own** mistakes: they show the model exactly what it currently does wrong (this is "on-policy" preference data). So we run the SFT model on 400 new training requests and check its answers. Where it is wrong, its answer becomes *rejected* and the right one *chosen*. Where it is right, we build a rejected answer with one realistic mistake (mostly the same time error). In a real project a human, a verifier or an LLM judge decides which answer is better; here the generator knows the truth.
+
+**Why the source of the pairs matters.** The DPO gradient only touches the sequences that appear in the pairs. If the rejected answers are mistakes the model would never make, pushing them down changes nothing the model actually does; if the chosen answers are far from what the model would write (say, from a much stronger model), the update has to drag the policy toward a distribution it does not cover, and the implicit reward is estimated where the policy has almost no mass. On-policy pairs put the gradient exactly where the model's behaviour is. This is also why iterated DPO (sample, label, train, repeat) behaves more like online RL than a single offline pass.
+
+**The labelling source sets the ceiling.** Human comparisons are the classic source; "RLAIF" uses an LLM judge instead (Bai et al., 2022, *Constitutional AI*; Lee et al., 2023, *RLAIF*), and for tasks with a checker the verifier can label the pairs. Whatever labels the pairs defines what "better" means, including its biases (judges tend to prefer longer answers, for example).
 ''')
 nb.code(r'''
 def corrupt(target, rng):
@@ -111,6 +220,10 @@ nb.md(r'''
 - `rewards/accuracies`: how often the implicit reward prefers chosen over rejected;
 - `rewards/margins`: the mean gap between the two implicit rewards;
 - `logps/chosen`, `logps/rejected`: the policy's log-probability of each answer.
+
+How to read them against the theory: the implicit reward is $\hat r = \beta\,(\log\pi_\theta - \log\pi_{\text{ref}})$ summed over the answer's tokens, so at step 0 (adapter at zero, policy = reference) both rewards are exactly 0, the margin is 0 and the loss is $\log 2 \approx 0.693$. The accuracy is the fraction of pairs with a positive margin. All three are computed on the *training* pairs, so they measure how well DPO fits its own objective, not whether the model got better at the task. The log-probabilities are the only metrics that tell you what happens to each answer in absolute terms.
+
+A note on hyperparameters: with $\beta = 0.1$ a margin of 1 in the implicit reward corresponds to a log-ratio difference of 10 nats between the two answers. The learning rate is much higher than the 5e-7 to 5e-6 used for full-parameter DPO because only LoRA adapters are trained, for the same reason as in notebook 07.
 ''')
 nb.code(r'''
 DPO_LR, DPO_BETA = 2e-4, 0.1
@@ -133,7 +246,11 @@ nb.md(r'''
 
 The DPO loss only depends on the **difference** between the chosen and rejected log-ratios. Nothing in it says the chosen answer must stay likely. When chosen and rejected are almost identical (here they differ in one field, often a couple of tokens), the cheapest way to widen the margin can be to push **both** down, the rejected one a little faster. Probability mass then flows to answers that are in neither set. This is documented at scale (Razin et al. 2024, *Unintentional Unalignment*; Pal et al. 2024, *Smaug / DPO-Positive*).
 
-The standard fix is to add the ordinary SFT loss on the chosen answer: $\mathcal{L} = \mathcal{L}_{\text{DPO}} + \lambda\,\text{NLL}(y_w)$ (Pang et al. 2024, "RPO"). In older TRL versions this was `DPOConfig(rpo_alpha=1.0)`. In TRL 1.x, losses are combined explicitly: `loss_type=["sigmoid", "sft"]` with `loss_weights=[1.0, λ]`.
+**The mechanism in a little more detail.** Write each answer's log-probability as a sum over tokens. Our chosen and rejected JSONs share most of their tokens; for a shared prefix the conditional probabilities are identical in both answers, so their contributions to $\hat r(y_w) - \hat r(y_l)$ cancel exactly, and the loss is driven by the few tokens where the answers diverge (and those that follow them). The gradient raises the chosen token's logit and lowers the rejected token's logit at that position. But both updates go through shared parameters and nearly identical hidden states, so lowering one token also tends to lower the other. Razin et al. tie the severity of displacement to how similar the two answers' hidden representations are, which is exactly the "pairs that differ by a couple of tokens" case we have. Nothing in the loss stops the mass from flowing to a third answer that is in neither set.
+
+**The fixes all re-anchor the chosen answer.** Adding $\lambda\,\text{NLL}(y_w)$ gives the chosen answer an absolute target, not only a relative one. DPO-Positive adds a penalty when $\log\pi_\theta(y_w)$ drops below $\log\pi_{\text{ref}}(y_w)$. Choosing pairs that are less similar (or filtering the most similar ones, as Razin et al. suggest) also helps.
+
+The standard fix is to add the ordinary SFT loss on the chosen answer: $\mathcal{L} = \mathcal{L}_{\text{DPO}} + \lambda\,\text{NLL}(y_w)$ (Pang et al. 2024, who call it DPO+NLL; Liu et al. 2024 analyse the same idea under the name RPO). In older TRL versions this was `DPOConfig(rpo_alpha=1.0)`. In TRL 1.x, losses are combined explicitly: `loss_type=["sigmoid", "sft"]` with `loss_weights=[1.0, λ]`.
 ''')
 nb.code(r'''
 dpo("DPO + NLL", loss_type=["sigmoid", "sft"], loss_weights=[1.0, 1.0])
@@ -174,6 +291,11 @@ We switch to a task where answers are easy to verify and the model has to explor
 - *Dense*: partial credit for being close (up to 0.8) + 0.2 for replying with just a number. Every sample gets a signal, but now "close but wrong" also pays, and the format bonus rewards *not* reasoning: the reward is a **proxy** for what we actually want.
 
 To compare the two fairly, both runs compute both rewards, but only one of them drives the update (`reward_weights=[1, 0]` or `[0, 1]`). So we can watch the exact-match rate even in the run that optimizes the dense reward.
+
+**Reward design in theory.** The policy gradient pushes up whatever the reward pays for, in proportion to how often the policy produces it. Three properties of a reward function follow from the GRPO formula.
+- **Variance within a group is what teaches.** The advantage is reward minus the group mean. A reward that is almost always 0 (too hard) or almost always 1 (too easy) produces groups with zero variance, hence no gradient. A dense reward spreads the scores and so creates variance on more prompts; that is its whole benefit.
+- **The optimum of the reward is what you get, not what you meant.** Goodhart's law ("when a measure becomes a target, it ceases to be a good measure") is the informal statement; Skalse et al. (2022, *Defining and Characterizing Reward Hacking*) give a formal one. Every term of a shaped reward is a behaviour you are paying for: here, closeness pays for near misses and the format bonus pays for short answers.
+- **Verifiers have false positives.** A checker that reads the last number accepts a reply whose reasoning is wrong but whose final number is right, and a reply that lists several candidate numbers and happens to end with the right one. With enough samples the policy finds such holes. Strict, well-tested checkers matter more than clever shaping.
 ''')
 nb.code(r'''
 MATH_SYSTEM = "Answer with the number only."
@@ -225,6 +347,18 @@ BASE_STATE = {k: v.detach().cpu().clone() for k, v in math_base.state_dict().ite
 ''')
 nb.md(r'''
 `GRPOConfig` essentials: `num_generations` (the group size G), `max_completion_length`, `temperature` (we need diverse samples, so 1.0), `beta` (KL coefficient; TRL's default is 0, we use 0.04 as in DeepSeekMath so we can watch the KL), and the batch size, which counts **completions**: 8 per micro-batch × 4 accumulation steps = 32 completions = 4 prompts × 8 samples per optimizer step. Rollouts are generated with `model.generate`; at scale you would set `use_vllm=True`, because sampling is the bottleneck of RL.
+
+How these settings map to the objective in the Background section:
+
+| setting | symbol | effect |
+|---|---|---|
+| `num_generations` | $G$ | larger groups give a better baseline estimate and fewer zero-variance groups, at linear sampling cost |
+| `temperature` | | the exploration knob: too low and the $G$ samples are identical (no variance), too high and they are noise |
+| `beta` | $\beta$ | strength of the KL leash; 0 removes the reference model entirely (a common choice in recent reasoning work, which relies on clipping and a small learning rate instead) |
+| `epsilon` | $\epsilon$ | PPO clip range; only active when a batch of samples is reused for several updates (`num_iterations > 1`) |
+| `loss_type`, `scale_rewards` | | the normalization variants (GRPO, DAPO, Dr. GRPO) discussed above |
+
+With one gradient step per batch of samples, as here (TRL's default `num_iterations=1`), the ratio $\rho$ is 1 and GRPO is a group-baselined REINFORCE with a KL penalty.
 ''')
 nb.code(r'''
 GRPO_STEPS, GRPO_LR = 40, 1e-4
