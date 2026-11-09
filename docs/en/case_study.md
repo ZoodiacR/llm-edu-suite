@@ -2,7 +2,9 @@
 
 🇪🇸 [Versión en español](../es/caso_de_estudio.md) · [← Back to the index](README.md)
 
-> **Summary.** A complete LLM engineering lab built from scratch: 17 notebooks, an 18-module Python package, 6 scripts and 68 tests. It covers the whole life cycle of an LLM-based system, from the tokenizer to observable agents connected through MCP. I started from a first version generated with AI assistance and took it to a state that is **verified end to end**: I found and fixed real bugs, redesigned the experiments that gave poor results, and documented every decision with measured numbers.
+> **Summary.** A hands-on LLM engineering course in two halves: a language model built **from scratch in PyTorch** to understand how it works inside, and applications built with **the tools the industry uses** (Hugging Face `transformers`/`peft`/`trl`, LangChain, LangGraph, LangSmith, RAGAS and the official MCP SDK), with local models through Ollama. 17 executed and evaluated notebooks, docs in Spanish and English, and CI. The project had two versions: **v1** implemented everything by hand and I took it to a state verified end to end (bugs fixed, experiments redesigned); **v2** replaced the application layer with real frameworks. Every decision is documented with measured numbers.
+
+> Section 11 describes the move to v2 (real frameworks). Sections 2–8 tell the v1 story, which is still the basis of the from-scratch model.
 
 ## 1. Context and goal
 
@@ -15,7 +17,7 @@ Goals:
 3. **Reproducible and accessible**: everything runs on a laptop, on CPU, with no downloads or API keys, and with fixed seeds.
 4. **Honest**: when a technique does not help in the toy setting, the notebook says so and explains why.
 
-## 2. Scope
+## 2. Scope (v1)
 
 | Area | What was built |
 |---|---|
@@ -37,27 +39,34 @@ flowchart TB
         A0[00 start here] --- A1[01 architecture] --- A2[02 pretraining & inference] --- A3[03 post-training]
         A4[04 applications] --- A5[05 agents & MCP] --- A6[06 LLMOps]
     end
-    subgraph PKG[llmsuite/]
-        core[tokenizer · layers · model · data · training]
-        post[finetune · quant · inference]
-        apps[rag · recsys · applications · evaluation]
-        agt[agents · agentic · mcp · observability · llm_client]
+    subgraph PKG[llm_edu_suite/ - from-scratch model]
+        core[tokenizer · layers · model · data · training · inference · recsys · evaluation]
+        cfg["config.py: get_llm · get_embeddings"]
     end
-    GEN[tools/build_notebooks_part1-3.py] -->|generates| NB
-    NB -->|imports| PKG
-    SCR[scripts/ CLI] -->|imports| PKG
-    TST[tests/ 68 tests] -->|verifies| PKG
+    subgraph FW["frameworks (v2)"]
+        hf[transformers · peft · trl · optimum-quanto]
+        lc[LangChain · LangGraph · RAGAS]
+        ops[LangSmith · MCP SDK]
+    end
+    OLL["Ollama: qwen2.5:3b · nomic-embed-text"]
+    GEN[tools/notebooks/nbXX_*.py] -->|generates| NB
+    NB -->|00-06, 12 import| core
+    NB -->|07-16 use| FW
+    FW --> cfg --> OLL
+    SCR[scripts/ CLI] --> PKG
+    SCR --> FW
+    TST["tests/ fake LLMs + ollama"] -->|verifies| PKG
     CI[GitHub Actions] --> TST
     CI --> NB
 ```
 
 Three design decisions:
 
-- **The notebooks are generated from code** (`tools/build_notebooks_part*.py`). Changes are reviewed as code, diffs are readable and the notebooks never drift out of sync. Notebook 00 also exports its cells to `scripts/mini_llm.py`, so the notebook and the script come from a single source.
+- **The notebooks are generated from code** (`tools/notebooks/nbXX_*.py`). Changes are reviewed as code, diffs are readable and the notebooks never drift out of sync. Notebook 00 also exports its cells to `scripts/mini_llm.py`, so the notebook and the script come from a single source.
 - **A single configurable model class** (`ModelConfig`): every attention and FFN variant is compared on equal terms.
 - **A deterministic `MockLLM`** instead of an API: the RAG, agent, observability and MCP pipelines run and are tested without a network. Switching to a real model takes one line (`OpenAICompatibleClient`).
 
-## 4. Verification process
+## 4. Verification process (v1)
 
 The first version had tests and notebooks, but the PyTorch notebooks **had never been executed**. This was the process:
 
@@ -67,7 +76,7 @@ The first version had tests and notebooks, but the PyTorch notebooks **had never
 4. **Documentation ↔ code cross-review**: an agent read every module to write the reference and reported 14 discrepancies. I verified them one by one before fixing them.
 5. **Redesign of experiments** that ran without errors but gave results with no teaching value.
 
-## 5. Bugs found and fixed
+## 5. Bugs found and fixed (v1)
 
 | Problem | Cause | Fix |
 |---|---|---|
@@ -80,7 +89,7 @@ The first version had tests and notebooks, but the PyTorch notebooks **had never
 | Notebooks without cell `id`s | required by nbformat ≥ 4.5 | deterministic ids in the generator |
 | Misleading docstrings | e.g. `PreferencePair` did not exist; the MoE auxiliary loss equals top_k (not 1) under perfect balance; in GRPO the ratio is always 1 with one update per batch | documentation corrected to reflect the actual behavior |
 
-## 6. Redesigned experiments (before → after)
+## 6. Redesigned experiments in v1 (before → after)
 
 The notebooks "worked", but several results taught nothing or, worse, taught something false. Every change was validated with preliminary experiments before going into the notebook.
 
@@ -110,7 +119,7 @@ The notebooks "worked", but several results taught nothing or, worse, taught som
 - **Sampling (06)**: with the same seed the strategies produced identical outputs because the distribution is very peaked. Entropy and diversity (distinct-2) are now measured, and the filtered distribution is plotted.
 - **Quantization (09)**: perplexity barely moved (3 bits came out "better" than fp, through noise). I added the **KL against the fp model** and **top-1 agreement**, the metrics llama.cpp uses. They show a monotonic degradation: 98.6% agreement with NF4 at 4 bits and 88% at 2 bits.
 
-## 7. New extensions
+## 7. New extensions (v1)
 
 | Piece | Why it matters | Evidence |
 |---|---|---|
@@ -131,8 +140,54 @@ The notebooks "worked", but several results taught nothing or, worse, taught som
 
 ## 9. Stack and tools
 
-Python 3.10+ · PyTorch · NumPy · matplotlib · pytest · Jupyter / nbclient · GitHub Actions. No heavy dependencies: the techniques that in production are done with `transformers`, `peft`, `trl`, vLLM, FAISS, OpenTelemetry or the MCP SDKs are implemented by hand, and every notebook names its real equivalent.
+**v1:** Python, PyTorch, NumPy, matplotlib, pytest, Jupyter/nbclient, GitHub Actions; everything else implemented by hand.
+
+**v2:** the above for the from-scratch model, plus Hugging Face `transformers`, `peft`, `trl`, `datasets` and `optimum-quanto`; LangChain (`langchain-core`, `langchain-community`, `langchain-classic`, `langchain-ollama`), LangGraph, LangSmith, RAGAS, FAISS, BM25, Pydantic; the official `mcp` SDK (FastMCP) and `langchain-mcp-adapters`; Ollama to serve the local models.
 
 ## 10. Next steps
 
-See the [README roadmap](../../README.md#roadmap). The most relevant items: replicate the post-training pipeline with a real model (Qwen2.5-0.5B with `trl`) and connect the traces to Langfuse or Phoenix.
+See the [README roadmap](../../README.md#roadmap). The most relevant items: a bigger-model track (Qwen2.5 1.5–3B with QLoRA), a serving notebook with vLLM, and RAG at scale with a vector database and a stronger judge.
+
+## 11. v2: from building everything to using the real tools
+
+**Why.** v1 taught how every piece works, but it also implemented RAG, agents, tracing and MCP by hand. For a portfolio, and for day-to-day work, what matters is knowing how to **use the standard tools well** while understanding what they do inside. v2 keeps only the model from scratch (notebooks 00–06, where seeing attention or the KV-cache written out is the point) and rewrites the application layer with real frameworks. v1 stays published under the tag `v1.0-from-scratch`.
+
+**Architecture decisions**
+
+| Decision | Why |
+|---|---|
+| Local models through **Ollama** (`qwen2.5:3b`, `nomic-embed-text`) | free, offline, reproducible by anyone; fits a 6 GB GPU |
+| One `llm_edu_suite/config.py` (`get_llm()`, `get_embeddings()`) read from `.env` | moving the whole course to OpenAI or Anthropic is a configuration line, not a code change |
+| **LangSmith** optional | notebook 15 runs without a key; with a key, every LLM call in the course is traced |
+| One generator per notebook (`tools/notebooks/nbXX_*.py`) | let several blocks be rewritten **in parallel** without conflicts, and changes are reviewed as code |
+| Tests with **LangChain fake models** + integration tests marked `ollama` | GitHub CI has no GPU and no Ollama, but still checks the logic on every push |
+
+**What was removed.** Seven in-house modules that duplicated frameworks (`rag`, `agents`, `agentic`, `observability`, `mcp`, `applications`, `llm_client`/MockLLM), plus `finetune` and `quant`. Each topic is now taught with the real tool: RAG with LangChain + RAGAS, agents with LangGraph, tracing with LangSmith, MCP with FastMCP, fine-tuning with TRL and quantization with `optimum-quanto`.
+
+**v2 results (real models instead of toy models)**
+
+| Notebook | Measured result |
+|---|---|
+| 07 · SFT/LoRA (SmolLM2-135M) | few-shot 17.5% → **full SFT 35%**, LoRA r=16 32.5% training 3.5% of the parameters. The new-token trap reproduces on the real model: **0% → 100%** once the embeddings are trained |
+| 07 · distillation | a 360M teacher (87.5%) labels 600 prompts; the 135M student goes from 35% to **55%** |
+| 08 · DPO/GRPO | plain DPO: exact match **30% → 7.5%** (likelihood displacement); DPO+NLL 32.5%. **GRPO: 5% → 46%** on arithmetic with only a verifier |
+| 09 · quantization (SmolLM2-360M) | int8/float8 ~96% top-1 agreement at 0.41 GB; int4 73%; int2 breaks the model |
+| 10 · RAG + RAGAS | hybrid BM25 + dense: **evidence MRR 0.84** vs 0.73 dense-only; RAGAS context precision 0.76 → 0.84 |
+| 13 · application patterns | map-reduce 11/13 topics vs 9/13 for a silently truncated single call (6/13 in another run); injection guard **10/10 attacks, 0/10 false positives** |
+| 14 · LangGraph | every guardrail stops with an explicit reason; ReAct beats plan-and-execute (80% vs 60%) with a third of the model calls |
+| 15 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback uncovered a real bug in a tool prompt |
+| 16 · MCP | FastMCP server with **14/14 conformance checks**; the agent answers 6/6 questions through MCP |
+
+**Real migration problems (and how they were solved)**
+
+- **The APIs changed a lot**: in trl 1.x, `rpo_alpha` is gone (DPO+NLL is now `loss_type=["sigmoid","sft"]`); in LangChain 1.x, `EnsembleRetriever` lives in `langchain-classic` and `create_react_agent` became `langchain.agents.create_agent`; in transformers 5, `torch_dtype` became `dtype`. The notebooks use the current APIs and say so.
+- **Ecosystem compatibility**: `langchain-mcp-adapters` does not support the 2.x `mcp` SDK yet, so the project pins `mcp>=1.24,<2`. A compatibility decision, not a preference.
+- **One shared 6 GB GPU**: training with TRL while Ollama served the LLM filled the VRAM and **hung Ollama for over an hour**. Fix: the training notebooks cap themselves at 1.5 GB of VRAM (`set_per_process_memory_fraction`), and the LLM notebooks run one after another.
+- **A small judge is noisy**: with `qwen2.5:3b` as the RAGAS judge, some correct answers get 0. The notebook shows it and recommends validating the judge and using a bigger one in production.
+- **Numbers move between runs** (real LLM, LLM judge): after the final run I checked every number in the prose against its output (a script flags markdown numbers that do not appear in the outputs) and rewrote the paragraphs that had changed.
+
+**v2 lessons**
+
+1. **A framework does not save you from evaluating.** RAGAS, LangSmith `evaluate()` and trajectory metrics are what made it possible to say what worked and what did not.
+2. **A small model changes the conclusions.** With a 3B model, ReAct beats plan-and-execute and LLM re-ranking hurts recommendation; with large models it can differ. That is why the course teaches the **method** (labelled sets, the same metrics for every design), not a universal verdict.
+3. **Running everything locally has real engineering costs** (VRAM, queues, timeouts) that need to be designed for from the start.

@@ -4,59 +4,90 @@
 
 [← Volver al índice](README.md)
 
-Esta guía deja el proyecto listo para ejecutar **todo**: la suite de tests, los scripts de línea de comandos y los 17 notebooks. Todo funciona en **CPU**, sin descargas de modelos y sin claves de API, y si tienes una **GPU NVIDIA** se usa automáticamente (mucho más rápido).
+Esta guía deja el proyecto listo para ejecutar **todo**: la suite de tests, los scripts de línea de comandos y los 17 notebooks.
+
+El curso tiene dos mitades con necesidades distintas:
+
+| Notebooks | Qué usan | Qué necesitan |
+|---|---|---|
+| **00–06** | El modelo PyTorch escrito desde cero (paquete `llm_edu_suite`) | Solo PyTorch. Funciona en CPU; si hay GPU NVIDIA se usa automáticamente. |
+| **07–09** | Hugging Face `transformers` + `peft` + `trl` + `optimum-quanto` sobre SmolLM2 | PyTorch y una descarga única de SmolLM2 desde el Hugging Face Hub (~1 GB). Con GPU van mucho más rápido. |
+| **10–16** | LangChain, RAGAS, LangGraph, LangSmith, el SDK oficial de MCP + `langchain-mcp-adapters` | Un servidor **Ollama** local con `qwen2.5:3b` y `nomic-embed-text`. LangSmith es opcional. |
+
+No hace falta ninguna clave de API. Por defecto todo funciona en local.
 
 ## Requisitos
 
-| Componente | Versión mínima | Verificado con |
+| Componente | Mínimo | Verificado con |
 |---|---|---|
 | Python | 3.10 | 3.11.4 (Windows 11) |
-| PyTorch | 2.3 (2.5+ para la celda opcional de FlexAttention) | 2.15.0+cpu |
-| NumPy | 1.24 | 2.4.6 |
-| matplotlib | 3.7 | 3.11.2 |
-| Espacio en disco | ~1 GB (casi todo es PyTorch) | |
-| RAM | 4 GB | |
+| PyTorch | 2.3 (2.5+ para la celda opcional de FlexAttention del notebook 03) | 2.14.1+cu130 |
+| GPU NVIDIA | opcional | RTX 3060 Laptop GPU, 6 GB |
+| [Ollama](https://ollama.com) | cualquier versión reciente | 0.40.15 |
+| Disco: entorno virtual | ~4 GB con la build CUDA de PyTorch (PyTorch solo ocupa ~2,9 GB); mucho menos con la de CPU | 4,1 GB |
+| Disco: modelos de Ollama | ~2,2 GB (`qwen2.5:3b` 1,9 GB + `nomic-embed-text` 0,27 GB) | |
+| Disco: caché de Hugging Face | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB) | |
 
-> **Por qué un entorno virtual propio.** Si instalas en tu Python global puedes heredar combinaciones rotas.
-> Un caso real encontrado al probar este proyecto: un `matplotlib 3.7` compilado contra NumPy 1.x junto a un
-> `numpy 2.4` falla al importar con `ImportError: numpy.core.multiarray failed to import`. Un `.venv`
-> aislado evita este tipo de conflictos.
+Las librerías están fijadas con cotas inferiores en `requirements.txt`. Estas son las versiones con las que se verificó el curso:
 
-## Opción A — Script automático (recomendado)
+| Paquete | Versión | Paquete | Versión |
+|---|---|---|---|
+| transformers | 5.22.2 | langchain | 1.4.9 |
+| peft | 0.21.2 | langchain-core | 1.7.6 |
+| trl | 1.17.1 | langchain-community | 0.4.2 |
+| optimum-quanto | 0.2.7 | langchain-ollama | 1.1.0 |
+| ragas | 0.4.3 | langgraph | 1.2.20 |
+| mcp | 1.30.0 (debe seguir en `<2`) | langsmith | 0.14.17 |
+| langchain-mcp-adapters | 0.3.2 | | |
+
+> **Por qué un entorno virtual propio.** Si instalas en tu Python global puedes heredar combinaciones rotas
+> (por ejemplo, un `matplotlib` compilado contra NumPy 1.x junto a NumPy 2.x falla con
+> `ImportError: numpy.core.multiarray failed to import`). Además el curso fija `mcp<2`, porque
+> `langchain-mcp-adapters` todavía no soporta el SDK 2.x. Un `.venv` aislado evita estos conflictos.
+
+## Opción A: script de instalación (recomendado)
+
+Instala antes Ollama (ver [Ollama](#ollama)) para que el script pueda descargar los modelos. Después:
 
 **Windows (PowerShell):**
 
 ```powershell
-cd llm-edu-suite
+cd llm-engineering-suite
 powershell -ExecutionPolicy Bypass -File setup_env.ps1
 ```
 
 **Linux / macOS:**
 
 ```bash
-cd llm-edu-suite
+cd llm-engineering-suite
 bash setup_env.sh
 ```
 
 El script hace, en orden:
 
-1. Crea `.venv/` si no existe.
-2. Instala PyTorch: la variante **CUDA** si detecta una GPU NVIDIA (`nvidia-smi`), o la variante **CPU** (wheel pequeño y universal) si no.
-3. Instala `requirements-dev.txt` (numpy, matplotlib, pytest, jupyterlab, ipykernel, nbclient, requests).
-4. Registra el entorno como kernel de Jupyter con el nombre **"Python (llmsuite)"**.
-5. Ejecuta `pytest -q` para confirmar que todo funciona (deberían pasar todos; en el momento de escribir esto pytest recoge 50 tests).
+1. Crea `.venv/` si no existe y actualiza `pip`.
+2. Instala PyTorch: la build **CUDA** (índice `cu128`) si encuentra `nvidia-smi`, o la build **CPU** (pequeña) si no. En macOS instala el wheel por defecto, que incluye soporte MPS.
+3. Instala `requirements-dev.txt`, que incluye `requirements.txt` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, transformers, peft, trl, datasets, accelerate, optimum-quanto, mcp, langchain-mcp-adapters) más pytest, JupyterLab, ipykernel, nbclient y nbformat.
+4. Registra el entorno como kernel de Jupyter con el nombre **"Python (llm-edu-suite)"**.
+5. Si existe el comando `ollama`, ejecuta `ollama pull qwen2.5:3b` y `ollama pull nomic-embed-text`. Si no existe, indica cómo instalar Ollama y continúa.
+6. Crea `.env` a partir de `.env.example` si todavía no hay `.env`.
+7. Ejecuta los tests rápidos: `pytest -q -m "not ollama"`.
+8. (Script de Windows) imprime la versión de PyTorch y la GPU encontrada.
 
-## Opción B — Paso a paso
+## Opción B: paso a paso
 
 ```powershell
 # Windows
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install torch --index-url https://download.pytorch.org/whl/cu128    # sin GPU NVIDIA: .../whl/cpu
 pip install -r requirements-dev.txt
-python -m ipykernel install --user --name llmsuite --display-name "Python (llmsuite)"
-pytest -q
+python -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
+ollama pull qwen2.5:3b
+ollama pull nomic-embed-text
+Copy-Item .env.example .env
+pytest -q -m "not ollama"
 ```
 
 ```bash
@@ -64,21 +95,19 @@ pytest -q
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install torch --index-url https://download.pytorch.org/whl/cpu   # en macOS: pip install torch
+pip install torch --index-url https://download.pytorch.org/whl/cu128    # sin GPU NVIDIA: .../whl/cpu ; macOS: pip install torch
 pip install -r requirements-dev.txt
-python -m ipykernel install --user --name llmsuite --display-name "Python (llmsuite)"
-pytest -q
+python -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
+ollama pull qwen2.5:3b
+ollama pull nomic-embed-text
+cp .env.example .env
+pytest -q -m "not ollama"
 ```
 
-> Si PowerShell bloquea `Activate.ps1`, ejecuta una vez
-> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, o usa directamente
-> `.\.venv\Scripts\python.exe` sin activar el entorno.
+> Si PowerShell bloquea `Activate.ps1`, ejecuta una vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`,
+> o usa directamente `.\.venv\Scripts\python.exe` sin activar el entorno.
 
-### ¿Tengo GPU NVIDIA?
-
-Nada en el proyecto la necesita, pero acelera mucho el entrenamiento: el mini LLM del notebook 00 tarda unos **22 s en una RTX 3060 Laptop frente a unos 5 min en CPU**. Los scripts de setup la detectan e instalan PyTorch con CUDA automáticamente; los notebooks la usan solos (`llmsuite.utils.get_device()` elige `cuda` si existe y si no `cpu`; Apple MPS solo con `allow_mps=True`). En GPU, el entrenamiento usa precisión mixta **bf16** (RTX 30xx o superior).
-
-Para instalarla a mano o cambiar un `.venv` que ya tenía la versión CPU:
+Para cambiar un `.venv` que ya tenía la build CPU por la build CUDA:
 
 ```bash
 nvidia-smi                                   # comprueba el driver y la versión de CUDA que soporta
@@ -87,60 +116,114 @@ pip install torch --index-url https://download.pytorch.org/whl/cu128     # o cu1
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
-## Qué ejecutar después
+## Ollama
 
-| Qué | Comando | Tiempo aprox. (CPU) |
+[Ollama](https://ollama.com) sirve el modelo de chat y el de embeddings de los notebooks 10–16 en tu propia máquina, en la GPU si la hay.
+
+1. **Instálalo.** Windows y macOS: descarga el instalador de [ollama.com/download](https://ollama.com/download). Linux: `curl -fsSL https://ollama.com/install.sh | sh`.
+2. **Arráncalo.** La aplicación de escritorio (Windows/macOS) y el servicio de Linux arrancan el servidor solos. Si no, ejecuta `ollama serve` en otra terminal. Escucha en `http://localhost:11434`.
+3. **Descarga los modelos del curso** (unos 2,2 GB en total):
+
+   ```bash
+   ollama pull qwen2.5:3b          # modelo de chat, 3.1B parámetros, Q4_K_M, admite tool calling
+   ollama pull nomic-embed-text    # modelo de embeddings para recuperación y memoria
+   ```
+
+4. **Compruébalo:**
+
+   ```bash
+   ollama list                               # deben aparecer los dos modelos
+   curl http://localhost:11434/api/tags      # el servidor responde con JSON
+   ollama ps                                 # modelos cargados ahora mismo, y si están en GPU o CPU
+   ```
+
+Desde Python, `llm_edu_suite.config.setup()` imprime el proveedor, los modelos, si Ollama responde y si LangSmith está activo. Todos los notebooks de aplicaciones lo llaman en su primera celda.
+
+## El fichero `.env`
+
+`llm_edu_suite/config.py` lee toda su configuración de variables de entorno y carga el `.env` del proyecto con `python-dotenv` (sin sobrescribir las variables que ya estén definidas en tu shell). Copia `.env.example` a `.env` (los scripts de instalación lo hacen por ti) y edítalo.
+
+| Variable | Por defecto | Significado |
 |---|---|---|
-| Tests | `pytest -q` | ~10 s |
-| Abrir notebooks | `jupyter lab notebooks/` y elegir el kernel **Python (llmsuite)** | — |
-| Ejecutar todos los notebooks sin abrirlos | `python tools/run_notebooks.py` | ver [guía de notebooks](guia_notebooks.md) |
-| Ejecutar uno solo | `python tools/run_notebooks.py 05_pretraining.ipynb` (o por número: `python tools/run_notebooks.py 05 14`) | — |
-| Pre-entrenar un LM pequeño | `python scripts/train.py --steps 300 --out runs/smoke` | ~2,5 min |
-| Generar tokens con él | `python scripts/sample.py --run runs/smoke --prompt "" --max-new-tokens 50` | segundos |
-| Post-training SFT→DPO→GRPO | `python scripts/finetune.py --lora` | unos minutos (~5 min según el docstring del script) |
-| RAG sobre documentos de ejemplo | `python scripts/rag_demo.py --docs data/sample_docs --eval data/sample_eval.json` | segundos |
-| Regenerar los notebooks desde código | `python tools/build_notebooks_part1.py && python tools/build_notebooks_part2.py && python tools/build_notebooks_part3.py` | segundos |
+| `LLM_PROVIDER` | `ollama` | `ollama`, `openai` o `anthropic`. |
+| `LLM_MODEL` | `qwen2.5:3b` (Ollama), `gpt-4o-mini` (OpenAI), `claude-haiku-4-5` (Anthropic) | El modelo de chat que devuelve `get_llm()`. |
+| `EMBEDDING_MODEL` | `nomic-embed-text` (Ollama), `text-embedding-3-small` (OpenAI) | El modelo de embeddings que devuelve `get_embeddings()`. Anthropic no tiene API de embeddings, así que con `anthropic` los embeddings siguen saliendo de Ollama. |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Dónde está el servidor de Ollama. |
+| `LANGSMITH_TRACING` | `true` en `.env.example` | Enviar trazas a LangSmith. Solo tiene efecto si además hay `LANGSMITH_API_KEY`. |
+| `LANGSMITH_API_KEY` | vacío | Tu clave de API de LangSmith. |
+| `LANGSMITH_PROJECT` | `llm-edu-suite` | El proyecto de LangSmith al que van las trazas. `setup(project=...)` lo cambia por notebook, para que las trazas de cada notebook vayan a su propio proyecto. |
+| `LANGSMITH_ENDPOINT` | (comentada) | Solo para cuentas de la región UE: `https://eu.api.smith.langchain.com`. |
+| `OPENAI_API_KEY` | (comentada) | Solo hace falta con `LLM_PROVIDER=openai`. |
 
-Con `make` disponible (Linux/macOS/Git Bash): `make test`, `make smoke`, `make notebooks`, `make run-notebooks`, `make mini-llm`, `make mcp-server` (ver [scripts de línea de comandos](scripts_cli.md#herramientas-y-objetivos-del-makefile)).
+Con `LANGSMITH_API_KEY` vacía, el trazado queda desactivado y todo lo demás funciona igual. El notebook 15 (observabilidad) es el que más partido saca de LangSmith.
 
-> **Importante sobre los notebooks:** los `.ipynb` se **generan** a partir de `tools/build_notebooks_part*.py`.
-> Si quieres cambiar un notebook de forma permanente, edita el generador y vuelve a generarlos;
-> si editas el `.ipynb` directamente, perderás los cambios la próxima vez que se regeneren.
+### Crear una clave de API de LangSmith
 
-## Usar un LLM real en lugar del `MockLLM`
+1. Inicia sesión en [smith.langchain.com](https://smith.langchain.com) (hay un plan gratuito).
+2. Ve a **Settings → API Keys → Create API Key**.
+3. Copia la clave (empieza por `lsv2_`) y pégala en `.env`: `LANGSMITH_API_KEY=lsv2_...`.
+4. Deja `LANGSMITH_TRACING=true`. La próxima vez que ejecutes un notebook, `setup()` imprime `langsmith: on (project: ...)` y las trazas aparecen en **Projects** en la interfaz de LangSmith.
 
-Los notebooks 10, 11 y 13 y `scripts/rag_demo.py` usan por defecto `MockLLM`, un modelo **determinista
-basado en reglas** que permite ejecutar todo offline. Para conectar un modelo real basta con un
-servidor compatible con la API de OpenAI:
+> **Nunca subas `.env` al repositorio.** Está en `.gitignore`. Pon las claves solo en `.env` o en variables
+> de entorno, nunca en el código ni en celdas de notebooks. Si una clave se filtra, revócala en la misma página de Settings.
 
-```python
-from llmsuite.llm_client import OpenAICompatibleClient
+### Cambiar de proveedor
 
-# vLLM local:   vllm serve Qwen/Qwen2.5-7B-Instruct --enable-auto-tool-choice --tool-call-parser hermes
-llm = OpenAICompatibleClient("Qwen/Qwen2.5-7B-Instruct", base_url="http://localhost:8000/v1")
-
-# Ollama local: ollama serve  (y luego: ollama pull qwen2.5:7b)
-llm = OpenAICompatibleClient("qwen2.5:7b", base_url="http://localhost:11434/v1")
-
-# API en la nube (OpenAI, OpenRouter, ...): la clave se lee de la variable OPENAI_API_KEY
-llm = OpenAICompatibleClient("gpt-4o-mini", base_url="https://api.openai.com/v1")
-```
+Cambiar de proveedor es un cambio en `.env`, no en el código:
 
 ```bash
-python scripts/rag_demo.py --docs data/sample_docs --ask "What is the refund policy?" \
-    --model qwen2.5:7b --base-url http://localhost:11434/v1
+# OpenAI
+pip install langchain-openai
+# .env:  LLM_PROVIDER=openai   OPENAI_API_KEY=sk-...   (opcional: LLM_MODEL=..., EMBEDDING_MODEL=...)
+
+# Anthropic
+pip install langchain-anthropic
+# .env:  LLM_PROVIDER=anthropic   ANTHROPIC_API_KEY=sk-ant-...   (los embeddings siguen saliendo de Ollama)
 ```
 
-> Nunca escribas claves de API en el código ni en los notebooks: usa variables de entorno
-> (`OPENAI_API_KEY`) o un archivo `.env`, que ya está en `.gitignore`.
+`langchain-openai` y `langchain-anthropic` no están en `requirements.txt` porque la instalación por defecto no los necesita. Un modelo en la nube cuesta dinero por llamada, y algunos resultados de los notebooks (los números comentados en el texto) se obtuvieron con `qwen2.5:3b`, así que los tuyos serán distintos. `scripts/rag_demo.py --ragas` siempre llama a su juez a través del endpoint compatible con OpenAI de Ollama, así que necesita Ollama sea cual sea el proveedor.
+
+## Qué ejecutar después
+
+Tiempos medidos en la máquina de verificación (RTX 3060 Laptop GPU, Ollama en local).
+
+| Qué | Comando | Tiempo |
+|---|---|---|
+| Tests rápidos (sin Ollama) | `pytest -q -m "not ollama"` | ~35 s (82 tests) |
+| Tests de integración con Ollama | `pytest -q -m ollama` | ~40 s (4 tests; se saltan solos si Ollama no está en marcha) |
+| Todos los tests | `pytest -q` | la suma de los dos anteriores |
+| Abrir los notebooks | `jupyter lab notebooks/` y elegir el kernel **Python (llm-edu-suite)** | — |
+| Ejecutar todos los notebooks sin abrirlos | `python tools/run_notebooks.py` | largo; ver la [guía de notebooks](guia_notebooks.md) |
+| Ejecutar algunos | `python tools/run_notebooks.py 05 14` (por número) o `python tools/run_notebooks.py 05_pretraining.ipynb` | — |
+| Regenerar los notebooks desde sus generadores | `python tools/build_notebooks.py` (todos) o `python tools/build_notebooks.py 05 14` | segundos |
+| Preentrenar un LM pequeño | `python scripts/train.py --steps 300 --out runs/smoke` | ver [scripts](scripts_cli.md#trainpy) |
+| SFT con LoRA sobre SmolLM2 | `python scripts/finetune.py sft` | ~1,5 min en GPU |
+| RAG sobre la documentación del curso | `python scripts/rag_demo.py --ask "What is GQA?"` | ~15 s |
+| Servidor MCP | `python scripts/mcp_server.py` | — |
+
+Los `.ipynb` se **generan** a partir de `tools/notebooks/nbNN_*.py` (y `scripts/mini_llm.py` a partir del generador del notebook 00). Para cambiar un notebook de forma permanente, edita su generador y regenera; lo que edites directamente en el `.ipynb` se pierde en la siguiente generación. Generar borra las salidas, así que ejecuta después `tools/run_notebooks.py`. Con `make` disponible (Linux/macOS/Git Bash): `make test`, `make smoke`, `make notebooks`, `make run-notebooks`, `make mini-llm`, `make mcp-server` (ver [scripts de línea de comandos](scripts_cli.md#herramientas-y-objetivos-del-makefile)).
+
+## Notas sobre la GPU
+
+- Nada necesita GPU, pero el entrenamiento es mucho más rápido con ella: el mini LLM del notebook 00 tarda unos **22 s en una RTX 3060 Laptop frente a unos 5 min en CPU**. `llm_edu_suite.utils.get_device()` elige `cuda` si existe (Apple MPS solo con `allow_mps=True`). En RTX 30xx o superior, el entrenamiento usa precisión mixta **bf16**.
+- **Presupuesto de VRAM en una GPU de 6 GB.** Ollama mantiene `qwen2.5:3b` cargado en la GPU unos minutos después de cada llamada, y ocupa unos **2,3 GB** de VRAM. Los notebooks de entrenamiento limitan la memoria de su propio PyTorch con `torch.cuda.set_per_process_memory_fraction`, a **1,5 GB por defecto** (variable de entorno `VRAM_BUDGET_GB`; p. ej. `$env:VRAM_BUDGET_GB="3"` o `export VRAM_BUDGET_GB=3` para darles más).
+- **No ejecutes a la vez los notebooks de entrenamiento (07–09) y los de Ollama (10–16) en una GPU de 6 GB.** Cuando compiten por la VRAM, Ollama puede quedarse colgado en lugar de fallar. Ejecútalos uno detrás de otro y, si necesitas recuperar la memoria, descarga los modelos con `ollama stop qwen2.5:3b` (`ollama ps` muestra qué hay cargado).
+- Si Ollama no consigue meter un modelo en la GPU, lo ejecuta (en parte) en CPU: sigue funcionando, solo que más lento.
 
 ## Problemas frecuentes
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| `ImportError: numpy.core.multiarray failed to import` | matplotlib compilado para NumPy 1.x con NumPy 2.x instalado | usa el `.venv` del proyecto (o `pip install -U matplotlib`) |
-| `ModuleNotFoundError: llmsuite` en un notebook | Jupyter se abrió fuera de `notebooks/` | abre con `jupyter lab notebooks/`; cada notebook añade la raíz del repo (dos niveles por encima de `notebooks/<tema>/`) al `sys.path` |
-| El notebook usa otro Python | kernel equivocado | menú *Kernel → Change kernel → Python (llmsuite)* |
-| `RuntimeWarning: Proactor event loop...` en Windows | aviso inofensivo de `pyzmq` | se puede ignorar; `tools/run_notebooks.py` ya lo silencia |
-| La celda de FlexAttention se salta | PyTorch < 2.5 o sin soporte en CPU | es opcional; el resto del notebook 03 funciona igual |
-| Entrenamiento lento | todo corre en CPU | baja `--steps`/`--d-model`, o usa GPU |
+| `!! Ollama is not running`, `Connection refused` en el puerto 11434, o tests de Ollama saltados | El servidor de Ollama no está en marcha | Abre la aplicación de Ollama o ejecuta `ollama serve`; compruébalo con `curl http://localhost:11434/api/tags` |
+| `model "qwen2.5:3b" not found, try pulling it first` (o lo mismo con `nomic-embed-text`) | No se descargaron los modelos | `ollama pull qwen2.5:3b` y `ollama pull nomic-embed-text`; compruébalo con `ollama list` |
+| Un notebook o script se queda colgado en la primera llamada al LLM | Ollama se ha quedado sin VRAM porque un notebook de entrenamiento ocupa la GPU | Para el kernel de entrenamiento, `ollama stop qwen2.5:3b`, y ejecuta los notebooks uno detrás de otro (ver [notas sobre la GPU](#notas-sobre-la-gpu)) |
+| `LangChainDeprecationWarning` / aviso de que `langchain-community` se va a retirar (*sunset*) | `FAISS` y `BM25Retriever` siguen viviendo en `langchain-community` | Inofensivo; los notebooks y `rag_demo.py` lo filtran. No hay que hacer nada |
+| `ModuleNotFoundError: No module named 'langchain_community.chat_models.vertexai'` al importar `ragas` | ragas 0.4.3 importa un módulo que langchain-community 0.4 eliminó | Ya está resuelto: el notebook 10 y `rag_demo.py` registran un módulo vacío de sustitución antes de importar ragas. Copia ese *shim* (`_ragas_compat_shim` en `scripts/rag_demo.py`) si importas ragas en tu propio código |
+| `UserWarning: huggingface_hub cache-system uses symlinks...` en Windows | Windows no permite enlaces simbólicos sin el modo de desarrollador | Inofensivo (la caché ocupa algo más de disco). Activa el modo de desarrollador o define `HF_HUB_DISABLE_SYMLINKS_WARNING=1` para ocultarlo |
+| El cliente MCP por stdio falla dentro de Jupyter con un error sobre `fileno` / stderr | El `sys.stderr` de Jupyter no tiene un descriptor de fichero del sistema, y el SDK se lo pasa al subproceso del servidor | Ya está resuelto en el notebook 16, que manda el stderr del servidor a un fichero de log. En scripts normales no hace falta |
+| `ModuleNotFoundError: llm_edu_suite` en un notebook | Jupyter se abrió fuera del repo, o con otro kernel | Abre con `jupyter lab notebooks/`; cada notebook añade la raíz del repo al `sys.path` |
+| El notebook usa otro Python | Kernel equivocado | *Kernel → Change kernel → Python (llm-edu-suite)* |
+| `RuntimeWarning: Proactor event loop...` en Windows | Aviso inofensivo de `pyzmq` | Se puede ignorar; `tools/run_notebooks.py` ya lo silencia |
+| La celda de FlexAttention se salta | PyTorch < 2.5 o sin soporte en CPU | Es opcional; el resto del notebook 03 funciona igual |
+| `ImportError: numpy.core.multiarray failed to import` | matplotlib compilado para NumPy 1.x con NumPy 2.x instalado | Usa el `.venv` del proyecto (o `pip install -U matplotlib`) |
+| Entrenamiento lento | Todo corre en CPU | Instala la build CUDA de PyTorch, o baja `--steps` / `--d-model` |

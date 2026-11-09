@@ -16,10 +16,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import torch
 
-from llmsuite.inference import speculative_decode
-from llmsuite.model import TransformerLM
-from llmsuite.tokenizer import ByteBPETokenizer
-from llmsuite.utils import get_device
+from llm_edu_suite.inference import speculative_decode
+from llm_edu_suite.model import TransformerLM
+from llm_edu_suite.tokenizer import ByteBPETokenizer
+from llm_edu_suite.utils import get_device
 
 
 def main():

@@ -1,4 +1,4 @@
-"""Tiny dependency-free .ipynb builder used by tools/build_notebooks_part*.py."""
+"""Tiny dependency-free .ipynb builder used by tools/notebooks/nbXX_*.py."""
 import json
 
 

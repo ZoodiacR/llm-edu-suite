@@ -1,4 +1,4 @@
-"""Tests for the PyTorch core (layers, model, training, finetune, quant, inference). Skipped if torch is missing."""
+"""Tests for the from-scratch PyTorch core (layers, model, training, inference). Skipped if torch is missing."""
 import copy
 import math
 import random
@@ -7,17 +7,14 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from llmsuite.layers import (RMSNorm, precompute_freqs_cis, apply_rope, GroupedQueryAttention, MultiHeadLatentAttention,
+from llm_edu_suite.layers import (RMSNorm, precompute_freqs_cis, apply_rope, GroupedQueryAttention, MultiHeadLatentAttention,
                              SlidingWindowAttention, LongformerAttention, BlockSparseAttention, LinearAttention, MoE, AuxFreeRouter,
                              sliding_window_mask, longformer_mask)
-from llmsuite.model import ModelConfig, TransformerLM, sample_next_token
-from llmsuite.data import ChatFormat, make_reverse_task, make_reverse_preferences, synthetic_structured_corpus, train_val_split, get_batch
-from llmsuite.training import TrainConfig, train_lm, lr_schedule, make_optimizer
-from llmsuite.finetune import (sft_loss, train_sft, apply_lora, lora_parameters, merge_lora, sequence_logprob, dpo_loss, train_dpo,
-                               grpo_loss, sample_group, distillation_loss, greedy_answer)
-from llmsuite.quant import quantize_absmax, quantize_nf4, QuantizedLinear, quantize_model, quantization_error, nf4_levels
-from llmsuite.inference import speculative_decode, kv_cache_memory, batched_generate
-from llmsuite.evaluation import perplexity, perplexity_on_examples, exact_match_rate
+from llm_edu_suite.model import ModelConfig, TransformerLM, sample_next_token
+from llm_edu_suite.data import synthetic_structured_corpus, train_val_split, get_batch
+from llm_edu_suite.training import TrainConfig, train_lm, lr_schedule, make_optimizer
+from llm_edu_suite.inference import speculative_decode, kv_cache_memory, batched_generate
+from llm_edu_suite.evaluation import perplexity, exact_match_rate
 
 torch.manual_seed(0)
 C, H = 64, 8
@@ -210,106 +207,6 @@ def test_training_reduces_loss():
 
 # Fine-tuning
 
-def _tiny_setup():
-    V = 128
-    fmt = ChatFormat.for_vocab(V)
-    base = TransformerLM(ModelConfig(vocab_size=V, max_seq_len=64, d_model=32, n_layers=2, n_heads=4, n_kv_heads=2))
-    ex = make_reverse_task(fmt, n=64, token_range=(1, 100), min_len=2, max_len=3)
-    return V, fmt, base, ex
-
-
-def test_sft_masking_and_training():
-    V, fmt, base, ex = _tiny_setup()
-    inp, lab = ex[0]
-    assert len(inp) == len(lab)
-    n_prompt = len(fmt.render_prompt([10], [1]))     # same structure for any 1-token user message
-    assert (lab[: n_prompt - 1] == -100).all()        # no loss before the reply
-    assert lab[-1].item() == fmt.end_id               # reply ends with END
-    losses = train_sft(base, ex, fmt, steps=30, batch_size=16, lr=1e-3, log_every=0)
-    assert losses[-1] < losses[0]
-    ans = greedy_answer(base, fmt, [10], [5, 6], max_new=5)
-    assert isinstance(ans, list) and len(ans) <= 5
-
-
-def test_lora_identity_merge_and_param_count():
-    V, fmt, base, ex = _tiny_setup()
-    lm = apply_lora(copy.deepcopy(base), r=4, alpha=8)
-    x = torch.randint(0, V, (1, 8))
-    with torch.no_grad():
-        assert torch.allclose(base(x)[0], lm(x)[0], atol=1e-6)
-    n_tr = sum(p.numel() for p in lora_parameters(lm))
-    assert 0 < n_tr < 0.2 * base.num_params()
-    assert all(p.requires_grad for p in lora_parameters(lm))
-    train_sft(lm, ex, fmt, steps=10, batch_size=8, lr=1e-2, log_every=0, params=lora_parameters(lm))
-    with torch.no_grad():
-        before = lm(x)[0]
-        merge_lora(lm)
-        after = lm(x)[0]
-    assert torch.allclose(before, after, atol=1e-5)
-    assert not torch.allclose(before, base(x)[0], atol=1e-4)       # adapters actually changed something
-
-
-def test_dpo_loss_at_init_is_ln2_and_improves():
-    V, fmt, base, ex = _tiny_setup()
-    pairs = make_reverse_preferences(fmt, n=64)
-    ci, cl = fmt.collate([c for c, _ in pairs[:8]]); ri, rl = fmt.collate([r for _, r in pairs[:8]])
-    loss, m = dpo_loss(base, base, (ci, cl), (ri, rl), beta=0.1)
-    assert abs(loss.item() - math.log(2)) < 1e-5 and abs(m["margin"]) < 1e-5
-    policy, hist = train_dpo(base, pairs, fmt, steps=25, batch_size=16, lr=1e-3, log_every=0)
-    assert hist[-1]["loss"] < hist[0]["loss"]
-
-
-def test_grpo_components():
-    V, fmt, base, ex = _tiny_setup()
-    resp = sample_group(base, fmt, [10], [1, 2], G=4, max_new=3)
-    assert len(resp) == 4 and all(len(r) <= 3 for r in resp)
-    examples = [fmt.build_example([10], [1, 2], r[:-1] if r and r[-1] == fmt.end_id else r) for r in resp]
-    inputs, labels = fmt.collate(examples)
-    rewards = torch.tensor([1.0, 0.0, 0.0, 1.0])
-    with torch.no_grad():
-        old = sequence_logprob(base, inputs, labels)
-    loss, info = grpo_loss(base, base, old, inputs, labels, rewards, group_size=4)
-    assert torch.isfinite(loss) and abs(info["kl"]) < 1e-5
-
-
-def test_distillation_loss_zero_when_student_equals_teacher():
-    logits = torch.randn(2, 5, 32)
-    labels = torch.randint(0, 32, (2, 5)); labels[:, :2] = -100
-    full = distillation_loss(logits, logits, labels, tau=2.0, lam=1.0)
-    assert full.item() < 1e-5
-
-
-# Quantization
-
-def test_blockwise_beats_per_tensor_with_outliers():
-    W = torch.randn(128, 256) * 0.02; W[0, 0] = 2.0
-    _, _, a = quantize_absmax(W, 4)
-    _, _, b = quantize_absmax(W, 4, block=32)
-    assert quantization_error(W, b) < quantization_error(W, a)
-    assert len(nf4_levels()) == 16 and (nf4_levels() == 0).any()
-    _, _, c = quantize_nf4(W, block=32)
-    assert quantization_error(W, c) < quantization_error(W, a)
-
-
-def test_quantized_linear_and_model():
-    lin = torch.nn.Linear(64, 32, bias=True)
-    x = torch.randn(3, 64)
-    for scheme, bits in (("absmax", 8), ("absmax", 4), ("nf4", 4)):
-        q = QuantizedLinear(lin, bits=bits, block=32, scheme=scheme)
-        err = (q(x) - lin(x)).abs().mean() / lin(x).abs().mean()
-        assert err < (0.05 if bits == 8 else 0.4)
-        assert q.memory_bytes() < lin.weight.numel() * 2
-    m = TransformerLM(ModelConfig(vocab_size=64, max_seq_len=32, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1))
-    qm = quantize_model(copy.deepcopy(m), bits=8, block=32)
-    idx = torch.randint(0, 64, (1, 8))
-    with torch.no_grad():
-        a, _ = m(idx); b, _ = qm(idx)
-    assert torch.allclose(a, b, atol=0.5)
-    assert any(isinstance(mod, QuantizedLinear) for mod in qm.modules())
-
-
-# Inference
-
 def test_speculative_decode_runs_and_returns_requested_length():
     cfg = dict(vocab_size=64, max_seq_len=64, n_heads=2, n_kv_heads=1)
     target = TransformerLM(ModelConfig(d_model=32, n_layers=2, **cfg))
@@ -332,9 +229,3 @@ def test_kv_cache_memory_and_batched_generate():
     outs = batched_generate(model, [[1, 2, 3], [4, 5]], 6, pad_id=0, temperature=0.0)
     assert len(outs) == 2 and all(len(o) <= 6 for o in outs)
 
-
-def test_perplexity_on_examples_and_exact_match():
-    V, fmt, base, ex = _tiny_setup()
-    ppl = perplexity_on_examples(base, ex[:16], fmt)
-    assert ppl > 1
-    assert exact_match_rate(lambda u: u[::-1], [([1, 2], [2, 1]), ([3], [3])]) == 1.0

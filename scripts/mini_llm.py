@@ -3,7 +3,7 @@
 A complete mini LLM in one file. It trains a BPE tokenizer, builds a small GPT (RoPE, RMSNorm, SwiGLU),
 trains and evaluates it, generates some text and saves a checkpoint. The only dependency is PyTorch.
 
-This file is generated from notebooks/00_start_here/00_mini_llm_end_to_end.ipynb by tools/build_notebooks_part3.py,
+This file is generated from notebooks/00_start_here/00_mini_llm_end_to_end.ipynb by tools/notebooks/nb00_mini_llm_end_to_end.py,
 so edit the generator rather than this file. Run it with `python scripts/mini_llm.py`; tweak CFG below to change
 the model size, the number of steps or the training data.
 """

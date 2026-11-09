@@ -2,7 +2,9 @@
 
 🇬🇧 [English version](../en/case_study.md) · [← Volver al índice](README.md)
 
-> **Resumen.** Un laboratorio completo de ingeniería de LLMs construido desde cero: 17 notebooks, un paquete Python de 18 módulos, 6 scripts y 69 tests. Cubre todo el ciclo de vida de un sistema basado en LLMs, desde el tokenizador hasta agentes observables conectados por MCP. Partí de una primera versión generada con asistencia de IA y la llevé a un estado **verificado de punta a punta**: encontré y corregí bugs reales, rediseñé los experimentos que daban resultados pobres y documenté cada decisión con números medidos.
+> **Resumen.** Un curso práctico de ingeniería de LLMs en dos mitades: un modelo de lenguaje construido **desde cero en PyTorch** para entender cómo funciona por dentro, y aplicaciones construidas con **las herramientas que usa la industria** (Hugging Face `transformers`/`peft`/`trl`, LangChain, LangGraph, LangSmith, RAGAS y el SDK oficial de MCP), con modelos locales vía Ollama. 17 notebooks ejecutados y evaluados, docs en español e inglés y CI. El proyecto tuvo dos versiones: **v1** lo implementaba todo a mano y lo llevé a un estado verificado de punta a punta (bugs corregidos, experimentos rediseñados); **v2** reemplazó la capa de aplicaciones por frameworks reales. Cada decisión está documentada con números medidos.
+
+> La sección 11 describe la migración a v2 (frameworks reales). Las secciones 2–8 cuentan el trabajo de v1, que sigue siendo la base del modelo desde cero.
 
 ## 1. Contexto y objetivo
 
@@ -15,7 +17,7 @@ Objetivos:
 3. **Reproducible y accesible**: todo corre en un portátil, en CPU, sin descargas ni claves de API, con semillas fijas.
 4. **Honesto**: cuando una técnica no mejora en el entorno de juguete, el notebook lo dice y explica por qué.
 
-## 2. Alcance
+## 2. Alcance (v1)
 
 | Área | Qué se construyó |
 |---|---|
@@ -37,27 +39,34 @@ flowchart TB
         A0[00 start here] --- A1[01 architecture] --- A2[02 pretraining & inference] --- A3[03 post-training]
         A4[04 applications] --- A5[05 agents & MCP] --- A6[06 LLMOps]
     end
-    subgraph PKG[llmsuite/]
-        core[tokenizer · layers · model · data · training]
-        post[finetune · quant · inference]
-        apps[rag · recsys · applications · evaluation]
-        agt[agents · agentic · mcp · observability · llm_client]
+    subgraph PKG[llm_edu_suite/ - modelo desde cero]
+        core[tokenizer · layers · model · data · training · inference · recsys · evaluation]
+        cfg["config.py: get_llm · get_embeddings"]
     end
-    GEN[tools/build_notebooks_part1-3.py] -->|genera| NB
-    NB -->|importa| PKG
-    SCR[scripts/ CLI] -->|importa| PKG
-    TST[tests/ 69 tests] -->|verifica| PKG
+    subgraph FW["frameworks (v2)"]
+        hf[transformers · peft · trl · optimum-quanto]
+        lc[LangChain · LangGraph · RAGAS]
+        ops[LangSmith · MCP SDK]
+    end
+    OLL["Ollama: qwen2.5:3b · nomic-embed-text"]
+    GEN[tools/notebooks/nbXX_*.py] -->|genera| NB
+    NB -->|00-06, 12 importan| core
+    NB -->|07-16 usan| FW
+    FW --> cfg --> OLL
+    SCR[scripts/ CLI] --> PKG
+    SCR --> FW
+    TST["tests/ fake LLMs + ollama"] -->|verifica| PKG
     CI[GitHub Actions] --> TST
     CI --> NB
 ```
 
 Tres decisiones de diseño:
 
-- **Los notebooks se generan desde código** (`tools/build_notebooks_part*.py`). Los cambios se revisan como código, los diffs son legibles y los notebooks nunca se desincronizan. El notebook 00 exporta además sus celdas a `scripts/mini_llm.py`, de modo que el notebook y el script salen de una única fuente.
+- **Los notebooks se generan desde código** (`tools/notebooks/nbXX_*.py`). Los cambios se revisan como código, los diffs son legibles y los notebooks nunca se desincronizan. El notebook 00 exporta además sus celdas a `scripts/mini_llm.py`, de modo que el notebook y el script salen de una única fuente.
 - **Una sola clase de modelo configurable** (`ModelConfig`): todas las variantes de atención y de FFN se comparan en igualdad de condiciones.
 - **Un `MockLLM` determinista** en lugar de una API: los pipelines de RAG, agentes, observabilidad y MCP se ejecutan y se testean sin red. Basta una línea para cambiar a un modelo real (`OpenAICompatibleClient`).
 
-## 4. Proceso de verificación
+## 4. Proceso de verificación (v1)
 
 La primera versión tenía tests y notebooks, pero los notebooks con PyTorch **nunca se habían ejecutado**. Este fue el proceso:
 
@@ -67,7 +76,7 @@ La primera versión tenía tests y notebooks, pero los notebooks con PyTorch **n
 4. **Revisión cruzada documentación ↔ código**: un agente leyó cada módulo para escribir la referencia y reportó 14 discrepancias. Las verifiqué una a una antes de corregirlas.
 5. **Rediseño de experimentos** que se ejecutaban sin errores pero daban resultados sin valor didáctico.
 
-## 5. Bugs encontrados y corregidos
+## 5. Bugs encontrados y corregidos (v1)
 
 | Problema | Causa | Solución |
 |---|---|---|
@@ -80,7 +89,7 @@ La primera versión tenía tests y notebooks, pero los notebooks con PyTorch **n
 | Notebooks sin `id` de celda | exigido por nbformat ≥ 4.5 | ids deterministas en el generador |
 | Docstrings engañosos | p. ej. `PreferencePair` no existía; la pérdida auxiliar de MoE vale top_k (no 1) con balance perfecto; en GRPO el ratio siempre es 1 con una actualización por lote | documentación corregida para reflejar el comportamiento real |
 
-## 6. Experimentos rediseñados (antes → después)
+## 6. Experimentos rediseñados en v1 (antes → después)
 
 Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, enseñaban algo falso. Cada cambio se validó con experimentos previos antes de entrar en el notebook.
 
@@ -110,7 +119,7 @@ Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, 
 - **Muestreo (06)**: con la misma semilla las estrategias daban salidas idénticas porque la distribución está muy concentrada. Ahora se mide la entropía y la diversidad (distinct-2) y se grafica la distribución filtrada.
 - **Cuantización (09)**: la perplejidad apenas cambiaba (3 bits salía "mejor" que fp, por ruido). Añadí la **KL frente al modelo fp** y el **acuerdo top-1**, las métricas que usa llama.cpp. Muestran una degradación monótona: 98,6% de acuerdo con NF4 a 4 bits y 88% a 2 bits.
 
-## 7. Extensiones nuevas
+## 7. Extensiones nuevas (v1)
 
 | Pieza | Por qué importa | Evidencia |
 |---|---|---|
@@ -131,8 +140,54 @@ Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, 
 
 ## 9. Stack y herramientas
 
-Python 3.10+ · PyTorch · NumPy · matplotlib · pytest · Jupyter / nbclient · GitHub Actions. Sin dependencias pesadas: las técnicas que en producción se hacen con `transformers`, `peft`, `trl`, vLLM, FAISS, OpenTelemetry o los SDK de MCP están implementadas a mano, y cada notebook nombra su equivalente real.
+**v1:** Python, PyTorch, NumPy, matplotlib, pytest, Jupyter/nbclient, GitHub Actions; todo lo demás implementado a mano.
+
+**v2:** lo anterior para el modelo desde cero, más Hugging Face `transformers`, `peft`, `trl`, `datasets` y `optimum-quanto`; LangChain (`langchain-core`, `langchain-community`, `langchain-classic`, `langchain-ollama`), LangGraph, LangSmith, RAGAS, FAISS, BM25, Pydantic; el SDK oficial `mcp` (FastMCP) y `langchain-mcp-adapters`; Ollama para servir los modelos locales.
 
 ## 10. Próximos pasos
 
-Ver el [roadmap del README](../../README.md#roadmap). Lo más relevante: replicar el pipeline de post-training con un modelo real (Qwen2.5-0.5B con `trl`) y conectar las trazas a Langfuse o Phoenix.
+Ver el [roadmap del README](../../README.md#roadmap). Lo más relevante: una vía con modelos más grandes (Qwen2.5 1,5–3B con QLoRA), un notebook de serving con vLLM y RAG a escala con una base de datos vectorial y un juez más fuerte.
+
+## 11. v2: de construirlo todo a usar las herramientas reales
+
+**Por qué.** v1 enseñaba cómo funciona cada pieza, pero implementaba también RAG, agentes, trazas y MCP a mano. Para un portafolio y para el día a día, lo valioso es saber **usar bien las herramientas estándar** y entender qué hacen por dentro. v2 conserva desde cero solo el modelo (notebooks 00–06, donde ver la atención o la KV-cache escrita es el objetivo) y reescribe la capa de aplicaciones con frameworks reales. v1 queda publicada con el tag `v1.0-from-scratch`.
+
+**Decisiones de arquitectura**
+
+| Decisión | Por qué |
+|---|---|
+| Modelos locales con **Ollama** (`qwen2.5:3b`, `nomic-embed-text`) | gratis, offline y reproducible por cualquiera; cabe en una GPU de 6 GB |
+| Un único `llm_edu_suite/config.py` (`get_llm()`, `get_embeddings()`) leído de `.env` | cambiar todo el curso a OpenAI o Anthropic es una línea de configuración, no de código |
+| **LangSmith** opcional | el notebook 15 funciona sin clave; con clave, todas las llamadas del curso quedan trazadas |
+| Un generador por notebook (`tools/notebooks/nbXX_*.py`) | permitió reescribir bloques **en paralelo** sin conflictos, y los cambios se revisan como código |
+| Tests con **modelos falsos de LangChain** + tests de integración marcados `ollama` | la CI de GitHub no tiene GPU ni Ollama, pero sí verifica la lógica en cada push |
+
+**Qué se eliminó.** Siete módulos propios que duplicaban frameworks (`rag`, `agents`, `agentic`, `observability`, `mcp`, `applications`, `llm_client`/MockLLM), más `finetune` y `quant`. Cada tema pasó a enseñarse con la herramienta real: RAG con LangChain + RAGAS, agentes con LangGraph, trazas con LangSmith, MCP con FastMCP, fine-tuning con TRL y cuantización con `optimum-quanto`.
+
+**Resultados v2 (modelos reales en lugar de modelos de juguete)**
+
+| Notebook | Resultado medido |
+|---|---|
+| 07 · SFT/LoRA (SmolLM2-135M) | few-shot 17,5% → **SFT completo 35%**, LoRA r=16 32,5% con el 3,5% de los parámetros. La trampa del token nuevo se reproduce en el modelo real: **0% → 100%** al entrenar los embeddings |
+| 07 · destilación | un teacher de 360M (87,5%) etiqueta 600 prompts; el estudiante de 135M pasa del 35% al **55%** |
+| 08 · DPO/GRPO | DPO puro: exact match **30% → 7,5%** (likelihood displacement); DPO+NLL 32,5%. **GRPO: 5% → 46%** en aritmética con solo un verificador |
+| 09 · cuantización (SmolLM2-360M) | int8/float8 ~96% de acuerdo top-1 a 0,41 GB; int4 73%; int2 rompe el modelo |
+| 10 · RAG + RAGAS | híbrido BM25 + denso: **MRR de evidencia 0,84** frente a 0,73 solo denso; RAGAS context precision 0,76 → 0,84 |
+| 13 · patrones de aplicación | map-reduce 11/13 temas frente a 9/13 de una llamada truncada en silencio (6/13 en otra ejecución); guardia anti-inyección **10/10 ataques, 0/10 falsos positivos** |
+| 14 · LangGraph | todos los guardrails paran con un motivo explícito; ReAct supera a plan-and-execute (80% frente a 60%) con un tercio de las llamadas |
+| 15 · LangSmith | con recuperación la corrección juzgada pasa de **0,17 a 0,83**; el feedback online destapó un bug real en el prompt de una tool |
+| 16 · MCP | servidor FastMCP con **14/14 checks de conformidad**; el agente responde 6/6 preguntas vía MCP |
+
+**Problemas reales de la migración (y cómo se resolvieron)**
+
+- **Las APIs cambiaron mucho**: en trl 1.x, `rpo_alpha` desapareció (DPO+NLL ahora es `loss_type=["sigmoid","sft"]`); en LangChain 1.x, `EnsembleRetriever` vive en `langchain-classic` y `create_react_agent` pasó a `langchain.agents.create_agent`; en transformers 5, `torch_dtype` pasó a `dtype`. Los notebooks usan las APIs actuales y lo explican.
+- **Compatibilidad del ecosistema**: `langchain-mcp-adapters` aún no soporta el SDK `mcp` 2.x, así que el proyecto fija `mcp>=1.24,<2`. Es una decisión de compatibilidad, no de preferencia.
+- **Una GPU de 6 GB compartida**: entrenar con TRL mientras Ollama servía al LLM llenó la VRAM y **colgó Ollama durante más de una hora**. Solución: los notebooks de entrenamiento se limitan a 1,5 GB de VRAM (`set_per_process_memory_fraction`) y los notebooks con LLM se ejecutan en serie.
+- **El juez pequeño es ruidoso**: con `qwen2.5:3b` como juez de RAGAS, algunas respuestas correctas reciben 0. El notebook lo muestra y recomienda validar el juez y usar uno más grande en producción.
+- **Los números se mueven entre ejecuciones** (LLM real, juez LLM): tras la ejecución final contrasté cada cifra del texto con su salida (un script marca los números del markdown que no aparecen en los outputs) y reescribí los párrafos que habían cambiado.
+
+**Lecciones v2**
+
+1. **Un framework no te ahorra evaluar.** RAGAS, LangSmith `evaluate()` y las métricas de trayectoria fueron lo que permitió decir qué funcionaba y qué no.
+2. **El modelo pequeño cambia las conclusiones.** Con un 3B, ReAct gana a plan-and-execute y el re-ranking con LLM empeora la recomendación; con modelos grandes puede ser distinto. Por eso el curso enseña el **método** (sets etiquetados, mismas métricas para cada diseño), no un veredicto universal.
+3. **Ejecutar todo en local tiene costes de ingeniería reales** (VRAM, colas, timeouts) que hay que diseñar desde el principio.

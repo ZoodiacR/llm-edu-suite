@@ -4,7 +4,7 @@
 
 [← Volver al índice](README.md)
 
-Los términos se mantienen en inglés cuando es así como aparecen en papers, librerías y ofertas de trabajo. Entre paréntesis, el módulo o notebook donde se implementa.
+Los términos se mantienen en inglés cuando es así como aparecen en papers, librerías y ofertas de trabajo. Entre paréntesis, el módulo, la librería o el notebook (NB) donde aparece cada uno.
 
 ## Tokenización y arquitectura
 
@@ -15,7 +15,7 @@ Los términos se mantienen en inglés cuando es así como aparecen en papers, li
 | **Fertility** | Número medio de tokens por palabra. Más alto = el tokenizador "rompe" más el texto (típico en idiomas poco representados). |
 | **Compression ratio** | Bytes de texto por token. Más alto = secuencias más cortas = inferencia más barata. |
 | **Embedding** | Vector aprendido que representa un token (o un documento, o un ítem en recomendación). |
-| **Decoder-only / causal LM** | Transformer que predice el siguiente token y solo puede mirar hacia atrás (máscara causal). Es la arquitectura de GPT, Llama, Qwen, DeepSeek. (`model.py`) |
+| **Decoder-only / causal LM** | Transformer que predice el siguiente token y solo puede mirar hacia atrás (máscara causal). Es la arquitectura de GPT, Llama, Qwen, DeepSeek y SmolLM2. (`model.py`) |
 | **Self-attention** | Cada posición calcula una media ponderada de las demás: `softmax(QKᵀ/√d)·V`. Coste O(T²) en la longitud T. |
 | **MHA / GQA / MQA** | *Multi-Head*, *Grouped-Query* y *Multi-Query Attention*. GQA comparte cada cabeza K/V entre varias cabezas Q para reducir la KV-cache. (`layers.py`, NB 02) |
 | **MLA (Multi-head Latent Attention)** | Técnica de DeepSeek-V2/V3: comprime K y V en un vector latente pequeño que es lo único que se guarda en caché. |
@@ -28,7 +28,7 @@ Los términos se mantienen en inglés cuando es así como aparecen en papers, li
 | **Shared expert** | Experto que procesa siempre todos los tokens, además de los enrutados. |
 | **Sliding-window / Longformer / block-sparse / linear attention** | Variantes de atención eficiente para contextos largos: ventana local, ventana + tokens globales, bloques seleccionados por contenido, y atención lineal de coste O(T). (NB 03) |
 
-## Entrenamiento
+## Entrenamiento y post-training
 
 | Término | Significado |
 |---|---|
@@ -37,15 +37,21 @@ Los términos se mantienen en inglés cuando es así como aparecen en papers, li
 | **Warmup / cosine / WSD** | Planes de *learning rate*: subida inicial; bajada en coseno; o *Warmup-Stable-Decay* (constante y caída final). |
 | **AdamW / weight decay** | Optimizador estándar. El *weight decay* no se aplica a normas ni a biases (grupos de parámetros). |
 | **Gradient accumulation / clipping / AMP** | Simular lotes grandes, limitar la norma del gradiente y usar precisión mixta (bf16/fp16). |
-| **SFT (Supervised Fine-Tuning)** | Ajustar el modelo con pares instrucción→respuesta. La pérdida solo se calcula sobre la respuesta (**loss masking**, etiquetas `-100`). (NB 07) |
-| **LoRA** | Congela W y aprende una corrección de rango bajo `W + (α/r)·B·A`. Con B=0 al inicio, el modelo arranca idéntico al base; tras entrenar se puede *fusionar* (merge) sin coste en inferencia. |
+| **Gradient checkpointing** | Recalcular las activaciones durante el *backward* en lugar de guardarlas: menos memoria a cambio de un ~30 % más de cómputo. Activado por defecto en `scripts/finetune.py`. |
+| **SFT (Supervised Fine-Tuning)** | Ajustar el modelo con pares instrucción→respuesta, normalmente renderizados con la **plantilla de chat** del modelo. (NB 07) |
+| **Completion-only loss / loss masking** | Calcular la pérdida de SFT solo sobre los tokens de la respuesta: los del prompt reciben la etiqueta `-100` y la entropía cruzada los ignora. TRL lo hace automáticamente con datasets *prompt-completion*. (NB 07) |
+| **SFTTrainer** | El *trainer* de TRL para SFT: acepta un dataset conversacional o prompt-completion, aplica la plantilla de chat, enmascara el prompt y admite un `peft_config` para entrenar adaptadores LoRA. Se configura con `SFTConfig`. (`scripts/finetune.py`, NB 07) |
+| **LoRA** | Congela W y aprende una corrección de rango bajo `W + (α/r)·B·A`. Con B=0 al inicio, el modelo arranca idéntico al base; tras entrenar se puede *fusionar* (`merge_and_unload` en `peft`) sin coste en inferencia. (NB 07) |
+| **LoRA `modules_to_save`** | Opción de `peft` que entrena (y guarda) copias completas de los módulos elegidos junto a los adaptadores, típicamente el embedding y el `lm_head`. Hace falta cuando el fine-tuning introduce tokens que el modelo base nunca aprendió, como nuevos tokens de rol del chat. (NB 07) |
 | **QLoRA** | LoRA sobre un modelo base cuantizado a 4 bits (NF4). |
-| **Distillation** | Un modelo *student* aprende a imitar la distribución de un *teacher* (KL entre logits). |
+| **Distillation** | Un modelo *student* aprende a imitar la distribución de un *teacher* (KL entre logits). (NB 07) |
 | **RLHF / preference tuning** | Alinear el modelo con preferencias humanas: respuesta elegida vs rechazada. (NB 08) |
 | **DPO (Direct Preference Optimization)** | Optimiza las preferencias directamente, sin modelo de recompensa: `−log σ(β·[(log π−log π_ref)(y_w) − (log π−log π_ref)(y_l)])`. Al inicio vale ln 2. |
-| **Likelihood displacement / DPO + NLL (RPO)** | Efecto por el que DPO agranda el margen bajando la probabilidad de *ambas* respuestas, elegida y rechazada. Se contrarresta sumando la NLL (pérdida SFT) de la respuesta elegida (`nll_weight` en `finetune.dpo_loss`). |
-| **GRPO (Group Relative Policy Optimization)** | RL de DeepSeekMath/R1: muestrea un grupo de respuestas por prompt y usa como ventaja la recompensa normalizada dentro del grupo (sin *critic*). |
-| **Verifiable reward** | Recompensa calculable por programa (¿es correcta la respuesta?), sin juez humano ni modelo. |
+| **DPOTrainer** | El *trainer* de TRL para DPO y sus variantes (`loss_type`). Con un `peft_config`, el modelo de referencia es la misma red con el adaptador desactivado, así que no se guarda una segunda copia en memoria. Se configura con `DPOConfig` (`beta`, `loss_type`, `loss_weights`). (`scripts/finetune.py`, NB 08) |
+| **Likelihood displacement / DPO + NLL (RPO)** | Efecto por el que DPO agranda el margen bajando la probabilidad de *ambas* respuestas, elegida y rechazada. Se contrarresta sumando la NLL (pérdida SFT) de la respuesta elegida: en TRL, `loss_type=["sigmoid", "sft"]`. |
+| **GRPO (Group Relative Policy Optimization)** | RL de DeepSeekMath/R1: muestrea un grupo de respuestas por prompt y usa como ventaja la recompensa normalizada dentro del grupo (sin *critic*). Un grupo en el que todas las muestras tienen la misma recompensa no aporta gradiente. |
+| **GRPOTrainer** | El *trainer* de TRL para GRPO: acepta un dataset de prompts y una o varias **funciones de recompensa** en Python `(completions, **columnas) -> list[float]`, muestrea `num_generations` respuestas por prompt y optimiza la política con penalización KL (`beta`). Se configura con `GRPOConfig`. (`scripts/finetune.py`, NB 08) |
+| **Verifiable reward** | Recompensa calculable por programa (¿es correcta la respuesta?), sin juez humano ni modelo. Una recompensa *densa* da crédito parcial, así que es menos probable que los grupos empaten. |
 | **KL penalty** | Término que impide que la política se aleje demasiado del modelo de referencia. |
 
 ## Inferencia y sistemas
@@ -55,55 +61,90 @@ Los términos se mantienen en inglés cuando es así como aparecen en papers, li
 | **KV-cache** | Guardar K y V de los tokens ya procesados para no recalcularlos en cada paso de generación. Su tamaño suele ser el cuello de botella de memoria. (NB 02, 06) |
 | **Prefill / decode** | Fase de procesar el prompt (paralela) y fase de generar token a token (secuencial, limitada por memoria). |
 | **TTFT / TPOT / throughput** | *Time To First Token*, tiempo por token de salida y tokens/segundo totales. |
-| **Greedy / temperature / top-k / top-p** | Estrategias de muestreo: el más probable; aplanar o afilar la distribución; quedarse con los k más probables; o con el núcleo de probabilidad acumulada p. |
+| **Greedy / temperature / top-k / top-p** | Estrategias de muestreo: el más probable; aplanar o afilar la distribución; quedarse con los k más probables; o con el núcleo de probabilidad acumulada p. `model.next_token_distribution` muestra la distribución resultante. |
 | **Speculative decoding** | Un modelo pequeño (*draft*) propone varios tokens y el grande los verifica en un solo paso. Con el esquema de aceptación correcto, la distribución de salida es **idéntica** a la del modelo grande. (`inference.py`, NB 06) |
 | **Continuous batching / PagedAttention** | Técnicas de vLLM para servir muchas peticiones a la vez gestionando la KV-cache como memoria paginada. |
-| **Quantization (INT8 / INT4 / NF4)** | Guardar pesos con menos bits. *absmax* escala por el máximo absoluto; por bloques reduce el error; NF4 usa niveles óptimos para pesos con distribución normal. (`quant.py`, NB 09) |
+| **Quantization (INT8 / INT4 / NF4)** | Guardar pesos con menos bits. *absmax* escala por el máximo absoluto; por bloques reduce el error; NF4 usa niveles óptimos para pesos con distribución normal. (NB 09) |
+| **optimum-quanto** | Librería de Hugging Face que cuantiza en el sitio un modelo de PyTorch / `transformers`: `quantize(model, weights=qint8 / qint4 / qfloat8)` sustituye las capas lineales por versiones cuantizadas y `freeze(model)` guarda los pesos cuantizados. Funciona en CPU y GPU. (NB 09) |
+| **GGUF / Q4_K_M** | El formato de fichero y el esquema de cuantización a 4 bits por bloques que usan llama.cpp y Ollama. `qwen2.5:3b` en Ollama es un GGUF Q4_K_M de unos 1,9 GB. |
+| **Ollama** | Servidor local de modelos abiertos: `ollama pull` descarga un modelo y el servidor (puerto 11434) ofrece una API propia y otra compatible con OpenAI (`/v1`). Es el proveedor por defecto del curso para los notebooks 10–16 (`qwen2.5:3b`, `nomic-embed-text`), usado a través de `ChatOllama` / `OllamaEmbeddings` de `langchain-ollama`. |
 
-## Aplicaciones
+## Aplicaciones: LangChain y RAG
 
 | Término | Significado |
 |---|---|
-| **RAG (Retrieval-Augmented Generation)** | Recuperar fragmentos relevantes de tus documentos y pasarlos como contexto al LLM. (`rag.py`, NB 10) |
-| **Chunking** | Partir documentos en fragmentos (con solapamiento) antes de indexarlos. |
+| **RAG (Retrieval-Augmented Generation)** | Recuperar fragmentos relevantes de tus documentos y pasarlos como contexto al LLM. (NB 10, `scripts/rag_demo.py`) |
+| **Chunking** | Partir documentos en fragmentos (con solapamiento) antes de indexarlos, p. ej. con el `RecursiveCharacterTextSplitter` de LangChain. |
+| **Runnable** | La interfaz común de LangChain: cada componente (prompt, modelo, parser, retriever, función envuelta en `RunnableLambda`) tiene `invoke`, `batch` y `stream` (y sus versiones asíncronas), así que todos se componen y se trazan igual. |
+| **LCEL (LangChain Expression Language)** | Componer Runnables con `\|` (`prompt \| llm \| StrOutputParser()`). `RunnableParallel` ejecuta ramas sobre la misma entrada, `RunnablePassthrough` la deja pasar sin cambios y `.assign(...)` añade claves a un diccionario. |
+| **Vector store** | Base de datos de embeddings que devuelve los vecinos más cercanos de un vector de consulta: `FAISS` e `InMemoryVectorStore` en el curso; pgvector, Qdrant o Weaviate en producción. |
+| **Retriever** | Un Runnable que convierte una consulta en una lista de `Document`. `vector_store.as_retriever(search_kwargs={"k": 4})`, `BM25Retriever`, `EnsembleRetriever` y `MultiQueryRetriever` son todos retrievers. |
 | **Dense retrieval / BM25 / hybrid** | Búsqueda por embeddings (semántica), por términos (léxica) o combinada. |
-| **RRF (Reciprocal Rank Fusion)** | Fusionar rankings sumando `1/(60 + posición)`. Robusto y sin hiperparámetros que ajustar. |
-| **recall@k / MRR / nDCG** | Métricas de recuperación: ¿está el documento correcto en el top-k?, inverso de la posición del primero correcto, y ganancia acumulada con descuento por posición. |
+| **RRF (Reciprocal Rank Fusion)** | Fusionar rankings sumando `1/(60 + posición)`. Solo usa posiciones, no puntuaciones, así que no necesita calibración. |
+| **EnsembleRetriever** | Retriever de LangChain (en `langchain_classic` en LangChain 1.x) que ejecuta varios retrievers y fusiona sus rankings con **RRF ponderado**. El curso combina BM25 y FAISS con pesos 0,5 / 0,5. |
+| **Reranker / cross-encoder** | Segunda etapa, más cara, que vuelve a puntuar los mejores candidatos de un recuperador rápido leyendo consulta y documento juntos. Un LLM puede hacer ese papel (el NB 12 reordena recomendaciones con una llamada de salida estructurada). |
+| **recall@k / hit@k / MRR / nDCG** | Métricas de recuperación: ¿está el documento correcto en el top-k?, inverso de la posición del primero correcto, y ganancia acumulada con descuento por posición. `rag_demo.py` las calcula a nivel de fichero y a nivel de *evidencia* (¿el chunk contiene de verdad la respuesta?). |
 | **Faithfulness / groundedness** | Si la respuesta está respaldada por el contexto recuperado (y no inventada). |
-| **LLM-as-judge** | Usar un LLM para puntuar o comparar respuestas (pairwise, con rúbrica). Hay que controlar sesgos de posición y longitud. |
-| **Tool calling / function calling** | El modelo devuelve una llamada estructurada (`nombre` + argumentos JSON) que tu código ejecuta. (`agents.py`, NB 11) |
-| **Agent loop** | Bucle modelo → herramienta → observación → modelo, con límite de pasos. |
-| **Structured output** | Forzar salidas JSON que cumplan un esquema (decodificación restringida, o validar y reintentar). |
+| **RAGAS** | Librería para evaluar RAG con un LLM como juez. Sus cuatro métricas principales: **faithfulness** (¿las afirmaciones de la respuesta están respaldadas por el contexto recuperado?), **answer relevancy** (¿la respuesta contesta a la pregunta? se mide generando preguntas a partir de la respuesta y comparando embeddings), **context precision** (¿los chunks relevantes salen arriba?) y **context recall** (¿el contexto recuperado cubre la respuesta de referencia?). Las dos últimas necesitan una respuesta de referencia. (NB 10, NB 13, `rag_demo.py --ragas`) |
+| **LLM-as-judge** | Usar un LLM para puntuar o comparar respuestas (pairwise, con rúbrica). Hay que controlar sesgos de posición y longitud, y un juez pequeño es ruidoso. |
+| **Structured output** | Forzar salidas que cumplan un esquema. En LangChain, `llm.with_structured_output(ModeloPydantic)` usa el tool calling o el modo JSON del proveedor y devuelve un objeto validado. (NB 11) |
+| **Tool calling / function calling** | El modelo devuelve una llamada estructurada (`nombre` + argumentos JSON) que tu código ejecuta. En LangChain una herramienta es una función decorada con `@tool`, y `llm.bind_tools(...)` se la muestra al modelo. (NB 11) |
+| **Agent loop** | Bucle modelo → herramienta → observación → modelo, con límite de pasos. `create_agent` de `langchain.agents` lo construye sobre LangGraph. |
+| **Middleware (agentes de LangChain)** | Ganchos que envuelven las llamadas del agente al modelo y a las herramientas para añadir comportamiento sin reescribir el bucle: `ModelCallLimitMiddleware` / `ToolCallLimitMiddleware` (presupuestos), `HumanInTheLoopMiddleware` (aprobación antes de ejecutar una herramienta), `ToolErrorMiddleware` (convertir excepciones de herramientas en mensajes), `SummarizationMiddleware` (comprimir historiales largos), o tu propio `AgentMiddleware`. (NB 11, 14, 16) |
 | **Human-in-the-loop / confirmation gate** | Pedir aprobación antes de ejecutar acciones con efectos (pagos, borrados, envíos). |
-| **Prompt injection** | Texto malicioso dentro de los datos (una web, un email, un documento) que intenta dar órdenes al modelo. (NB 13) |
-| **Semantic cache** | Reutilizar respuestas de preguntas *parecidas* (por similitud de embeddings). Riesgo: *false hits*. |
+| **Prompt injection** | Texto malicioso dentro de los datos (una web, un email, un documento, el resultado de una herramienta) que intenta dar órdenes al modelo. (NB 11, 13, 16) |
+| **Semantic cache** | Reutilizar respuestas de preguntas *parecidas* (por similitud de embeddings). Riesgo: *false hits*. (NB 13) |
 | **Sequential recommender (SASRec)** | Recomendación como "predicción del siguiente ítem" con un transformer causal sobre el historial del usuario. (`recsys.py`, NB 12) |
-| **hit@k / nDCG@k** | Métricas de recomendación: ¿el siguiente ítem real está entre los k recomendados?, ponderado por posición. |
-| **MockLLM** | Doble de prueba determinista incluido en el proyecto: permite ejecutar todos los pipelines sin un modelo real. No mide calidad de un LLM, sino que el *pipeline* funciona. |
 
-## Agentes, LLMOps y MCP
+## Agentes y LangGraph
 
 | Término | Significado |
 |---|---|
-| **Workflow vs agent** | En un *workflow* el código fija el flujo de control y el LLM rellena los pasos; en un agente es el LLM quien elige el siguiente paso, en bucle. Empieza por lo más simple que funcione. (`agentic.py`, NB 14) |
-| **Agent budget** | Límites duros de pasos, llamadas a herramientas, tokens, coste y tiempo para una ejecución de un agente. Al alcanzar uno, la ejecución se detiene limpiamente con un `stopped_reason` explícito. (`agentic.Budget`) |
-| **Loop detection** | Detener un agente que pide la misma herramienta con los mismos argumentos varias veces seguidas (está ignorando la observación). |
-| **Plan-and-execute** | Patrón que primero pide al LLM un plan numerado, luego ejecuta cada paso con un agente con herramientas y por último sintetiza la respuesta. Se puede inspeccionar y aprobar. (`agentic.PlanAndExecute`) |
-| **Reflection / verifier** | Bucle borrador → verificar → revisar. El verificador comprueba el borrador y devuelve feedback; el código (tests, validadores de esquema) es mucho más fiable que un crítico LLM. (`agentic.reflect_and_revise`) |
-| **Short-term / long-term memory** | Una ventana de conversación con presupuesto de tokens y resumen acumulado, frente a un almacén vectorial de hechos recuperados por similitud (RAG sobre el propio historial del agente). |
-| **Semantic router** | Envía cada petición a un especialista según la similitud de embeddings entre la petición y la descripción de cada especialista: rápido, barato y determinista. (`agentic.Supervisor`) |
-| **Trajectory evaluation** | Puntuar el camino que siguió un agente (qué herramientas, en qué orden, cuántas llamadas de más), no solo su respuesta final. (`agentic.evaluate_trajectory`) |
-| **Trace / span** | Una traza es una petición de principio a fin; un span es una unidad de trabajo dentro de ella (llamada al LLM, recuperación, herramienta) con tiempos, atributos, estado y un padre. Los spans forman un árbol. (`observability.py`, NB 15) |
-| **OTel GenAI semantic conventions** | Nombres de atributo estándar de OpenTelemetry para telemetría de LLMs (`gen_ai.request.model`, `gen_ai.usage.input_tokens`, ...), para que las trazas puedan ir a cualquier backend. |
+| **Workflow vs agent** | En un *workflow* el código fija el flujo de control y el LLM rellena los pasos; en un agente es el LLM quien elige el siguiente paso, en bucle. Empieza por lo más simple que funcione. (NB 14) |
+| **StateGraph** | El constructor de LangGraph para un grafo cuyos nodos leen y actualizan un **estado** compartido y tipado (un `TypedDict`, o `MessagesState` para chat). `builder.compile()` lo convierte en un Runnable. (NB 14) |
+| **Node** | Una función `estado -> actualización parcial del estado` en un grafo de LangGraph: una llamada al LLM, una recuperación, una herramienta, Python normal. |
+| **Edge / conditional edge** | Una arista fija el siguiente nodo (`add_edge("a", "b")`, desde `START` o hacia `END`). Una arista condicional (`add_conditional_edges`) llama a una función del estado que devuelve el nombre del siguiente nodo: enrutado, bucles, reintentos. |
+| **Checkpointer** | Guarda el estado del grafo tras cada paso (`InMemorySaver` en el curso; SQLite o Postgres en producción). Da al grafo memoria a corto plazo, le permite reanudar tras un fallo o una pausa y habilita el *time travel*. |
+| **Thread (`thread_id`)** | La clave bajo la que un checkpointer guarda una conversación: `config={"configurable": {"thread_id": "..."}}`. Mismo hilo = misma memoria. |
+| **Store** | La memoria a largo plazo de LangGraph: un almacén clave-valor organizado en espacios de nombres (p. ej. `("users", user_id)`), compartido entre hilos, con búsqueda semántica opcional si se le da un modelo de embeddings (`InMemoryStore`). |
+| **Interrupt** | `interrupt(valor)` pausa un grafo dentro de un nodo y devuelve `valor` a quien lo llamó; la ejecución se reanuda con `Command(resume=...)`. Necesita un checkpointer. Es la base del human-in-the-loop en LangGraph. |
+| **`recursion_limit` / agent budget** | Límites duros de una ejecución de un agente: el `recursion_limit` de LangGraph limita el número de pasos, y los middlewares de límite de llamadas limitan las llamadas al modelo y a las herramientas. Al alcanzar uno, la ejecución se detiene en lugar de dar vueltas. |
+| **Plan-and-execute** | Patrón que primero pide al LLM un plan numerado, luego ejecuta cada paso con un agente con herramientas y por último sintetiza la respuesta. Se puede inspeccionar y aprobar. (NB 14) |
+| **Reflection / verifier** | Bucle borrador → verificar → revisar. El verificador comprueba el borrador y devuelve feedback; el código (tests, validadores de esquema) es mucho más fiable que un crítico LLM. (NB 14) |
+| **Router / supervisor** | Un nodo que envía cada petición a un especialista (un subagente o una cadena), mediante una clasificación del LLM o por similitud de embeddings. (NB 13, 14) |
+| **Short-term / long-term memory** | La conversación del hilo actual (checkpointer, quizá resumida) frente a los hechos que sobreviven entre hilos (store, recuperados por similitud). |
+| **Trajectory evaluation** | Puntuar el camino que siguió un agente (qué herramientas, en qué orden, cuántas llamadas de más), no solo su respuesta final. (NB 11) |
+
+## LLMOps y LangSmith
+
+| Término | Significado |
+|---|---|
+| **LangSmith** | La plataforma de LangChain para trazar, monitorizar y evaluar aplicaciones LLM. Con `LANGSMITH_TRACING=true` y una clave de API, se registra cada llamada de LangChain / LangGraph y cada función decorada con `@traceable`. Opcional en el curso. (NB 15) |
+| **Run** | Una unidad de trabajo registrada por LangSmith: una llamada al LLM, un retriever, una herramienta, una cadena, un nodo de un grafo. Cada run tiene entradas, salidas, tiempos, tokens, errores, etiquetas, metadatos y un run padre. |
+| **Trace** | El árbol de runs que produce una petición de nivel superior, desde el run raíz hasta cada llamada anidada. Es el árbol de spans de OpenTelemetry. |
+| **Project** | El contenedor de LangSmith al que se envían las trazas (`LANGSMITH_PROJECT`, o `setup(project=...)` por notebook). Los paneles y los filtros funcionan por proyecto. |
+| **Dataset** | Un conjunto versionado de ejemplos (entradas + salidas de referencia) guardado en LangSmith para la evaluación offline. |
+| **Experiment** | Una ejecución puntuada de tu aplicación sobre un dataset (`evaluate(target, data=..., evaluators=[...])`). Comparar dos experimentos es comparar dos versiones de la aplicación sobre los mismos ejemplos. |
+| **Evaluator** | Una función que puntúa un run, con la firma `(inputs, outputs, reference_outputs) -> puntuación`: una heurística, una comprobación por código o un LLM-as-judge. Se usa offline en experimentos y online sobre trazas de producción. |
+| **Feedback** | Una puntuación o un comentario asociado a un run (`client.create_feedback(run_id, key, score=...)`): el pulgar del usuario, la nota de un evaluador, una heurística. Es la señal de la evaluación online. |
+| **OTel GenAI semantic conventions** | Nombres de atributo estándar de OpenTelemetry para telemetría de LLMs (`gen_ai.request.model`, `gen_ai.usage.input_tokens`, ...), para que las trazas puedan ir a cualquier backend. LangSmith puede recibir y exportar OpenTelemetry. |
 | **p50 / p95 / p99** | Percentiles de latencia: el valor por debajo del cual cae el 50 / 95 / 99 % de las peticiones. Se reportan en lugar de la media, porque la cola es lo que notan los usuarios. |
-| **SLO (Service-Level Objective)** | Objetivo para una métrica del servicio, p. ej. "p95 < 2 s, tasa de error < 1 %". Las violaciones disparan alertas. (`observability.check_slos`) |
-| **Online evaluation score** | Puntuación de calidad asociada a una traza de producción: feedback del usuario, nota de un juez LLM, una heurística. (`Tracer.score`) |
-| **PII redaction** | Sustituir datos personales (emails, teléfonos, números de tarjeta, claves de API) por marcadores antes de que los prompts y las respuestas lleguen a logs o trazas. (`observability.redact_pii`) |
-| **Head sampling** | Decidir al inicio de una traza (en el span raíz) si se conserva la traza entera. El *tail sampling* decide al final, p. ej. para conservar todos los errores. |
-| **MCP (Model Context Protocol)** | Protocolo abierto que estandariza cómo las aplicaciones LLM obtienen herramientas, datos y prompts de programas externos, sobre JSON-RPC 2.0. (`mcp.py`, NB 16) |
-| **MCP host / client / server** | El host es la aplicación que usa la persona (Claude Desktop, un IDE, tu agente); ejecuta un cliente por cada servidor; el servidor es el programa que expone las capacidades. |
-| **Tool / resource / prompt (MCP)** | Las tres primitivas de un servidor: herramientas que llama el modelo, recursos de solo lectura que la aplicación carga en el contexto y plantillas de prompt que elige el usuario. |
+| **SLO (Service-Level Objective)** | Objetivo para una métrica del servicio, p. ej. "p95 < 2 s, tasa de error < 1 %". Las violaciones disparan alertas. (NB 15) |
+| **PII redaction** | Sustituir datos personales (emails, teléfonos, números de tarjeta, claves de API) por marcadores antes de que los prompts y las respuestas lleguen a logs o trazas. (NB 15) |
+| **Head sampling** | Decidir al inicio de una traza si se conserva entera (en LangSmith, `LANGSMITH_TRACING_SAMPLING_RATE=0.1` conserva el 10 % de las trazas). El *tail sampling* decide al final, p. ej. para conservar todos los errores. |
+
+## MCP
+
+| Término | Significado |
+|---|---|
+| **MCP (Model Context Protocol)** | Protocolo abierto que estandariza cómo las aplicaciones LLM obtienen herramientas, datos y prompts de programas externos, sobre JSON-RPC 2.0. (NB 16, `scripts/mcp_server.py`) |
+| **MCP host / client / server** | El host es la aplicación que usa la persona (Claude Code, Claude Desktop, un IDE, tu agente); ejecuta un cliente por cada servidor; el servidor es el programa que expone las capacidades. |
+| **Tool / resource / prompt (MCP)** | Las tres primitivas de un servidor: herramientas que llama el modelo, recursos de solo lectura que la aplicación carga en el contexto (URIs fijas o plantillas de URI como `docs://{name}`) y plantillas de prompt que elige el usuario. |
+| **Tool annotations** | Pistas que el servidor asocia a una herramienta (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) para que el host pueda decidir, por ejemplo, pedir confirmación antes de una llamada destructiva. Son pistas, no garantías. |
+| **FastMCP** | La API de alto nivel para servidores del SDK oficial de MCP para Python (`mcp.server.fastmcp.FastMCP` en 1.x): `@server.tool()`, `@server.resource(uri)` y `@server.prompt()` convierten funciones en primitivas, derivando el JSON Schema de las anotaciones de tipo y la descripción del docstring; `server.run()` sirve por stdio y `server.run(transport="streamable-http")` por HTTP. |
+| **MCP adapters (`langchain-mcp-adapters`)** | Librería que convierte las herramientas de uno o varios servidores MCP en herramientas de LangChain: `MultiServerMCPClient({...}).get_tools()`, listas para `create_agent`. `tool_name_prefix` pone espacio de nombres a herramientas de servidores distintos. (NB 16) |
 | **JSON-RPC request vs notification** | Una petición lleva `id` y siempre recibe respuesta (`result` o `error`); una notificación no lleva `id` y nunca la recibe (p. ej. `notifications/initialized`). |
 | **Protocol error vs tool error (`isError`)** | Un `error` de JSON-RPC significa que la petición en sí estaba mal (método desconocido, parámetros incorrectos); un resultado con `isError: true` significa que la herramienta se ejecutó y falló, para que el modelo lo vea y reintente. |
 | **stdio transport** | El host lanza el servidor como subproceso e intercambia un mensaje JSON por línea por stdin/stdout. stdout queda reservado para el protocolo: los logs van a stderr. |
+| **Streamable HTTP transport** | El servidor escucha en un único endpoint HTTP (p. ej. `/mcp`); el cliente envía mensajes JSON-RPC por POST y el servidor responde con JSON o con un *event stream*, manteniendo una sesión con la cabecera `mcp-session-id`. Para servidores remotos o compartidos. |
 | **Tool poisoning** | Ataque en el que un servidor MCP malicioso esconde instrucciones en la descripción de una herramienta (que lee el modelo, rara vez el usuario) o la cambia después de aprobarla. Mitigaciones: listas blancas, espacios de nombres, revisar descripciones, confirmación para herramientas arriesgadas. |

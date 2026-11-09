@@ -1,8 +1,28 @@
+# Core: the from-scratch model (notebooks 00-06, 12). Install PyTorch first with the CUDA or CPU wheel
+# (setup_env.ps1 / setup_env.sh do it for you), then: pip install -r requirements.txt
 torch>=2.3
 numpy>=1.24
 matplotlib>=3.7
-pytest>=7.0
-# optional
-# jupyterlab            # to open the notebooks
-# requests              # OpenAICompatibleClient
-# sentence-transformers # SentenceTransformerEmbedder (real embeddings for RAG)
+python-dotenv>=1.0
+
+# Application layer (notebooks 07-16): the tools used in industry
+langchain>=1.4
+langchain-core>=1.7
+langchain-community>=0.4
+langchain-classic>=1.0   # EnsembleRetriever and MultiQueryRetriever live here in LangChain 1.x
+langchain-ollama>=1.1
+langchain-text-splitters>=1.0
+langgraph>=1.2
+langsmith>=0.14
+ragas>=0.4
+faiss-cpu>=1.8
+rank-bm25>=0.2
+pydantic>=2.0
+transformers>=5.0
+peft>=0.21
+trl>=1.17
+datasets>=4.0
+accelerate>=1.0
+optimum-quanto>=0.2
+mcp[cli]>=1.24,<2      # langchain-mcp-adapters does not support the 2.x SDK yet
+langchain-mcp-adapters>=0.3.2
