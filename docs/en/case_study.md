@@ -148,7 +148,7 @@ The notebooks "worked", but several results taught nothing or, worse, taught som
 
 ## 10. Next steps
 
-See the [README roadmap](../../README.md#roadmap). The most relevant items: a bigger-model track (Qwen2.5 1.5–3B with QLoRA), a serving notebook with vLLM, and RAG at scale with a vector database and a stronger judge.
+See the [README roadmap](../../README.md#roadmap). Next: loading pretrained weights into the from-scratch transformer, reasoning at inference time (self-consistency, best-of-N), fine-tuned embeddings and rerankers for RAG, and a serving benchmark under load.
 
 ## 11. v2: from building everything to using the real tools
 

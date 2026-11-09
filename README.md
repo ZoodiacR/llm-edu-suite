@@ -121,21 +121,22 @@ llm-edu-suite/
 - **Local first.** Ollama + small Hugging Face models: anyone can reproduce the course on a laptop, offline, for free.
 - **Honest.** Negative results stay in (plain DPO that degrades the model, a small judge that invents effects, LLM keywords that do not help a recommender), each with the explanation of why. A component only enters a system if it beats the previous one on held-out data.
 
+## Versions
+
+| Version | What it is |
+|---|---|
+| [v1.0](https://github.com/ZoodiacR/llm-edu-suite/tree/v1.0-from-scratch) | Everything implemented from scratch, including RAG, agents and observability, to learn how each piece works. |
+| [v2.0](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.0) | The model internals stay from scratch; the application layer moves to the tools used in industry (Hugging Face, LangChain, LangGraph, LangSmith, RAGAS, MCP SDK) with local models through Ollama. |
+| [v2.1](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.1) | Theory sections in every notebook and a bilingual foundations guide; the recommender rebuilt on MovieLens-1M as an industry funnel; QLoRA; a stronger LLM judge with confidence intervals. |
+
 ## Roadmap
 
-**Done**
-- [x] v1: everything from scratch, verified ([tag `v1.0-from-scratch`](https://github.com/ZoodiacR/llm-edu-suite/tree/v1.0-from-scratch))
-- [x] v2: application layer on Hugging Face, LangChain, LangGraph, LangSmith, RAGAS and the MCP SDK; local models through Ollama
-- [x] Topic-organized notebooks, one generator per notebook, bilingual docs, CI with fake LLMs
-- [x] v2.1: theory sections in every notebook and a bilingual foundations guide; recommender rebuilt on MovieLens-1M as an industry funnel; QLoRA; a 7B judge with bootstrap intervals; dependencies in `pyproject.toml` only
+The next additions extend the hands-on side of the course:
 
-**Next**
-- [ ] A bigger-model track (Qwen2.5-1.5B / 3B with the QLoRA recipe of notebook 07) for the post-training notebooks
-- [ ] Serving notebook with vLLM: continuous batching, prefix caching, measured TTFT and throughput
-- [ ] RAG at scale: a vector database (Qdrant / pgvector), cross-encoder rerankers
-- [ ] Deploying a LangGraph agent as a service, with LangSmith monitoring dashboards
-- [ ] Remote MCP server over Streamable HTTP with OAuth
-- [ ] "Open in Colab" for every notebook and a dev container
+- **From scratch to real weights:** load a pretrained model's weights into the from-scratch transformer and check that it reproduces the reference outputs.
+- **Reasoning at inference time:** chain of thought, self-consistency and best-of-N with a verifier, measured as a cost-accuracy curve.
+- **Better retrieval:** fine-tuned embedding models and cross-encoder rerankers for the RAG notebook.
+- **Serving:** a benchmark of time to first token, time per output token and throughput under concurrent load.
 
 ## Documentation
 
@@ -156,4 +157,6 @@ Attention Is All You Need · RoFormer (RoPE) · GQA · DeepSeek-V2/V3 (MLA, Deep
 
 ## License
 
-[MIT](LICENSE): use it for learning, teaching and your portfolio.
+The code, notebooks and documentation are released under the [MIT License](LICENSE): you may use, copy, modify and distribute them, including for commercial purposes, as long as the copyright notice is kept.
+
+Third-party data and models keep their own terms. MovieLens is downloaded at run time from GroupLens and is not redistributed here; models are downloaded from Hugging Face and Ollama under their respective licenses.

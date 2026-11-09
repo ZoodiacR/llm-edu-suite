@@ -148,7 +148,7 @@ Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, 
 
 ## 10. Próximos pasos
 
-Ver el [roadmap del README](../../README.md#roadmap). Lo más relevante: una vía con modelos más grandes (Qwen2.5 1,5–3B con QLoRA), un notebook de serving con vLLM y RAG a escala con una base de datos vectorial y un juez más fuerte.
+Ver el [roadmap del README](../../README.md#roadmap). Lo siguiente: cargar pesos preentrenados en el transformer hecho desde cero, razonamiento en inferencia (self-consistency, best-of-N), embeddings ajustados y rerankers para el RAG, y un benchmark de serving bajo carga.
 
 ## 11. v2: de construirlo todo a usar las herramientas reales
 
