@@ -16,6 +16,15 @@ else
   fi
 fi
 "$PY" -m pip install -r requirements-dev.txt
-"$PY" -m ipykernel install --user --name llm_edu_suite --display-name "Python (llm_edu_suite)"
-"$PY" -m pytest -q
+"$PY" -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
+
+# Local LLMs for notebooks 10-16 (Ollama). Install it from https://ollama.com if it is missing.
+if command -v ollama >/dev/null 2>&1; then
+  ollama pull qwen2.5:3b
+  ollama pull nomic-embed-text
+else
+  echo "Ollama not found: install it from https://ollama.com, then run: ollama pull qwen2.5:3b && ollama pull nomic-embed-text"
+fi
+[ -f .env ] || { cp .env.example .env; echo "Created .env from .env.example (add your LANGSMITH_API_KEY for tracing)"; }
+"$PY" -m pytest -q -m "not ollama"
 echo -e "\nListo. Activa el entorno con:  source .venv/bin/activate   y abre:  jupyter lab notebooks/"

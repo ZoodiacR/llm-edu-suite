@@ -12,7 +12,16 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     & $py -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 }
 & $py -m pip install -r requirements-dev.txt
-& $py -m ipykernel install --user --name llm_edu_suite --display-name "Python (llm_edu_suite)"
-& $py -m pytest -q
+& $py -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
+
+# Local LLMs for notebooks 10-16 (Ollama). Install it from https://ollama.com if it is missing.
+if (Get-Command ollama -ErrorAction SilentlyContinue) {
+    ollama pull qwen2.5:3b
+    ollama pull nomic-embed-text
+} else {
+    Write-Host "Ollama not found: install it from https://ollama.com, then run: ollama pull qwen2.5:3b; ollama pull nomic-embed-text"
+}
+if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env"; Write-Host "Created .env from .env.example (add your LANGSMITH_API_KEY for tracing)" }
+& $py -m pytest -q -m "not ollama"
 & $py -c "import torch; print('PyTorch', torch.__version__, '| GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none (CPU)')"
 Write-Host "`nListo. Activa el entorno con:  .\.venv\Scripts\Activate.ps1   y abre:  jupyter lab notebooks/"

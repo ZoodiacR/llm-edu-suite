@@ -634,11 +634,11 @@ for name, rows in results.items():
                   f"      answer: {r['answer'][:110]}\n      judge : {r.get('correctness_comment', '')[:110]}")
 ''')
 nb.md(r'''
-**Retrieval is what makes this app work.** The closed-book version gets the key fact in 3 of 12 answers (`contains_fact` 0.25) and the judge accepts 2 (0.17); its few hits are generic guesses that happen to match ("1-2 business days" for express shipping). With retrieval, every answer contains the key fact (1.00) and the judge accepts 11 of 12 (0.92). These scores were identical in both of our executions, because everything runs at temperature 0.
+**Retrieval is what makes this app work.** The closed-book version gets the key fact in 2 of 12 answers (`contains_fact` 0.17) and the judge accepts 2 (0.17); its few hits are generic guesses that happen to match ("1-2 business days" for express shipping). With retrieval, every answer contains the key fact (1.00) and the judge accepts 10 of 12 (0.83). Everything runs at temperature 0, so the answers barely change between executions, but the judge's verdict on a borderline answer can flip: in an earlier execution the same RAG app scored 0.92. That is normal for an LLM judge and one more reason to read its comments, not only its average.
 
 `exact_match` is 0.00 for closed book and 0.58 for RAG. The RAG model often copies the document sentence, and our reference answers were written from those sentences, so 7 answers match word for word; the other correct answers are phrased differently and score 0. For free text, exact match measures phrasing, not correctness.
 
-The judge agrees with `contains_fact` on 20 of the 24 answers. The four disagreements show what each evaluator misses. Twice the judge is right where the keyword check is fooled: the RAG answer on gift cards adds a false claim (a store-credit refund within 30 days), and the closed-book chat hours are wrong (9 AM to 5 PM) even though "Monday" and "Friday" appear. Once it applies our no-hedging rule to "gift cards are *typically* not refundable". And once it is simply wrong: it accepted a closed-book answer that gives no number at all ("refer to your order confirmation"). A 3B judge is useful, but it should be checked against deterministic evaluators, or a few human labels, before you trust its numbers.
+The judge agrees with `contains_fact` on 20 of the 24 answers. The four disagreements show what each evaluator misses. Once the judge is clearly right where the keyword check is fooled: the RAG answer on gift cards adds a false claim (a store-credit refund within 30 days). Once it applies our no-hedging rule to the closed-book "gift cards are *typically* not refundable". And twice it is wrong: it rejected the correct RAG answer on chat hours because it adds the time zone (which is in the document), and it accepted a closed-book answer that gives no number at all ("refer to your order confirmation"). A 3B judge is useful, but it should be checked against deterministic evaluators, or a few human labels, before you trust its numbers.
 
 ## 11. Export: getting the data out
 
@@ -685,15 +685,15 @@ nb.md(r'''
 
 | metric (this execution) | value |
 |---|---|
-| experiment `closed_book`: exact_match / contains_fact / correctness | 0.00 / 0.25 / 0.17 |
-| experiment `rag`: exact_match / contains_fact / correctness | 0.58 / 1.00 / 0.92 |
+| experiment `closed_book`: exact_match / contains_fact / correctness | 0.00 / 0.17 / 0.17 |
+| experiment `rag`: exact_match / contains_fact / correctness | 0.58 / 1.00 / 0.83 |
 | LLM judge vs `contains_fact` agreement | 20 / 24 answers |
 | traffic: requests, error rate | 18, 11.1 % (the two unknown orders) |
-| tokens per request (input + output) | 104 (1605 in, 269 out over 18 requests) |
-| request latency p50 / p95 | 0.3 to 7 s / 3 to 10 s across our executions, depending on the load on the shared GPU |
-| online groundedness, mean over 16 successful requests | 0.80, with two real tool-prompt bugs among the three lowest |
+| tokens per request (input + output) | 104 (1605 in, 270 out over 18 requests) |
+| request latency p50 / p95 | 0.22 s / 2.8 s in this execution on a free GPU (up to ~7 s / 10 s when the GPU was shared) |
+| online groundedness, mean over 16 successful requests | 0.81, with two real tool-prompt bugs among the three lowest |
 
-The practitioner's summary: retrieval lifts judged correctness from 0.17 to 0.92 at the price of a longer prompt (the RAG prompt in section 2 has 115 input tokens); the order-tool prompt needs a fix (found by online feedback, not by the offline set, which has no order questions); and error rate breaks its SLO by design.
+The practitioner's summary: retrieval lifts judged correctness from 0.17 to 0.83 at the price of a longer prompt (the RAG prompt in section 2 has 115 input tokens); the order-tool prompt needs a fix (found by online feedback, not by the offline set, which has no order questions); and error rate breaks its SLO by design.
 
 ## Takeaways
 

@@ -205,7 +205,7 @@ for n in ["bf16", "int4 (g128)", "int2 (g128)"]:
     print(f"--- {n}: {ROWS[n]['sample'][:220]!r}")
 ''')
 nb.md(r'''
-**Speed.** On this GPU the quantized models are **slower** than bf16 (24.6 tok/s → 17.4 for int8, 10.5 for int4). At batch 1, a 360M model is limited by kernel launches and Python overhead, not by memory bandwidth, so reading fewer bytes does not help, and quanto's quantized matmuls add unpacking and rescaling work on top. Real speedups need a **fused kernel** for the format on your hardware (Marlin / ExLlama for GPTQ, AWQ kernels, llama.cpp on CPU) and a model large enough to be bandwidth-bound. The memory saving is guaranteed; the speedup is not.
+**Speed.** On this GPU the quantized models are **slower** than bf16 (about 24 tok/s → 17 for int8 and 10.5 for int4). At batch 1, a 360M model is limited by kernel launches and Python overhead, not by memory bandwidth, so reading fewer bytes does not help, and quanto's quantized matmuls add unpacking and rescaling work on top. Real speedups need a **fused kernel** for the format on your hardware (Marlin / ExLlama for GPTQ, AWQ kernels, llama.cpp on CPU) and a model large enough to be bandwidth-bound. The memory saving is guaranteed; the speedup is not.
 
 ## 3. Quantization in production
 
