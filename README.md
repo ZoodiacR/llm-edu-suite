@@ -4,7 +4,7 @@
 
 🇪🇸 **[Documentación completa en español](docs/es/README.md)** · 🇬🇧 **[Full documentation in English](docs/en/README.md)**
 
-![python](https://img.shields.io/badge/python-3.10%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
+![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
 - **17 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
 - **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free).

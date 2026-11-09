@@ -20,7 +20,7 @@ No API key is required. Everything runs locally by default.
 
 | Component | Minimum | Verified with |
 |---|---|---|
-| Python | 3.10 | 3.11.4 (Windows 11) |
+| Python | 3.11 | 3.11.4 (Windows 11) |
 | PyTorch | 2.3 (2.5+ for the optional FlexAttention cell in notebook 03) | 2.14.1+cu130 |
 | NVIDIA GPU | optional | RTX 3060 Laptop GPU, 6 GB |
 | [Ollama](https://ollama.com) | any recent version | 0.40.15 |

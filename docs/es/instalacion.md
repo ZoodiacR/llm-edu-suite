@@ -20,7 +20,7 @@ No hace falta ninguna clave de API. Por defecto todo funciona en local.
 
 | Componente | Mínimo | Verificado con |
 |---|---|---|
-| Python | 3.10 | 3.11.4 (Windows 11) |
+| Python | 3.11 | 3.11.4 (Windows 11) |
 | PyTorch | 2.3 (2.5+ para la celda opcional de FlexAttention del notebook 03) | 2.14.1+cu130 |
 | GPU NVIDIA | opcional | RTX 3060 Laptop GPU, 6 GB |
 | [Ollama](https://ollama.com) | cualquier versión reciente | 0.40.15 |
