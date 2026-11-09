@@ -1,5 +1,5 @@
 """
-llmsuite — a compact, readable LLM engineering toolkit for learning and teaching.
+llm_edu_suite — a compact, readable LLM engineering toolkit for learning and teaching.
 
 Every module is self-contained and generously commented. The goal is clarity
 rather than peak performance: each component mirrors what production frameworks

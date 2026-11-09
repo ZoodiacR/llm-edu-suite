@@ -12,7 +12,7 @@ Everything runs on **CPU** and automatically uses an **NVIDIA GPU** when one is 
 |---|---|
 | [Installation and environment](installation.md) | Create the `.venv` (with CUDA if you have a GPU), register the Jupyter kernel, connect a real LLM and fix common problems |
 | [Notebooks guide](notebooks_guide.md) | The 17 notebooks one by one: what each one builds, which concepts it explains, what results it gets and in which order to study them |
-| [Module reference](module_reference.md) | The `llmsuite/` package module by module: concepts, formulas, the actual API, examples and production equivalents |
+| [Module reference](module_reference.md) | The `llm_edu_suite/` package module by module: concepts, formulas, the actual API, examples and production equivalents |
 | [Command-line scripts](cli_scripts.md) | `mini_llm.py`, `train.py`, `sample.py`, `finetune.py`, `rag_demo.py`, `mcp_server.py`: arguments, internal stages and measured results |
 | [Case study](case_study.md) | The project told as a portfolio case: goals, design decisions, verification, bugs found and results |
 | [Glossary](glossary.md) | Technical terms ES ↔ EN (GQA, MLA, LoRA, DPO, GRPO, NF4, RRF, nDCG, span, SLO, MCP…) |

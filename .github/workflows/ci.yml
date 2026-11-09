@@ -33,7 +33,7 @@ jobs:
           python - <<'EOF'
           import sys
           sys.path.insert(0, ".")
-          from llmsuite.mcp import MCPClient, StdioTransport, result_text
+          from llm_edu_suite.mcp import MCPClient, StdioTransport, result_text
           client = MCPClient(StdioTransport([sys.executable, "scripts/mcp_server.py"]))
           client.initialize()
           assert result_text(client.call_tool("calculate", {"expression": "6*7"})) == "42"

@@ -486,7 +486,7 @@ For a remote provider, the key is read from the `OPENAI_API_KEY` environment var
 
 ## `mini_llm.py`
 
-A **complete mini LLM in a single file** that depends only on PyTorch (it imports nothing from `llmsuite`): byte-level BPE tokenizer → GPT with RoPE, RMSNorm and SwiGLU → training with AdamW and a cosine schedule → evaluation against the corpus's irreducible loss → sampling → checkpoint save and reload. It is notebook 00 (`notebooks/00_start_here/00_mini_llm_end_to_end.ipynb`) exported as a script: the whole pipeline at a glance, before the notebooks take each piece apart and the package scales it up.
+A **complete mini LLM in a single file** that depends only on PyTorch (it imports nothing from `llm_edu_suite`): byte-level BPE tokenizer → GPT with RoPE, RMSNorm and SwiGLU → training with AdamW and a cosine schedule → evaluation against the corpus's irreducible loss → sampling → checkpoint save and reload. It is notebook 00 (`notebooks/00_start_here/00_mini_llm_end_to_end.ipynb`) exported as a script: the whole pipeline at a glance, before the notebooks take each piece apart and the package scales it up.
 
 > **Generated file.** `scripts/mini_llm.py` is produced from notebook 00 by `tools/build_notebooks_part3.py`. To change it permanently, **edit the generator**, not the script: the next `make notebooks` overwrites it.
 
@@ -543,7 +543,7 @@ Where do the 1.86M parameters come from? Embedding (tied) 455 × 192 = 87,360; p
 
 ## `mcp_server.py`
 
-A real, runnable **MCP server over stdio**, built with [`llmsuite.mcp`](module_reference.md#18-mcp) and no SDK. It exposes the sample knowledge base in `data/sample_docs/` (or any folder of `.md` / `.txt` files) to any MCP client: Claude Code, Claude Desktop, the MCP Inspector, or `MCPClient` + `StdioTransport` from Python. It does not need PyTorch.
+A real, runnable **MCP server over stdio**, built with [`llm_edu_suite.mcp`](module_reference.md#18-mcp) and no SDK. It exposes the sample knowledge base in `data/sample_docs/` (or any folder of `.md` / `.txt` files) to any MCP client: Claude Code, Claude Desktop, the MCP Inspector, or `MCPClient` + `StdioTransport` from Python. It does not need PyTorch.
 
 ### Arguments
 
@@ -579,13 +579,13 @@ The server waits for JSON-RPC messages on stdin (Ctrl+C to stop). A startup line
 **Claude Code:**
 
 ```bash
-claude mcp add llmsuite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
+claude mcp add llm_edu_suite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
 ```
 
 **Claude Desktop** (`claude_desktop_config.json`):
 
 ```json
-{"mcpServers": {"llmsuite-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
+{"mcpServers": {"llm_edu_suite-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
 ```
 
 **MCP Inspector** (official web UI for testing servers; needs Node.js):
@@ -598,7 +598,7 @@ npx @modelcontextprotocol/inspector python scripts/mcp_server.py
 
 ```python
 import sys
-from llmsuite.mcp import MCPClient, StdioTransport, result_text
+from llm_edu_suite.mcp import MCPClient, StdioTransport, result_text
 
 client = MCPClient(StdioTransport([sys.executable, "scripts/mcp_server.py"]))
 client.initialize()

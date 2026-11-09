@@ -9,7 +9,7 @@ Implementations
 ---------------
 OpenAICompatibleClient   talks to any OpenAI-compatible endpoint: vLLM, SGLang, Ollama, OpenAI,
                          OpenRouter and so on. It only needs `requests`, no vendor SDK.
-LocalTransformerClient   wraps a llmsuite TransformerLM and its tokenizer for offline text completion.
+LocalTransformerClient   wraps a llm_edu_suite TransformerLM and its tokenizer for offline text completion.
 MockLLM                  a deterministic, rule-based stand-in so the notebooks run without any model
                          or API key. It "understands" a few task shapes (extraction, classification,
                          judging, tool selection) just well enough to exercise the code around it.
@@ -77,7 +77,7 @@ class OpenAICompatibleClient:
 
 
 class LocalTransformerClient:
-    """Offline completion with a llmsuite TransformerLM and ByteBPETokenizer. It does not support tools."""
+    """Offline completion with a llm_edu_suite TransformerLM and ByteBPETokenizer. It does not support tools."""
 
     def __init__(self, model, tokenizer, device: str = "cpu", max_new_tokens: int = 64, temperature: float = 0.8, top_k: int = 50):
         import torch

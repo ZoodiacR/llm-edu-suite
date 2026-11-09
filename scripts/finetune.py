@@ -20,12 +20,12 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from llmsuite.data import ChatFormat, make_reverse_preferences, make_reverse_task, synthetic_structured_corpus, train_val_split
-from llmsuite.evaluation import exact_match_rate, perplexity_on_examples
-from llmsuite.finetune import apply_lora, greedy_answer, merge_lora, train_dpo, train_grpo, train_sft, trainable_parameters
-from llmsuite.model import ModelConfig, TransformerLM
-from llmsuite.training import TrainConfig, train_lm
-from llmsuite.utils import get_device, human, seed_everything
+from llm_edu_suite.data import ChatFormat, make_reverse_preferences, make_reverse_task, synthetic_structured_corpus, train_val_split
+from llm_edu_suite.evaluation import exact_match_rate, perplexity_on_examples
+from llm_edu_suite.finetune import apply_lora, greedy_answer, merge_lora, train_dpo, train_grpo, train_sft, trainable_parameters
+from llm_edu_suite.model import ModelConfig, TransformerLM
+from llm_edu_suite.training import TrainConfig, train_lm
+from llm_edu_suite.utils import get_device, human, seed_everything
 
 
 def main():

@@ -7,17 +7,17 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from llmsuite.layers import (RMSNorm, precompute_freqs_cis, apply_rope, GroupedQueryAttention, MultiHeadLatentAttention,
+from llm_edu_suite.layers import (RMSNorm, precompute_freqs_cis, apply_rope, GroupedQueryAttention, MultiHeadLatentAttention,
                              SlidingWindowAttention, LongformerAttention, BlockSparseAttention, LinearAttention, MoE, AuxFreeRouter,
                              sliding_window_mask, longformer_mask)
-from llmsuite.model import ModelConfig, TransformerLM, sample_next_token
-from llmsuite.data import ChatFormat, make_reverse_task, make_reverse_preferences, synthetic_structured_corpus, train_val_split, get_batch
-from llmsuite.training import TrainConfig, train_lm, lr_schedule, make_optimizer
-from llmsuite.finetune import (sft_loss, train_sft, apply_lora, lora_parameters, merge_lora, sequence_logprob, dpo_loss, train_dpo,
+from llm_edu_suite.model import ModelConfig, TransformerLM, sample_next_token
+from llm_edu_suite.data import ChatFormat, make_reverse_task, make_reverse_preferences, synthetic_structured_corpus, train_val_split, get_batch
+from llm_edu_suite.training import TrainConfig, train_lm, lr_schedule, make_optimizer
+from llm_edu_suite.finetune import (sft_loss, train_sft, apply_lora, lora_parameters, merge_lora, sequence_logprob, dpo_loss, train_dpo,
                                grpo_loss, sample_group, distillation_loss, greedy_answer)
-from llmsuite.quant import quantize_absmax, quantize_nf4, QuantizedLinear, quantize_model, quantization_error, nf4_levels
-from llmsuite.inference import speculative_decode, kv_cache_memory, batched_generate
-from llmsuite.evaluation import perplexity, perplexity_on_examples, exact_match_rate
+from llm_edu_suite.quant import quantize_absmax, quantize_nf4, QuantizedLinear, quantize_model, quantization_error, nf4_levels
+from llm_edu_suite.inference import speculative_decode, kv_cache_memory, batched_generate
+from llm_edu_suite.evaluation import perplexity, perplexity_on_examples, exact_match_rate
 
 torch.manual_seed(0)
 C, H = 64, 8

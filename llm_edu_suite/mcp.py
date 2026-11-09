@@ -351,7 +351,7 @@ class MCPClient:
         result = client.call_tool("search_docs", {"query": "refund"})
     """
 
-    def __init__(self, transport, client_name: str = "llmsuite-client", client_version: str = "0.1.0"):
+    def __init__(self, transport, client_name: str = "llm_edu_suite-client", client_version: str = "0.1.0"):
         self.transport = transport
         self.client_info = {"name": client_name, "version": client_version}
         self._next_id = 0

@@ -4,7 +4,7 @@ setup:          ## create .venv and install everything (Linux/macOS; on Windows 
 test:           ## unit + behavioural tests (~15 s)
 	pytest -q
 notebooks:      ## regenerate every .ipynb from tools/build_notebooks_part*.py (clears outputs)
-	python tools/build_notebooks_part1.py && python tools/build_notebooks_part2.py && python tools/build_notebooks_part3.py
+	python tools/build_notebooks.py
 run-notebooks:  ## execute every notebook in place (~40 min on CPU)
 	python tools/run_notebooks.py
 smoke:          ## 30-second pre-training smoke test

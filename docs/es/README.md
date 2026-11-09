@@ -12,7 +12,7 @@ Todo funciona en **CPU** y aprovecha automáticamente una **GPU NVIDIA** si la h
 |---|---|
 | [Instalación y entorno](instalacion.md) | Crear el `.venv` (con CUDA si tienes GPU), registrar el kernel de Jupyter, conectar un LLM real y resolver problemas frecuentes |
 | [Guía de notebooks](guia_notebooks.md) | Los 17 notebooks uno a uno: qué construye cada uno, qué conceptos explica, qué resultados obtiene y en qué orden estudiarlos |
-| [Referencia de módulos](referencia_modulos.md) | El paquete `llmsuite/` módulo a módulo: conceptos, fórmulas, API real, ejemplos y equivalentes de producción |
+| [Referencia de módulos](referencia_modulos.md) | El paquete `llm_edu_suite/` módulo a módulo: conceptos, fórmulas, API real, ejemplos y equivalentes de producción |
 | [Scripts de línea de comandos](scripts_cli.md) | `mini_llm.py`, `train.py`, `sample.py`, `finetune.py`, `rag_demo.py`, `mcp_server.py`: argumentos, etapas internas y resultados medidos |
 | [Caso de estudio](caso_de_estudio.md) | El proyecto contado como caso de portafolio: objetivos, decisiones de diseño, verificación, bugs encontrados y resultados |
 | [Glosario](glosario.md) | Términos técnicos ES ↔ EN (GQA, MLA, LoRA, DPO, GRPO, NF4, RRF, nDCG, span, SLO, MCP…) |

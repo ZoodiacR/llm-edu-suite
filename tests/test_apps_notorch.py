@@ -5,13 +5,13 @@ import math
 import numpy as np
 import pytest
 
-from llmsuite.tokenizer import ByteBPETokenizer, compression_ratio
-from llmsuite.rag import chunk_text, chunk_documents, HashedTfidfEmbedder, BM25, VectorIndex, reciprocal_rank_fusion, Retriever, build_rag_prompt
-from llmsuite.llm_client import MockLLM, Usage
-from llmsuite.agents import ToolRegistry, Agent, validate_args, parse_json_output, structured_output
-from llmsuite.applications import extract_structured, classify, summarize, SemanticCache, PromptInjectionGuard, BatchProcessor
-from llmsuite.evaluation import token_f1, rouge_l, recall_at_k, mrr, ndcg_at_k, evaluate_ranking, context_support, pairwise_judge, rubric_score, accuracy
-from llmsuite.recsys import make_catalog, make_interactions, leave_one_out_split, popularity_ranker, content_embeddings, embedding_rank, llm_rerank
+from llm_edu_suite.tokenizer import ByteBPETokenizer, compression_ratio
+from llm_edu_suite.rag import chunk_text, chunk_documents, HashedTfidfEmbedder, BM25, VectorIndex, reciprocal_rank_fusion, Retriever, build_rag_prompt
+from llm_edu_suite.llm_client import MockLLM, Usage
+from llm_edu_suite.agents import ToolRegistry, Agent, validate_args, parse_json_output, structured_output
+from llm_edu_suite.applications import extract_structured, classify, summarize, SemanticCache, PromptInjectionGuard, BatchProcessor
+from llm_edu_suite.evaluation import token_f1, rouge_l, recall_at_k, mrr, ndcg_at_k, evaluate_ranking, context_support, pairwise_judge, rubric_score, accuracy
+from llm_edu_suite.recsys import make_catalog, make_interactions, leave_one_out_split, popularity_ranker, content_embeddings, embedding_rank, llm_rerank
 
 
 # Tokenizer
@@ -185,7 +185,7 @@ def test_recsys_data_and_baselines():
 
 def test_tool_timeout_does_not_block_the_agent():
     import time
-    from llmsuite.agents import ToolRegistry
+    from llm_edu_suite.agents import ToolRegistry
     reg = ToolRegistry()
 
     @reg.register("slow", "a tool that hangs", {"type": "object", "properties": {}}, timeout_s=0.2)

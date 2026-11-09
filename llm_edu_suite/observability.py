@@ -220,7 +220,7 @@ class Tracer:
             return {"key": k, "value": {key: v if key != "stringValue" else str(v)}}
         return {"resourceSpans": [{
             "resource": {"attributes": [attr("service.name", self.service_name)]},
-            "scopeSpans": [{"scope": {"name": "llmsuite.observability"}, "spans": [{
+            "scopeSpans": [{"scope": {"name": "llm_edu_suite.observability"}, "spans": [{
                 "traceId": s.trace_id, "spanId": s.span_id, "parentSpanId": s.parent_id or "", "name": s.name,
                 "startTimeUnixNano": int(s.start * 1e9), "endTimeUnixNano": int((s.end or s.start) * 1e9),
                 "attributes": [attr(k, v) for k, v in s.attributes.items()] + [attr("span.kind", s.kind)],

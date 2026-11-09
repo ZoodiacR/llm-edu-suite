@@ -24,12 +24,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import torch
 
-from llmsuite.data import load_text_file, synthetic_structured_corpus, train_val_split
-from llmsuite.model import ModelConfig, TransformerLM
-from llmsuite.tokenizer import ByteBPETokenizer
-from llmsuite.training import TrainConfig, train_lm
-from llmsuite.utils import get_device, human, seed_everything
-from llmsuite.evaluation import perplexity
+from llm_edu_suite.data import load_text_file, synthetic_structured_corpus, train_val_split
+from llm_edu_suite.model import ModelConfig, TransformerLM
+from llm_edu_suite.tokenizer import ByteBPETokenizer
+from llm_edu_suite.training import TrainConfig, train_lm
+from llm_edu_suite.utils import get_device, human, seed_everything
+from llm_edu_suite.evaluation import perplexity
 
 
 def main():

@@ -37,7 +37,7 @@ flowchart TB
         A0[00 start here] --- A1[01 architecture] --- A2[02 pretraining & inference] --- A3[03 post-training]
         A4[04 applications] --- A5[05 agents & MCP] --- A6[06 LLMOps]
     end
-    subgraph PKG[llmsuite/]
+    subgraph PKG[llm_edu_suite/]
         core[tokenizer · layers · model · data · training]
         post[finetune · quant · inference]
         apps[rag · recsys · applications · evaluation]

@@ -5,14 +5,14 @@ import sys
 
 import pytest
 
-from llmsuite.agentic import (Budget, BudgetedAgent, ConversationMemory, PlanAndExecute, ScriptedLLM, Supervisor,
+from llm_edu_suite.agentic import (Budget, BudgetedAgent, ConversationMemory, PlanAndExecute, ScriptedLLM, Supervisor,
                               VectorMemory, Worker, evaluate_trajectory, parse_numbered_list, reflect_and_revise,
                               trajectory_report)
-from llmsuite.agents import ToolRegistry
-from llmsuite.llm_client import MockLLM, Usage
-from llmsuite.mcp import (INVALID_PARAMS, METHOD_NOT_FOUND, InMemoryTransport, MCPClient, MCPError, MCPServer,
+from llm_edu_suite.agents import ToolRegistry
+from llm_edu_suite.llm_client import MockLLM, Usage
+from llm_edu_suite.mcp import (INVALID_PARAMS, METHOD_NOT_FOUND, InMemoryTransport, MCPClient, MCPError, MCPServer,
                           StdioTransport, register_mcp_tools, result_text, serve_stdio)
-from llmsuite.observability import (MetricsAggregator, Tracer, TracedLLM, check_slos, instrument_registry, percentile,
+from llm_edu_suite.observability import (MetricsAggregator, Tracer, TracedLLM, check_slos, instrument_registry, percentile,
                                     redact_pii)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -245,7 +245,7 @@ def test_serve_stdio_framing():
 def test_mcp_server_script_over_real_stdio():
     c = MCPClient(StdioTransport([sys.executable, os.path.join(ROOT, "scripts", "mcp_server.py")]))
     try:
-        assert c.initialize()["serverInfo"]["name"] == "llmsuite-docs"
+        assert c.initialize()["serverInfo"]["name"] == "llm_edu_suite-docs"
         assert "[shipping.md]" in result_text(c.call_tool("search_docs", {"query": "express shipping", "k": 1}))
         assert result_text(c.call_tool("calculate", {"expression": "6*7"})) == "42"
     finally:

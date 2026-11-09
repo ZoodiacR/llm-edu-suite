@@ -16,6 +16,6 @@ else
   fi
 fi
 "$PY" -m pip install -r requirements-dev.txt
-"$PY" -m ipykernel install --user --name llmsuite --display-name "Python (llmsuite)"
+"$PY" -m ipykernel install --user --name llm_edu_suite --display-name "Python (llm_edu_suite)"
 "$PY" -m pytest -q
 echo -e "\nListo. Activa el entorno con:  source .venv/bin/activate   y abre:  jupyter lab notebooks/"

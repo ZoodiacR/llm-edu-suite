@@ -12,7 +12,7 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     & $py -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 }
 & $py -m pip install -r requirements-dev.txt
-& $py -m ipykernel install --user --name llmsuite --display-name "Python (llmsuite)"
+& $py -m ipykernel install --user --name llm_edu_suite --display-name "Python (llm_edu_suite)"
 & $py -m pytest -q
 & $py -c "import torch; print('PyTorch', torch.__version__, '| GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none (CPU)')"
 Write-Host "`nListo. Activa el entorno con:  .\.venv\Scripts\Activate.ps1   y abre:  jupyter lab notebooks/"

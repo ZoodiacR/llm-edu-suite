@@ -485,7 +485,7 @@ Para un proveedor remoto, la clave se lee de la variable de entorno `OPENAI_API_
 
 ## `mini_llm.py`
 
-Un **mini LLM completo en un solo fichero** que solo depende de PyTorch (no importa nada de `llmsuite`): tokenizador BPE a nivel de bytes → GPT con RoPE, RMSNorm y SwiGLU → entrenamiento con AdamW y schedule coseno → evaluación frente a la pérdida irreducible del corpus → muestreo → guardado y recarga del checkpoint. Es el notebook 00 (`notebooks/00_start_here/00_mini_llm_end_to_end.ipynb`) exportado como script: el pipeline entero de un vistazo, antes de que los notebooks desmonten cada pieza y el paquete la escale.
+Un **mini LLM completo en un solo fichero** que solo depende de PyTorch (no importa nada de `llm_edu_suite`): tokenizador BPE a nivel de bytes → GPT con RoPE, RMSNorm y SwiGLU → entrenamiento con AdamW y schedule coseno → evaluación frente a la pérdida irreducible del corpus → muestreo → guardado y recarga del checkpoint. Es el notebook 00 (`notebooks/00_start_here/00_mini_llm_end_to_end.ipynb`) exportado como script: el pipeline entero de un vistazo, antes de que los notebooks desmonten cada pieza y el paquete la escale.
 
 > **Fichero generado.** `scripts/mini_llm.py` se genera a partir del notebook 00 con `tools/build_notebooks_part3.py`. Para cambiarlo de forma permanente, **edita el generador**, no el script: el siguiente `make notebooks` lo sobrescribe.
 
@@ -542,7 +542,7 @@ En una GPU NVIDIA el script entrena automáticamente con **autocast bf16** (Ampe
 
 ## `mcp_server.py`
 
-Un **servidor MCP real sobre stdio**, listo para ejecutar, construido con [`llmsuite.mcp`](referencia_modulos.md#18-mcp) y sin SDK. Expone la base de conocimiento de ejemplo de `data/sample_docs/` (o cualquier carpeta con ficheros `.md` / `.txt`) a cualquier cliente MCP: Claude Code, Claude Desktop, el MCP Inspector, o `MCPClient` + `StdioTransport` desde Python. No necesita PyTorch.
+Un **servidor MCP real sobre stdio**, listo para ejecutar, construido con [`llm_edu_suite.mcp`](referencia_modulos.md#18-mcp) y sin SDK. Expone la base de conocimiento de ejemplo de `data/sample_docs/` (o cualquier carpeta con ficheros `.md` / `.txt`) a cualquier cliente MCP: Claude Code, Claude Desktop, el MCP Inspector, o `MCPClient` + `StdioTransport` desde Python. No necesita PyTorch.
 
 ### Argumentos
 
@@ -578,13 +578,13 @@ El servidor espera mensajes JSON-RPC por stdin (Ctrl+C para pararlo). Al arranca
 **Claude Code:**
 
 ```bash
-claude mcp add llmsuite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
+claude mcp add llm_edu_suite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
 ```
 
 **Claude Desktop** (`claude_desktop_config.json`):
 
 ```json
-{"mcpServers": {"llmsuite-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
+{"mcpServers": {"llm_edu_suite-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
 ```
 
 **MCP Inspector** (interfaz web oficial para probar servidores; necesita Node.js):
@@ -597,7 +597,7 @@ npx @modelcontextprotocol/inspector python scripts/mcp_server.py
 
 ```python
 import sys
-from llmsuite.mcp import MCPClient, StdioTransport, result_text
+from llm_edu_suite.mcp import MCPClient, StdioTransport, result_text
 
 client = MCPClient(StdioTransport([sys.executable, "scripts/mcp_server.py"]))
 client.initialize()

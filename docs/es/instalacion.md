@@ -43,7 +43,7 @@ El script hace, en orden:
 1. Crea `.venv/` si no existe.
 2. Instala PyTorch: la variante **CUDA** si detecta una GPU NVIDIA (`nvidia-smi`), o la variante **CPU** (wheel pequeño y universal) si no.
 3. Instala `requirements-dev.txt` (numpy, matplotlib, pytest, jupyterlab, ipykernel, nbclient, requests).
-4. Registra el entorno como kernel de Jupyter con el nombre **"Python (llmsuite)"**.
+4. Registra el entorno como kernel de Jupyter con el nombre **"Python (llm_edu_suite)"**.
 5. Ejecuta `pytest -q` para confirmar que todo funciona (deberían pasar todos; en el momento de escribir esto pytest recoge 50 tests).
 
 ## Opción B — Paso a paso
@@ -55,7 +55,7 @@ python -m venv .venv
 python -m pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements-dev.txt
-python -m ipykernel install --user --name llmsuite --display-name "Python (llmsuite)"
+python -m ipykernel install --user --name llm_edu_suite --display-name "Python (llm_edu_suite)"
 pytest -q
 ```
 
@@ -66,7 +66,7 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cpu   # en macOS: pip install torch
 pip install -r requirements-dev.txt
-python -m ipykernel install --user --name llmsuite --display-name "Python (llmsuite)"
+python -m ipykernel install --user --name llm_edu_suite --display-name "Python (llm_edu_suite)"
 pytest -q
 ```
 
@@ -76,7 +76,7 @@ pytest -q
 
 ### ¿Tengo GPU NVIDIA?
 
-Nada en el proyecto la necesita, pero acelera mucho el entrenamiento: el mini LLM del notebook 00 tarda unos **22 s en una RTX 3060 Laptop frente a unos 5 min en CPU**. Los scripts de setup la detectan e instalan PyTorch con CUDA automáticamente; los notebooks la usan solos (`llmsuite.utils.get_device()` elige `cuda` si existe y si no `cpu`; Apple MPS solo con `allow_mps=True`). En GPU, el entrenamiento usa precisión mixta **bf16** (RTX 30xx o superior).
+Nada en el proyecto la necesita, pero acelera mucho el entrenamiento: el mini LLM del notebook 00 tarda unos **22 s en una RTX 3060 Laptop frente a unos 5 min en CPU**. Los scripts de setup la detectan e instalan PyTorch con CUDA automáticamente; los notebooks la usan solos (`llm_edu_suite.utils.get_device()` elige `cuda` si existe y si no `cpu`; Apple MPS solo con `allow_mps=True`). En GPU, el entrenamiento usa precisión mixta **bf16** (RTX 30xx o superior).
 
 Para instalarla a mano o cambiar un `.venv` que ya tenía la versión CPU:
 
@@ -92,7 +92,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 | Qué | Comando | Tiempo aprox. (CPU) |
 |---|---|---|
 | Tests | `pytest -q` | ~10 s |
-| Abrir notebooks | `jupyter lab notebooks/` y elegir el kernel **Python (llmsuite)** | — |
+| Abrir notebooks | `jupyter lab notebooks/` y elegir el kernel **Python (llm_edu_suite)** | — |
 | Ejecutar todos los notebooks sin abrirlos | `python tools/run_notebooks.py` | ver [guía de notebooks](guia_notebooks.md) |
 | Ejecutar uno solo | `python tools/run_notebooks.py 05_pretraining.ipynb` (o por número: `python tools/run_notebooks.py 05 14`) | — |
 | Pre-entrenar un LM pequeño | `python scripts/train.py --steps 300 --out runs/smoke` | ~2,5 min |
@@ -114,7 +114,7 @@ basado en reglas** que permite ejecutar todo offline. Para conectar un modelo re
 servidor compatible con la API de OpenAI:
 
 ```python
-from llmsuite.llm_client import OpenAICompatibleClient
+from llm_edu_suite.llm_client import OpenAICompatibleClient
 
 # vLLM local:   vllm serve Qwen/Qwen2.5-7B-Instruct --enable-auto-tool-choice --tool-call-parser hermes
 llm = OpenAICompatibleClient("Qwen/Qwen2.5-7B-Instruct", base_url="http://localhost:8000/v1")
@@ -139,8 +139,8 @@ python scripts/rag_demo.py --docs data/sample_docs --ask "What is the refund pol
 | Síntoma | Causa | Solución |
 |---|---|---|
 | `ImportError: numpy.core.multiarray failed to import` | matplotlib compilado para NumPy 1.x con NumPy 2.x instalado | usa el `.venv` del proyecto (o `pip install -U matplotlib`) |
-| `ModuleNotFoundError: llmsuite` en un notebook | Jupyter se abrió fuera de `notebooks/` | abre con `jupyter lab notebooks/`; cada notebook añade la raíz del repo (dos niveles por encima de `notebooks/<tema>/`) al `sys.path` |
-| El notebook usa otro Python | kernel equivocado | menú *Kernel → Change kernel → Python (llmsuite)* |
+| `ModuleNotFoundError: llm_edu_suite` en un notebook | Jupyter se abrió fuera de `notebooks/` | abre con `jupyter lab notebooks/`; cada notebook añade la raíz del repo (dos niveles por encima de `notebooks/<tema>/`) al `sys.path` |
+| El notebook usa otro Python | kernel equivocado | menú *Kernel → Change kernel → Python (llm_edu_suite)* |
 | `RuntimeWarning: Proactor event loop...` en Windows | aviso inofensivo de `pyzmq` | se puede ignorar; `tools/run_notebooks.py` ya lo silencia |
 | La celda de FlexAttention se salta | PyTorch < 2.5 o sin soporte en CPU | es opcional; el resto del notebook 03 funciona igual |
 | Entrenamiento lento | todo corre en CPU | baja `--steps`/`--d-model`, o usa GPU |

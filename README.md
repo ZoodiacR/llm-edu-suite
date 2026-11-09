@@ -7,7 +7,7 @@
 ![python](https://img.shields.io/badge/python-3.10%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![tests](https://img.shields.io/badge/tests-69%20passing-brightgreen) ![notebooks](https://img.shields.io/badge/notebooks-17-orange) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
 - **17 notebooks**, grouped by topic, each ending with an evaluation section and plots
-- **An 18-module Python package** (`llmsuite`) you can import, read and reuse
+- **An 18-module Python package** (`llm_edu_suite`) you can import, read and reuse
 - **6 command-line scripts**, including a one-file mini GPT and a real MCP server
 - **Runs offline on a laptop**, on CPU or (much faster) an NVIDIA GPU, with no downloads and no API keys. A deterministic `MockLLM` stands in for an API model, and you can swap in a real one with one line.
 - **Verified end to end**: 69 tests, every notebook executed with its outputs saved, and CI on every push
@@ -64,7 +64,7 @@ Every number below comes from the executed notebooks in this repository, run on 
 git clone https://github.com/ZoodiacR/llm-edu-suite.git
 cd llm-edu-suite
 
-# one-time setup: virtual env + CPU PyTorch + Jupyter kernel "Python (llmsuite)" + test run
+# one-time setup: virtual env + CPU PyTorch + Jupyter kernel "Python (llm_edu_suite)" + test run
 powershell -ExecutionPolicy Bypass -File setup_env.ps1      # Windows (installs CUDA PyTorch if it finds an NVIDIA GPU)
 bash setup_env.sh                                           # Linux / macOS
 
@@ -89,11 +89,11 @@ python scripts/mcp_server.py                                     # MCP server (s
 Use a real model anywhere the `MockLLM` is used, through any OpenAI-compatible server (vLLM, Ollama, OpenAI, OpenRouter…):
 
 ```python
-from llmsuite.llm_client import OpenAICompatibleClient
+from llm_edu_suite.llm_client import OpenAICompatibleClient
 llm = OpenAICompatibleClient("qwen2.5:7b", base_url="http://localhost:11434/v1")   # e.g. Ollama
 ```
 
-Connect the MCP server to Claude Code: `claude mcp add llmsuite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py`.
+Connect the MCP server to Claude Code: `claude mcp add llm_edu_suite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py`.
 
 ## Repository layout
 
@@ -102,7 +102,7 @@ llm-edu-suite/
 ├── notebooks/                      17 notebooks, one folder per topic (see the topic map)
 │   ├── 00_start_here/  01_architecture/  02_pretraining_and_inference/
 │   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/
-├── llmsuite/                       the package: every module is documented and commented
+├── llm_edu_suite/                       the package: every module is documented and commented
 │   ├── tokenizer.py  layers.py  model.py  data.py  training.py        core model & training
 │   ├── finetune.py  quant.py  inference.py                            post-training & efficiency
 │   ├── rag.py  recsys.py  applications.py  evaluation.py              applications & metrics
@@ -150,7 +150,7 @@ llm-edu-suite/
 | Index | [docs/es/README.md](docs/es/README.md) | [docs/en/README.md](docs/en/README.md) |
 | Installation & environment | [instalacion.md](docs/es/instalacion.md) | [installation.md](docs/en/installation.md) |
 | Notebook guide (what each one teaches and measures) | [guia_notebooks.md](docs/es/guia_notebooks.md) | [notebooks_guide.md](docs/en/notebooks_guide.md) |
-| Module reference (`llmsuite` API) | [referencia_modulos.md](docs/es/referencia_modulos.md) | [module_reference.md](docs/en/module_reference.md) |
+| Module reference (`llm_edu_suite` API) | [referencia_modulos.md](docs/es/referencia_modulos.md) | [module_reference.md](docs/en/module_reference.md) |
 | Command-line scripts | [scripts_cli.md](docs/es/scripts_cli.md) | [cli_scripts.md](docs/en/cli_scripts.md) |
 | Case study (portfolio write-up) | [caso_de_estudio.md](docs/es/caso_de_estudio.md) | [case_study.md](docs/en/case_study.md) |
 | Glossary | [glosario.md](docs/es/glosario.md) | [glossary.md](docs/en/glossary.md) |

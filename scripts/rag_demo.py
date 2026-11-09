@@ -17,9 +17,9 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from llmsuite.evaluation import context_support, evaluate_ranking, token_f1
-from llmsuite.llm_client import MockLLM, OpenAICompatibleClient
-from llmsuite.rag import Retriever, build_rag_prompt, chunk_documents
+from llm_edu_suite.evaluation import context_support, evaluate_ranking, token_f1
+from llm_edu_suite.llm_client import MockLLM, OpenAICompatibleClient
+from llm_edu_suite.rag import Retriever, build_rag_prompt, chunk_documents
 
 
 def main():

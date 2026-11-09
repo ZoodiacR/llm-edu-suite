@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-A real, runnable MCP server (stdio transport) built with llmsuite.mcp — no SDK needed.
+A real, runnable MCP server (stdio transport) built with llm_edu_suite.mcp — no SDK needed.
 
 It exposes the sample knowledge base in data/sample_docs/ to any MCP client:
     tools      search_docs(query, k)    hybrid BM25 + dense retrieval over the docs   (read-only)
@@ -14,9 +14,9 @@ Run it (it waits for JSON-RPC messages on stdin; Ctrl+C to stop):
     python scripts/mcp_server.py --docs path/to/your/docs
 
 Use it from Claude Code:
-    claude mcp add llmsuite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
+    claude mcp add llm_edu_suite-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
 Use it from Claude Desktop (claude_desktop_config.json):
-    {"mcpServers": {"llmsuite-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
+    {"mcpServers": {"llm_edu_suite-docs": {"command": "python", "args": ["/ABSOLUTE/PATH/scripts/mcp_server.py"]}}}
 Test it with the official inspector:
     npx @modelcontextprotocol/inspector python scripts/mcp_server.py
 
@@ -33,8 +33,8 @@ import time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from llmsuite.mcp import MCPServer, serve_stdio
-from llmsuite.rag import Retriever, chunk_documents
+from llm_edu_suite.mcp import MCPServer, serve_stdio
+from llm_edu_suite.rag import Retriever, chunk_documents
 
 DEFAULT_DOCS = os.path.join(os.path.dirname(__file__), "..", "data", "sample_docs")
 
@@ -45,7 +45,7 @@ def build_server(docs_dir: str = DEFAULT_DOCS) -> MCPServer:
     retriever = Retriever(chunk_documents(docs, size=80, overlap=20))
     tickets: list[dict] = []
 
-    server = MCPServer("llmsuite-docs", "0.1.0",
+    server = MCPServer("llm_edu_suite-docs", "0.1.0",
                        instructions="Company knowledge base. Use search_docs before answering policy questions and cite the file names.")
 
     @server.tool(description="Search the company documentation (refunds, shipping, security, support). Returns the best passages with their source file.",

@@ -1,6 +1,6 @@
 🇪🇸 [Versión en español](../es/referencia_modulos.md)
 
-# `llmsuite` module reference
+# `llm_edu_suite` module reference
 
 > A teaching-oriented reference for every module in the package: the problem it solves, the concepts it implements, its public API (signatures checked against the code), a minimal example, its production equivalent and the notebook where you practice it.
 >
@@ -113,7 +113,7 @@ graph LR
 
 Three things the diagram does not show:
 
-- `utils`, `tokenizer`, `layers`, `data`, `rag`, `agents`, `llm_client` and `observability` import no other `llmsuite` module. They are the leaves of the graph. `observability` works with any client and any registry by *duck typing*. `mini_llm.py` imports no `llmsuite` module either: it is self-contained on purpose.
+- `utils`, `tokenizer`, `layers`, `data`, `rag`, `agents`, `llm_client` and `observability` import no other `llm_edu_suite` module. They are the leaves of the graph. `observability` works with any client and any registry by *duck typing*. `mini_llm.py` imports no `llm_edu_suite` module either: it is self-contained on purpose.
 - Some modules cooperate through *duck typing* without importing each other. `recsys.train_sasrec` takes a `TransformerLM` but does not import `model`. `llm_client.LocalTransformerClient` takes any model and tokenizer. All application code expects an `llm` object with `.complete(prompt)` and/or `.chat(messages, tools)`.
 - `rag`, `agents`, `applications`, `llm_client`, `tokenizer`, `agentic`, `observability` and `mcp` do not need PyTorch. That is why notebooks 10, 11 and 13–16 run on NumPy alone (`observability` and `mcp` only need the standard library).
 
@@ -141,8 +141,8 @@ Three things the diagram does not show:
 **Example.**
 
 ```python
-from llmsuite.utils import seed_everything, get_device, human, timer, show_mask
-from llmsuite.layers import sliding_window_mask
+from llm_edu_suite.utils import seed_everything, get_device, human, timer, show_mask
+from llm_edu_suite.layers import sliding_window_mask
 
 seed_everything(0)
 print(get_device())                 # 'cpu' or 'cuda'
@@ -184,8 +184,8 @@ with timer("mask"):
 **Example.**
 
 ```python
-from llmsuite.tokenizer import ByteBPETokenizer, compression_ratio
-from llmsuite.data import template_text_corpus
+from llm_edu_suite.tokenizer import ByteBPETokenizer, compression_ratio
+from llm_edu_suite.data import template_text_corpus
 
 text = template_text_corpus(300)
 tok = ByteBPETokenizer().train(text, vocab_size=400)
@@ -306,7 +306,7 @@ Dispatch is a Python loop over experts (clear, but slow). Production code uses g
 
 ```python
 import torch
-from llmsuite.layers import (precompute_freqs_cis, GroupedQueryAttention,
+from llm_edu_suite.layers import (precompute_freqs_cis, GroupedQueryAttention,
                              MultiHeadLatentAttention, MoE)
 
 x = torch.randn(2, 16, 64)                      # (B, T, C)
@@ -372,7 +372,7 @@ Block (pre-norm):
 
 ```python
 import torch
-from llmsuite.model import ModelConfig, TransformerLM
+from llm_edu_suite.model import ModelConfig, TransformerLM
 
 cfg = ModelConfig(vocab_size=128, d_model=64, n_layers=2, n_heads=4, n_kv_heads=2, max_seq_len=64)
 model = TransformerLM(cfg)
@@ -430,7 +430,7 @@ print(m2.num_params(), m2.num_active_params(), m2.supports_cache)   # swa has no
 **Example.**
 
 ```python
-from llmsuite.data import ChatFormat, make_reverse_task, synthetic_structured_corpus, get_batch
+from llm_edu_suite.data import ChatFormat, make_reverse_task, synthetic_structured_corpus, get_batch
 
 fmt = ChatFormat.for_vocab(512)                   # ids 507..511 = SYS, USER, ASSIST, END, PAD
 inp, lab = fmt.build_example(system=[10], user=[5, 6, 7], assistant=[7, 6, 5])
@@ -477,9 +477,9 @@ x, y = get_batch(synthetic_structured_corpus(10_000), block_size=32, batch_size=
 **Example.**
 
 ```python
-from llmsuite.data import synthetic_structured_corpus, train_val_split
-from llmsuite.model import ModelConfig, TransformerLM
-from llmsuite.training import TrainConfig, train_lm, lr_schedule
+from llm_edu_suite.data import synthetic_structured_corpus, train_val_split
+from llm_edu_suite.model import ModelConfig, TransformerLM
+from llm_edu_suite.training import TrainConfig, train_lm, lr_schedule
 
 tr, va = train_val_split(synthetic_structured_corpus(50_000, vocab=256))
 model = TransformerLM(ModelConfig(vocab_size=256, d_model=64, n_layers=2, max_seq_len=64))
@@ -569,9 +569,9 @@ The teacher's "soft labels" (at temperature τ) convey which mistakes are "almos
 **Example.**
 
 ```python
-from llmsuite.data import ChatFormat, make_reverse_task, make_reverse_preferences
-from llmsuite.model import ModelConfig, TransformerLM
-from llmsuite.finetune import (apply_lora, lora_parameters, merge_lora, train_sft,
+from llm_edu_suite.data import ChatFormat, make_reverse_task, make_reverse_preferences
+from llm_edu_suite.model import ModelConfig, TransformerLM
+from llm_edu_suite.finetune import (apply_lora, lora_parameters, merge_lora, train_sft,
                                greedy_answer, dpo_loss)
 
 fmt = ChatFormat.for_vocab(128)
@@ -627,8 +627,8 @@ If the chat template uses tokens the base model never saw, train the embeddings 
 
 ```python
 import copy, torch
-from llmsuite.quant import quantize_absmax, quantize_nf4, quantization_error, quantize_model, model_memory_bytes
-from llmsuite.model import ModelConfig, TransformerLM
+from llm_edu_suite.quant import quantize_absmax, quantize_nf4, quantization_error, quantize_model, model_memory_bytes
+from llm_edu_suite.model import ModelConfig, TransformerLM
 
 W = torch.randn(64, 64); W[0, 0] = 20.0                      # one outlier
 for block in (None, 64):
@@ -676,8 +676,8 @@ print(model_memory_bytes(model), model_memory_bytes(q))
 
 ```python
 import torch
-from llmsuite.inference import kv_cache_memory, speculative_decode, batched_generate
-from llmsuite.model import ModelConfig, TransformerLM
+from llm_edu_suite.inference import kv_cache_memory, speculative_decode, batched_generate
+from llm_edu_suite.model import ModelConfig, TransformerLM
 
 print(kv_cache_memory(n_layers=32, n_kv_heads=8, head_dim=128, context=8192))
 # {'bytes_per_token': 131072, 'total_bytes': 1073741824, 'total_gb': 1.0}
@@ -740,8 +740,8 @@ question  -> embed -> dense search ─┐
 **Example.**
 
 ```python
-from llmsuite.rag import chunk_documents, Retriever, build_rag_prompt, reciprocal_rank_fusion
-from llmsuite.llm_client import MockLLM
+from llm_edu_suite.rag import chunk_documents, Retriever, build_rag_prompt, reciprocal_rank_fusion
+from llm_edu_suite.llm_client import MockLLM
 
 docs = {"refund.md": "Refunds are issued within 30 days of purchase.",
         "shipping.md": "Express shipping takes 1 to 2 business days."}
@@ -787,8 +787,8 @@ print(reciprocal_rank_fusion([1, 2, 3], [3, 1]))      # [1, 3, 2]
 **Example.**
 
 ```python
-from llmsuite.agents import ToolRegistry, Agent, structured_output
-from llmsuite.llm_client import MockLLM
+from llm_edu_suite.agents import ToolRegistry, Agent, structured_output
+from llm_edu_suite.llm_client import MockLLM
 
 reg = ToolRegistry()
 
@@ -845,11 +845,11 @@ print(structured_output(MockLLM(), "Extract the fields. Text: Order from Maria, 
 **Example.**
 
 ```python
-from llmsuite.recsys import (make_catalog, make_interactions, leave_one_out_split, popularity_ranker,
+from llm_edu_suite.recsys import (make_catalog, make_interactions, leave_one_out_split, popularity_ranker,
                              train_sasrec, sasrec_rank, content_embeddings, embedding_rank, llm_rerank)
-from llmsuite.evaluation import evaluate_ranking
-from llmsuite.model import ModelConfig, TransformerLM
-from llmsuite.llm_client import MockLLM
+from llm_edu_suite.evaluation import evaluate_ranking
+from llm_edu_suite.model import ModelConfig, TransformerLM
+from llm_edu_suite.llm_client import MockLLM
 
 cat = make_catalog(n_items=100)
 train, test = leave_one_out_split(make_interactions(cat, n_users=200))
@@ -901,8 +901,8 @@ print(llm_rerank(MockLLM(), cat, h, sasrec_rank(model, h, 5)))
 **Example.**
 
 ```python
-from llmsuite.applications import classify, SemanticCache, PromptInjectionGuard, BatchProcessor
-from llmsuite.llm_client import MockLLM
+from llm_edu_suite.applications import classify, SemanticCache, PromptInjectionGuard, BatchProcessor
+from llm_edu_suite.llm_client import MockLLM
 
 llm = MockLLM()
 print(classify(llm, "I love it, excellent", ["positive", "negative", "neutral"]))   # positive
@@ -959,8 +959,8 @@ print(bp.run([{"review": "great"}, {"review": "awful"}])["est_cost_usd"])
 **Example.**
 
 ```python
-from llmsuite.evaluation import token_f1, rouge_l, evaluate_ranking, pairwise_judge, context_support
-from llmsuite.llm_client import MockLLM
+from llm_edu_suite.evaluation import token_f1, rouge_l, evaluate_ranking, pairwise_judge, context_support
+from llm_edu_suite.llm_client import MockLLM
 
 print(round(token_f1("Refunds within 30 days", "Customers can request a full refund within 30 days"), 3))
 print(evaluate_ranking([(["a", "b", "c"], {"b"}), (["x", "y"], {"x"})], ks=(1, 3)))
@@ -1005,7 +1005,7 @@ Switching from `MockLLM` to a real model is **one line**.
 **Example.**
 
 ```python
-from llmsuite.llm_client import MockLLM, OpenAICompatibleClient
+from llm_edu_suite.llm_client import MockLLM, OpenAICompatibleClient
 
 llm = MockLLM()
 print(llm.complete("Classify the text into one of: positive, negative. Text: terrible product"))  # negative
@@ -1062,9 +1062,9 @@ print(llm.usage)
 **Example.**
 
 ```python
-from llmsuite.agents import ToolRegistry
-from llmsuite.llm_client import MockLLM
-from llmsuite.agentic import (Budget, BudgetedAgent, PlanAndExecute, reflect_and_revise, ScriptedLLM,
+from llm_edu_suite.agents import ToolRegistry
+from llm_edu_suite.llm_client import MockLLM
+from llm_edu_suite.agentic import (Budget, BudgetedAgent, PlanAndExecute, reflect_and_revise, ScriptedLLM,
                               Supervisor, Worker, evaluate_trajectory)
 
 reg = ToolRegistry()
@@ -1106,7 +1106,7 @@ print(evaluate_trajectory(["search", "search", "calc"], ["search", "calc"]))
 
 ## 17. `observability`
 
-**What it solves.** An LLM application is a distributed system whose most important component is non-deterministic, slow, priced per token and fails *silently*: a wrong answer is still an HTTP 200. You cannot debug, optimize or trust it without seeing every step of every request: which prompt was sent, which documents came back, which tool was called with which arguments, how long each step took, how many tokens it cost and how good the answer was. This module builds that layer from scratch, following the OpenTelemetry model that LangSmith, Langfuse, Arize Phoenix and Datadog all use. It imports no other `llmsuite` module and needs only the standard library.
+**What it solves.** An LLM application is a distributed system whose most important component is non-deterministic, slow, priced per token and fails *silently*: a wrong answer is still an HTTP 200. You cannot debug, optimize or trust it without seeing every step of every request: which prompt was sent, which documents came back, which tool was called with which arguments, how long each step took, how many tokens it cost and how good the answer was. This module builds that layer from scratch, following the OpenTelemetry model that LangSmith, Langfuse, Arize Phoenix and Datadog all use. It imports no other `llm_edu_suite` module and needs only the standard library.
 
 **Key concepts.**
 - *Trace and span*. A **trace** is one end-to-end request (one user question). A **span** is one unit of work inside it (an LLM call, a retrieval, a tool call) with start and end time, attributes, events, a status and a parent. Spans form a **tree**:
@@ -1148,9 +1148,9 @@ print(evaluate_trajectory(["search", "search", "calc"], ["search", "calc"]))
 **Example.**
 
 ```python
-from llmsuite.agents import Agent, ToolRegistry
-from llmsuite.llm_client import MockLLM
-from llmsuite.observability import (Tracer, TracedLLM, instrument_registry, MetricsAggregator,
+from llm_edu_suite.agents import Agent, ToolRegistry
+from llm_edu_suite.llm_client import MockLLM
+from llm_edu_suite.observability import (Tracer, TracedLLM, instrument_registry, MetricsAggregator,
                                     check_slos, redact_pii)
 
 reg = ToolRegistry()
@@ -1237,15 +1237,15 @@ print(redact_pii("Call +51 987 654 321 or write to ana@x.com"))  # 'Call <PHONE>
 | `serve_stdio(server, stdin=None, stdout=None)` | Server-side stdio loop: one JSON per line. |
 | `InMemoryTransport(server)` | `.send(message)`, `.close()`, counter `.sent`. |
 | `StdioTransport(command, cwd=None, env=None, timeout=30.0)` | Launches the server as a subprocess (`command` is a list, e.g. `[sys.executable, "scripts/mcp_server.py"]`). |
-| `MCPClient(transport, client_name="llmsuite-client", client_version="0.1.0")` | `.initialize()`, `.ping()`, `.list_tools()`, `.call_tool(name, arguments=None) -> dict`, `.list_resources()`, `.read_resource(uri) -> str`, `.list_prompts()`, `.get_prompt(name, arguments=None) -> list[dict]`, `.request(method, params=None)`, `.notify(method, params=None)`, `.close()`. After `initialize`: `server_info`, `server_capabilities`, `instructions`. |
+| `MCPClient(transport, client_name="llm_edu_suite-client", client_version="0.1.0")` | `.initialize()`, `.ping()`, `.list_tools()`, `.call_tool(name, arguments=None) -> dict`, `.list_resources()`, `.read_resource(uri) -> str`, `.list_prompts()`, `.get_prompt(name, arguments=None) -> list[dict]`, `.request(method, params=None)`, `.notify(method, params=None)`, `.close()`. After `initialize`: `server_info`, `server_capabilities`, `instructions`. |
 | `result_text(result) -> str` | Flattens a `tools/call` result into the observation the LLM sees (`"ERROR: ..."` if `isError`). |
 | `register_mcp_tools(client, registry, allow=None, prefix="", confirm_destructive=None) -> list[str]` | Adds the server's tools to a `ToolRegistry`; returns the names added. A tool is "risky" if `destructiveHint` is true or `readOnlyHint` is not; risky tools go through `confirm_destructive(name, args) -> bool` when it is given. |
 
 **Example.**
 
 ```python
-from llmsuite.agents import ToolRegistry
-from llmsuite.mcp import MCPServer, MCPClient, InMemoryTransport, MCPError, result_text, register_mcp_tools
+from llm_edu_suite.agents import ToolRegistry
+from llm_edu_suite.mcp import MCPServer, MCPClient, InMemoryTransport, MCPError, result_text, register_mcp_tools
 
 server = MCPServer("demo", "1.0")
 
