@@ -20,3 +20,6 @@ Thumbs.db
 
 # Downloaded datasets (MovieLens may not be redistributed)
 data/cache/
+
+# Personal study notes and pending work (kept local, never published)
+notes/
