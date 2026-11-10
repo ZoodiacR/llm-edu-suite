@@ -2,7 +2,7 @@
 
 # Scripts de línea de comandos
 
-> Guía de los siete scripts de `scripts/` (más `tools/build_notebooks.py`, `tools/run_notebooks.py` y los objetivos del `Makefile`): todos sus argumentos reales (extraídos de `argparse`), qué hace cada script internamente, ejemplos de uso y resultados medidos.
+> Guía de los ocho scripts de `scripts/` (más `tools/build_notebooks.py`, `tools/run_notebooks.py` y los objetivos del `Makefile`): todos sus argumentos reales (extraídos de `argparse`), qué hace cada script internamente, ejemplos de uso y resultados medidos.
 >
 > Documentos relacionados: [README](README.md) · [Instalación](instalacion.md) · [Referencia de módulos](referencia_modulos.md) · [Guía de notebooks](guia_notebooks.md) · [Caso de estudio](caso_de_estudio.md) · [Glosario](glosario.md)
 
@@ -15,12 +15,13 @@
 | [`rag_demo.py`](#rag_demopy) | RAG híbrido con citas sobre una carpeta de documentos, con métricas de recuperación y evaluación RAGAS opcional | LangChain (FAISS + BM25 + `EnsembleRetriever`), RAGAS | Ollama (`qwen2.5:3b`, `nomic-embed-text`) |
 | [`mcp_server.py`](#mcp_serverpy) | Un servidor MCP (`llm-edu-docs`) que expone `data/sample_docs` a Claude Code, Claude Desktop o cualquier cliente MCP | SDK oficial de MCP para Python (`FastMCP`) + `rank_bm25` | Nada más (ni PyTorch ni Ollama) |
 | [`generate_item_keywords.py`](#generate_item_keywordspy) | Palabras clave escritas por un LLM para cada película de MovieLens-1M (las usa el notebook 12); reanudable | `llm_edu_suite` (`config`, `recsys`) + LangChain | Ollama con `qwen2.5:7b`; descarga MovieLens-1M (6 MB) la primera vez |
+| [`harness_run.py`](#harness_runpy) | Ejecutar el harness de agentes de programación mini-swe-agent sobre una carpeta de tarea con un modelo local, en un entorno bash aislado con una política de permisos; escribe la trayectoria en JSON (lo usa el notebook 27) | mini-swe-agent 2.4.6 + litellm | Su propio `.venv-harness`, bash (Git Bash en Windows), Ollama con el modelo que se quiera ejecutar |
 
 ---
 
 ## Antes de empezar
 
-Todos los comandos se ejecutan desde la **raíz del repositorio** y con el intérprete del entorno virtual del proyecto (ver [instalación](instalacion.md)). Los scripts que importan `llm_edu_suite` añaden ellos mismos la raíz del repo a `sys.path`, así que no hace falta instalar el paquete con `pip install -e .`.
+Todos los comandos se ejecutan desde la **raíz del repositorio** y con el intérprete del entorno virtual del proyecto (ver [instalación](instalacion.md)). La excepción es `harness_run.py`, que se ejecuta con el intérprete de su propio entorno, `.venv-harness`. Los scripts que importan `llm_edu_suite` añaden ellos mismos la raíz del repo a `sys.path`, así que no hace falta instalar el paquete con `pip install -e .`.
 
 **Windows (PowerShell o cmd):**
 
@@ -757,6 +758,74 @@ Con `qwen2.5:7b` tarda alrededor de **una hora** en una GPU de portátil de 6 GB
 
 ---
 
+## `harness_run.py`
+
+Ejecuta el harness de agentes de programación [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) sobre una carpeta de tarea, con un modelo local a través de Ollama y un entorno bash aislado, y escribe la trayectoria completa en un fichero JSON. El notebook 27 lo llama una vez por tarea; también puedes ejecutarlo a mano sobre tus propias carpetas de tareas.
+
+A diferencia de los demás scripts, se ejecuta con el Python del **entorno del harness**, `.venv-harness`, no con el `.venv` del curso, porque la interfaz de terminal de mini-swe-agent necesita un `rich` más nuevo del que admite el entorno del curso. Ver [instalación](instalacion.md#el-entorno-del-harness-de-agentes-notebook-27) para crearlo, para Git Bash en Windows y para los tres modelos.
+
+### Argumentos
+
+| Argumento | Tipo | Por defecto | Descripción |
+|---|---|---|---|
+| `task_dir` | ruta (posicional) | — | Carpeta de la tarea. Tiene que contener `TASK.md`, las instrucciones que recibe el agente; todos los comandos se ejecutan dentro de esta carpeta. |
+| `model` | str (posicional) | — | Nombre del modelo de Ollama, p. ej. `qwen2.5:3b` (el script añade el prefijo `ollama_chat/` para litellm). |
+| `out_json` | ruta (posicional) | — | Dónde escribir la trayectoria y sus estadísticas. |
+| `--steps` | int | `20` | Límite de pasos: llamadas al modelo antes de que la ejecución termine con `LimitsExceeded`. El notebook 27 usa 15. |
+| `--agents-md` | flag | desactivado | Añade el `AGENTS.md` de la carpeta a la tarea, como hacen los harnesses con los ficheros de memoria del proyecto. Se ignora si no hay `AGENTS.md`. |
+| `--temperature` | float | `0.0` | Temperatura de muestreo. El notebook 27 usa 0,3 en las ejecuciones muestreadas con `AGENTS.md`. |
+| `--seed` | int | `0` | Semilla de muestreo que se pasa a Ollama. |
+
+Dos variables de entorno cambian dónde busca: `OLLAMA_BASE_URL` (por defecto `http://localhost:11434`) y `HARNESS_BASH`, la ruta completa del ejecutable de bash (por defecto `C:\Program Files\Git\bin\bash.exe` en Windows y el `bash` del `PATH` en los demás sistemas).
+
+### Qué hace por dentro
+
+1. **Configuración.** Carga el `mini_textbased.yaml` del propio mini-swe-agent (las plantillas del sistema y de la tarea, y el formato de acción en texto: un bloque `mswea_bash_command` por respuesta) y cambia los límites: `--steps` pasos, sin límite de coste, 300 s de tiempo total.
+2. **Modelo.** `LitellmTextbasedModel` con `ollama_chat/<modelo>`, la temperatura y la semilla indicadas, un contexto de 16k (`num_ctx=16384`), como mucho 1.024 tokens de salida por respuesta (los modelos pequeños pueden enrollarse sin fin) y un timeout de 120 s por llamada. El cálculo de coste ignora los errores, porque los modelos locales no tienen precio.
+3. **Tarea.** Lee `TASK.md`; con `--agents-md`, le añade `Project instructions (from AGENTS.md):` y el fichero.
+4. **Entorno.** `SandboxedBashEnvironment`, la clase propia del script, con los tres métodos que mini-swe-agent espera de un entorno (`execute`, `get_template_vars`, `serialize`):
+   - cada comando se ejecuta como `bash -c` **dentro de la carpeta de la tarea**, con un timeout de 60 s;
+   - el entorno está **limpio**: solo se conservan `SYSTEMROOT`, `PATH`, `TEMP`, `TMP`, `HOME`, `USERPROFILE` y `LANG` (más `PYTHONIOENCODING=utf-8` y `cat` como paginador), así que ninguna clave de API llega al agente;
+   - la salida se recorta a sus últimos 8.000 caracteres;
+   - una **lista de denegación** de expresiones regulares rechaza el acceso a la red (`curl`, `wget`, `ssh`, `scp`, `nc`, `Invoke-WebRequest`), `git push`, los borrados recursivos de `/`, `~` o `..`, la lectura de secretos (`.env`, `id_rsa`, `.ssh/`, `printenv`, un `env` a secas, `/proc/self/environ`) y `sudo` / `su`. Un comando rechazado no se ejecuta: el modelo recibe `Permission denied by the harness policy (<motivo>)` con código de salida 126, y el motivo queda registrado;
+   - cuando la salida de un comando empieza por `COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` y el comando fue bien, la ejecución termina como `Submitted`.
+5. **Ejecución.** `DefaultAgent.run(tarea)`. Cualquier excepción se registra como una ejecución fallida (`error: <tipo>: <mensaje>`) en lugar de tumbar a quien lo llama.
+6. **Salida.** `out_json` recibe `exit_status` (`Submitted`, `LimitsExceeded`, `TimeExceeded`, `RepeatedFormatError` o `error: ...`), `steps`, `seconds`, `format_errors`, `denied` (los motivos de cada comando rechazado), `prompt_tokens`, `completion_tokens` y `messages` (rol y contenido de cada mensaje, recortado a 4.000 caracteres). Las mismas estadísticas, sin los mensajes, se imprimen por la salida estándar en una línea de JSON.
+
+### Ejemplos
+
+A una carpeta de tarea le basta con un `TASK.md` y el código sobre el que trabajar:
+
+```text
+mi_tarea/
+├── TASK.md        "The tests in test_stats.py fail. Fix the bug in stats.py so that `python -m pytest -q` passes. Do not change the tests."
+├── stats.py
+└── test_stats.py
+```
+
+```powershell
+.venv-harness\Scripts\python scripts\harness_run.py mi_tarea qwen2.5:3b mi_tarea_run.json --steps 15
+.venv-harness\Scripts\python scripts\harness_run.py mi_tarea qwen2.5:7b run_memoria.json --agents-md --temperature 0.3 --seed 1
+```
+
+```bash
+.venv-harness/bin/python scripts/harness_run.py mi_tarea qwen2.5:3b mi_tarea_run.json --steps 15
+.venv-harness/bin/python scripts/harness_run.py mi_tarea qwen2.5:7b run_memoria.json --agents-md --temperature 0.3 --seed 1
+```
+
+En el notebook 27 (10 tareas, límite de 15 pasos, temperatura 0) una ejecución tardó de media 64 s con `qwen2.5:3b`, 82 s con `qwen2.5:7b` y 216 s con `freehuntx/qwen3-coder:8b`, que con un contexto de 16k va cerca de un 46 % en la CPU de una tarjeta de 6 GB.
+
+### Notas y trampas
+
+- **El agente edita la carpeta de la tarea tal cual.** Ejecútalo sobre una copia, nunca sobre un repositorio que te importe: el sandbox es una capa didáctica, como la del notebook 14, no una frontera de seguridad. Los harnesses de producción añaden aislamiento del sistema operativo (contenedores, Seatbelt, Landlock, tokens restringidos de Windows).
+- **`Submitted` no quiere decir resuelto.** Solo quiere decir que el modelo se dio por terminado; en el notebook 27, 11 de 30 ejecuciones entregadas fallaron los tests ocultos. Comprueba el resultado con tus propios tests después.
+- **`python` dentro de la shell del agente** es el primero que haya en el `PATH`. El notebook 27 pone primero la carpeta `Scripts` (o `bin`) del entorno del harness para que funcione `python -m pytest`; haz lo mismo, o activa `.venv-harness`, cuando una tarea pida al agente ejecutar tests.
+- La lista de denegación compara el texto del comando con expresiones regulares: es fácil de esquivar (un fichero de script, un alias, `python -c`) y también rechaza comandos inofensivos que coincidan por casualidad. Enseña dónde se engancha una política de permisos en el bucle, no lo fuerte que debería ser.
+- Al arrancar, mini-swe-agent imprime su versión y `Loading global config from ...` (su propio `.env` en la carpeta de datos de aplicación del usuario). Ese fichero es de mini-swe-agent, no del curso; el script no necesita nada en él.
+- Una ejecución cada vez: el script hace una llamada a Ollama por paso, y dos trabajos de GPU a la vez en una tarjeta de 6 GB pueden dejar Ollama colgado (ver [instalación](instalacion.md#notas-sobre-la-gpu)).
+
+---
+
 ## Herramientas y objetivos del Makefile
 
 **`tools/build_notebooks.py`** regenera los `.ipynb` a partir de sus generadores en `tools/notebooks/nbNN_*.py` (el generador del notebook 00 escribe además `scripts/mini_llm.py`). Regenerar **borra las salidas**.
@@ -815,5 +884,6 @@ Imprime `[segundos] nombre: OK | FAIL` por notebook y `N/M notebooks OK` al fina
 | `rag_demo.py --ask "..."` | RTX 3060 Laptop GPU + Ollama | ~10–16 s incluido el indexado |
 | `mcp_server.py` con un cliente stdio del SDK | CPU | sesión completa (arranque, `initialize`, listar todo, 4 llamadas a herramientas, 1 lectura de recurso) ≈ 2 s |
 | `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 90 pasan en ~42 s / 4 pasan en ~40 s |
+| `harness_run.py TAREA MODELO SALIDA --steps 15` (desde el notebook 27, 10 tareas por modelo) | RTX 3060 Laptop GPU + Ollama | tests ocultos superados: `qwen2.5:3b` **30 %**, `qwen2.5:7b` 20 %, `freehuntx/qwen3-coder:8b` 20 %; 64 / 82 / 216 s por tarea; 11 de 30 ejecuciones entregadas como terminadas con los tests ocultos fallando |
 
 Para el contexto pedagógico de cada etapa, consulta la [guía de notebooks](guia_notebooks.md). Para un recorrido de principio a fin con interpretación de resultados, el [caso de estudio](caso_de_estudio.md).

@@ -4,7 +4,7 @@
 
 [← Volver al índice](README.md)
 
-Esta guía deja el proyecto listo para ejecutar **todo**: la suite de tests, los scripts de línea de comandos y los 27 notebooks.
+Esta guía deja el proyecto listo para ejecutar **todo**: la suite de tests, los scripts de línea de comandos y los 28 notebooks.
 
 El curso tiene dos mitades con necesidades distintas:
 
@@ -23,6 +23,7 @@ El curso tiene dos mitades con necesidades distintas:
 | **24** | `transformers` (CLIP) y `datasets` (Oxford-IIIT Pet) de Hugging Face, `scikit-learn` para el linear probe, el cliente de Python de `ollama` para el modelo de visión, Pillow para dibujar y alterar imágenes, Pydantic para el esquema de las facturas y `config.setup` | **Ollama** con `qwen2.5vl:3b` (3,2 GB); CLIP ViT-B/32 (`openai/clip-vit-base-patch32`) y Oxford-IIIT Pet (`timm/oxford-iiit-pet`) del Hugging Face Hub la primera vez. **Se recomienda GPU** (CLIP codifica las 3.680 imágenes de entrenamiento y la muestra de test, y el VLM responde imagen a imagen). No entrena nada salvo una regresión logística. Tarda unos 12 minutos en GPU, casi todo llamadas al VLM. |
 | **25** | `sentence-transformers` (all-MiniLM-L6-v2, bge-small-en-v1.5), `umap-learn`, `scikit-learn` (`KMeans`, `HDBSCAN`, `CountVectorizer`, las métricas de clustering), `datasets` de Hugging Face (Banking77) y LangChain con Ollama (`config.setup` y `get_llm`) para poner nombre a los clusters | **Ollama** con `qwen2.5:3b`; Banking77 (`PolyAI/banking77`) y los dos modelos de embeddings del Hugging Face Hub la primera vez (ya estarán en la caché si has ejecutado el 17 y el 21). La GPU acelera la codificación, pero no hace falta: los modelos son pequeños. No entrena nada. Tarda unos 196 s en GPU, 88 s de ellos en que el LLM ponga nombre a los clusters. |
 | **26** | NumPy y `llm_edu_suite.recsys` (`download_movielens_1m`, `load_movielens_1m`) para el flujo del recomendador, y `sentence-transformers`, `scikit-learn` y `datasets` de Hugging Face para los tests de drift sobre embeddings; `config.setup` en la celda de configuración | MovieLens-1M con el ayudante del propio curso (la misma descarga en `data/cache/` que el notebook 12), y Banking77 (`PolyAI/banking77`) y bge-small-en-v1.5 del Hugging Face Hub la primera vez (ya estarán en la caché si has ejecutado el 21 y el 25). Ninguna dependencia nueva y ninguna llamada a un LLM. La GPU solo acelera la codificación de Banking77. Tarda unos 90 s en GPU. |
+| **27** | mini-swe-agent 2.4.6 (con litellm) en un **entorno virtual aparte**, `.venv-harness`, que lanza `scripts/harness_run.py`; bash para los comandos del agente (Git Bash en Windows); `pytest` para los tests ocultos | El entorno del harness (ver [El entorno del harness de agentes](#el-entorno-del-harness-de-agentes-notebook-27)) y **Ollama** con `qwen2.5:3b`, `qwen2.5:7b` y `freehuntx/qwen3-coder:8b` (5,2 GB). Nada que descargar aparte de los modelos, sin entrenamiento y sin trazas de LangSmith. El modelo de 8B con un contexto de 16k no cabe en 6 GB de VRAM (cerca del 46 % va en la CPU, ~216 s por tarea). Tarda unos 101 minutos en GPU, casi todo ejecuciones del agente. |
 
 No hace falta ninguna clave de API. Por defecto todo funciona en local.
 
@@ -35,7 +36,7 @@ No hace falta ninguna clave de API. Por defecto todo funciona en local.
 | GPU NVIDIA | opcional | RTX 3060 Laptop GPU, 6 GB |
 | [Ollama](https://ollama.com) | cualquier versión reciente | 0.40.15 |
 | Disco: entorno virtual | ~4 GB con la build CUDA de PyTorch (PyTorch solo ocupa ~2,9 GB); mucho menos con la de CPU | 4,1 GB |
-| Disco: modelos de Ollama | ~2,2 GB (`qwen2.5:3b` 1,9 GB + `nomic-embed-text` 0,27 GB); 4,7 GB más con el `qwen2.5:7b` opcional (juez en el 10, agente de código en el 14), 1,1 GB de `deepseek-r1:1.5b` (notebook 20), 1,6 GB de `llama-guard3:1b` (notebook 22) unos 5,7 GB de los tres formatos de `qwen2.5:1.5b-instruct` (notebook 23) y 3,2 GB del modelo de visión `qwen2.5vl:3b` (notebook 24) | |
+| Disco: modelos de Ollama | ~2,2 GB (`qwen2.5:3b` 1,9 GB + `nomic-embed-text` 0,27 GB); 4,7 GB más con el `qwen2.5:7b` opcional (juez en el 10, agente de código en el 14), 1,1 GB de `deepseek-r1:1.5b` (notebook 20), 1,6 GB de `llama-guard3:1b` (notebook 22), unos 5,7 GB de los tres formatos de `qwen2.5:1.5b-instruct` (notebook 23), 3,2 GB del modelo de visión `qwen2.5vl:3b` (notebook 24) y 5,2 GB de `freehuntx/qwen3-coder:8b` (notebook 27, que también usa `qwen2.5:7b`) | |
 | Disco: datos descargados | MovieLens-1M, 6 MB comprimido, y las muestras de FineWeb (12.000 documentos) y FineWeb-Edu (1.000), unos 45 MB en JSONL, en `data/cache/` | |
 | Disco: caché de Hugging Face | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB) y ~0,9 GB más con el notebook 17 (ModernBERT-base ~600 MB + Flan-T5-small ~300 MB, más Banking77) y ~0,45 GB más con el notebook 18 (`fineweb-edu-classifier` ~440 MB y el tokenizador de SmolLM2-135M), más los cuatro modelos y los dos conjuntos de datos del notebook 21, los tres pequeños benchmarks del notebook 22 y CLIP ViT-B/32 con Oxford-IIIT Pet para el notebook 24 (los notebooks 25 y 26 reutilizan Banking77 y los modelos del 21) | |
 
@@ -232,6 +233,46 @@ pip install langchain-anthropic
 
 `langchain-openai` y `langchain-anthropic` son extras opcionales (`pip install -e ".[openai]"` o `".[anthropic]"`) porque la instalación por defecto no los necesita. Un modelo en la nube cuesta dinero por llamada, y algunos resultados de los notebooks (los números comentados en el texto) se obtuvieron con `qwen2.5:3b`, así que los tuyos serán distintos. `scripts/rag_demo.py --ragas` siempre llama a su juez a través del endpoint compatible con OpenAI de Ollama, así que necesita Ollama sea cual sea el proveedor.
 
+## El entorno del harness de agentes (notebook 27)
+
+El notebook 27 ejecuta un harness real de agentes de programación, [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) (MIT), con modelos locales. mini-swe-agent vive en **su propio entorno virtual**, `.venv-harness`, junto a `.venv`: su interfaz de terminal necesita un `rich` más nuevo del que admite el entorno del curso, y tenerlo aparte evita que un entorno rompa el otro. El notebook en sí sigue corriendo en el kernel del curso; lanza `scripts/harness_run.py` con el Python del entorno del harness, un proceso por tarea, y ejecuta los tests ocultos con el `pytest` de ese Python.
+
+**1. Crea el entorno** (desde la raíz del repositorio; `.venv-*/` ya está en `.gitignore`):
+
+```powershell
+# Windows
+python -m venv .venv-harness
+.venv-harness\Scripts\python -m pip install mini-swe-agent==2.4.6 pytest
+```
+
+```bash
+# Linux / macOS
+python3 -m venv .venv-harness
+.venv-harness/bin/python -m pip install mini-swe-agent==2.4.6 pytest
+```
+
+El notebook busca exactamente `.venv-harness/Scripts/python.exe` (Windows) o `.venv-harness/bin/python` (Linux/macOS) en la raíz del repositorio, y se para con `Create the harness environment first` si no lo encuentra. La versión 2.4.6 es con la que se ejecutó el notebook (trae litellm, que es quien habla con Ollama); el notebook imprime el código de las funciones de mini-swe-agent, así que otra versión puede enseñar un código distinto.
+
+**2. Bash.** La única herramienta del agente es una shell bash. En Linux y macOS el runner usa el `bash` del `PATH`. En Windows usa **Git Bash**, de [Git for Windows](https://git-scm.com/download/win), en `C:\Program Files\Git\bin\bash.exe`; si el tuyo está en otro sitio, define la variable de entorno `HARNESS_BASH` con la ruta completa de `bash.exe` antes de abrir Jupyter.
+
+**3. Los modelos**, con Ollama (el mismo servidor que el resto del curso; la variable de entorno `OLLAMA_BASE_URL` apunta el runner a otro):
+
+```bash
+ollama pull qwen2.5:3b                  # 1,9 GB, ya descargado por el script de instalación
+ollama pull qwen2.5:7b                  # 4,7 GB
+ollama pull freehuntx/qwen3-coder:8b    # 5,2 GB, una versión de la comunidad de Qwen3-Coder
+```
+
+El runner pide a Ollama un **contexto de 16k** (`num_ctx=16384`), porque el historial de un agente crece con cada paso. En una tarjeta de 6 GB eso va bien para el 3B y el 7B, pero **el modelo de 8B con 16k no cabe en la VRAM**: `ollama ps` enseña cerca del 46 % en la CPU, y tarda unos 216 s por tarea, frente a 64 s del 3B. Cuenta con unos 101 minutos para el notebook entero en una RTX 3060, y ejecútalo solo (ver [Notas sobre la GPU](#notas-sobre-la-gpu)).
+
+**4. Compruébalo** sin el notebook: `-h` enseña los argumentos, y basta una carpeta con un `TASK.md` para una ejecución de verdad (ver [scripts de línea de comandos](scripts_cli.md#harness_runpy)):
+
+```powershell
+.venv-harness\Scripts\python scripts\harness_run.py -h
+```
+
+> El sandbox del runner (un entorno limpio, un timeout, una lista de comandos denegados y la carpeta de la tarea como directorio de trabajo) es una capa didáctica, como la del notebook 14, no una frontera de seguridad. Úsalo solo con carpetas de tareas desechables.
+
 ## Qué ejecutar después
 
 Tiempos medidos en la máquina de verificación (RTX 3060 Laptop GPU, Ollama en local).
@@ -272,6 +313,7 @@ Los `.ipynb` se **generan** a partir de `tools/notebooks/nbNN_*.py` (y `scripts/
 - **No ejecutes a la vez los notebooks de entrenamiento (07–09, y el 21, que entrena y llama a Ollama) y los de Ollama (10–16) en una GPU de 6 GB.** Lo mismo vale para el 24, que mantiene CLIP en la GPU mientras llama al modelo de visión. Cuando compiten por la VRAM, Ollama puede quedarse colgado en lugar de fallar. Ejecútalos uno detrás de otro y, si necesitas recuperar la memoria, descarga los modelos con `ollama stop qwen2.5:3b` (`ollama ps` muestra qué hay cargado).
 - **El notebook 23 mide latencias, así que ejecútalo solo.** Cualquier otro trabajo en la GPU (un notebook de entrenamiento, otro cliente de Ollama) cambia todos los números. Para la sección de concurrencia descarga los modelos del servidor de Ollama por defecto, arranca un segundo servidor con `OLLAMA_NUM_PARALLEL=4` y `OLLAMA_MAX_LOADED_MODELS=1` en un puerto libre y lo para al terminar, así que la configuración del servidor por defecto no cambia nunca. El segundo servidor tiene que encontrar los mismos modelos: el notebook lee `OLLAMA_MODELS` del `%LOCALAPPDATA%\Ollama\server.log` de la aplicación de escritorio y, si no, recurre a la variable de entorno `OLLAMA_MODELS` o a `~/.ollama/models`.
 - Si Ollama no consigue meter un modelo en la GPU, lo ejecuta (en parte) en CPU: sigue funcionando, solo que más lento.
+- **El notebook 27 es una larga cadena de llamadas a Ollama, así que ejecútalo solo.** `freehuntx/qwen3-coder:8b` con el contexto de 16k del runner necesita más de 6 GB y va cerca de un 46 % en la CPU, y otro trabajo de Ollama a la vez puede dejar Ollama atascado. En la ejecución publicada, una tarea del 3B llegó al timeout de seguridad de 420 s del notebook sin dar un solo paso, un atasco de Ollama; el notebook cuenta esa ejecución como fallida y sigue.
 - **El notebook 19 en Windows.** Las wheels de PyTorch para Windows no traen FlashAttention-2 (SDPA usa entonces los kernels memory-efficient o cuDNN) ni Triton, así que el backend por defecto de `torch.compile`, `inductor`, falla con `TritonMissing` y el notebook usa `backend="cudagraphs"`. Para FlashAttention-2, `torch.compile` con `inductor` o el paquete `flash-attn`, usa Linux o WSL2. El DDP del notebook corre en dos procesos de CPU con `gloo`, lanzados con `torch.multiprocessing.spawn` y conectados por un fichero compartido (`init_method="file://..."`, un `FileStore`), porque el rendezvous TCP de `torchrun` necesita libuv, que la build de Windows no incluye; NCCL, el backend de GPU, solo existe en Linux.
 - **Lento en vez de sin memoria.** En Windows, cuando un proceso supera la VRAM, el driver puede desbordar a la RAM del sistema ("memoria de GPU compartida") en lugar de dar un error: en el notebook 19, el backend *math* de SDPA declaró 8,1 GB en una tarjeta de 6 GB y tardó 978 ms. Si algo se vuelve lento de repente, mira la memoria de GPU compartida en el Administrador de tareas.
 
@@ -298,4 +340,7 @@ Los `.ipynb` se **generan** a partir de `tools/notebooks/nbNN_*.py` (y `scripts/
 | El notebook 23 se para con `the second Ollama server did not start` | El `ollama serve` temporal no respondió a tiempo; el notebook descarta su salida, así que no se ve el motivo | Lanza `ollama serve` a mano en un terminal con `OLLAMA_HOST=127.0.0.1:<puerto>` para ver el error, y comprueba que `ollama` está en el `PATH` del kernel de Jupyter |
 | En la sección de concurrencia del notebook 23, el segundo servidor responde `model ... not found` | El segundo servidor busca los modelos en otra carpeta (por ejemplo, los moviste y no usas la aplicación de escritorio, así que no hay `server.log` que leer) | Define `OLLAMA_MODELS` con la carpeta de tus modelos antes de abrir Jupyter |
 | `bind: An attempt was made to access a socket in a way forbidden by its access permissions` al arrancar un segundo `ollama serve` en un puerto fijo (p. ej. `OLLAMA_HOST=127.0.0.1:11435`) | Windows reserva rangos de puertos TCP (para Hyper-V, WSL2 o Docker) y el puerto elegido cae dentro de uno | Lista los rangos reservados con `netsh interface ipv4 show excludedportrange protocol=tcp` y elige un puerto fuera de ellos, o haz como el notebook 23 y deja que el sistema te dé uno libre (`socket.bind(("127.0.0.1", 0))`) |
+| El notebook 27 se para con `Create the harness environment first` | No hay un `.venv-harness` en la raíz del repositorio, o tiene otro nombre | Créalo como en [El entorno del harness de agentes](#el-entorno-del-harness-de-agentes-notebook-27); el notebook busca exactamente esa carpeta |
+| En el notebook 27 todas las ejecuciones fallan en su primer comando, con un estado de salida que empieza por `error: FileNotFoundError` | El runner no encontró bash (en Windows, Git Bash no está en `C:\Program Files\Git\bin\bash.exe`) | Instala Git for Windows, o define `HARNESS_BASH` con la ruta completa de tu `bash.exe` y reinicia el kernel |
+| En el notebook 27 las ejecuciones de qwen3-coder tardan minutos cada una, o una termina como `harness: TimeoutExpired` | El modelo de 8B con contexto de 16k se desborda a la CPU, u otro trabajo está usando Ollama | Es lo esperado en una tarjeta de 6 GB (~216 s por tarea); mira `ollama ps` y no ejecutes nada más en la GPU |
 | `torchrun` falla en Windows con un error sobre libuv | El rendezvous TCP de `torchrun` necesita libuv, que la build de Windows no trae | Lanza los procesos con `torch.multiprocessing.spawn` e `init_method="file://..."`, como el notebook 19, o usa Linux o WSL2 |

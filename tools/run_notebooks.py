@@ -40,7 +40,7 @@ def run(path: str) -> bool:
     ok, msg = True, "OK"
     try:
         # Use the notebook's own folder as the working directory, just as Jupyter does.
-        NotebookClient(nb, timeout=3600, kernel_name="python3", resources={"metadata": {"path": os.path.dirname(path)}}).execute()
+        NotebookClient(nb, timeout=int(os.environ.get("NB_CELL_TIMEOUT", 3600)), kernel_name="python3", resources={"metadata": {"path": os.path.dirname(path)}}).execute()
     except Exception as e:  # keep going so we report every failing notebook, not just the first one
         ok, msg = False, "FAIL\n" + str(e)[-1500:]
     nbformat.write(nb, path)

@@ -69,7 +69,7 @@ Los notebooks 07, 08 y 09 no importan nada de `llm_edu_suite`: trabajan directam
 | `notebooks/02_pretraining_and_inference/` | 18 (se lee antes del 05), 05, 19 (se lee después del 05), 06, 23 (se lee después del 06), 09 |
 | `notebooks/03_post_training/` | 07, 08, 20 (se lee después del 08) |
 | `notebooks/04_applications/` | 21 (se lee antes del 10), 25 (se lee después del 21), 24 (se lee después del 21), 10, 12, 26 (se lee después del 12), 13 |
-| `notebooks/05_agents_and_mcp/` | 11, 14, 16 |
+| `notebooks/05_agents_and_mcp/` | 11, 14, 16, 27 (se lee después del 16) |
 | `notebooks/06_llmops/` | 15, 22 (se lee después del 15) |
 
 Por ejemplo, el notebook 05 es `notebooks/02_pretraining_and_inference/05_pretraining.ipynb`. `python tools/run_notebooks.py 05` lo encuentra por número, esté donde esté (ver [scripts de línea de comandos](scripts_cli.md#herramientas-y-objetivos-del-makefile)).
@@ -758,5 +758,5 @@ Antes de usar Ollama hay que descargar los modelos: `ollama pull qwen2.5:3b` y `
 ## Ver también
 
 - [Scripts de línea de comandos](scripts_cli.md): `train.py`, `sample.py`, `finetune.py`, `rag_demo.py`, `mini_llm.py`, `mcp_server.py`, `generate_item_keywords.py`.
-- [Guía de notebooks](guia_notebooks.md): el recorrido pedagógico de los 27 notebooks (00 a 26).
+- [Guía de notebooks](guia_notebooks.md): el recorrido pedagógico de los 28 notebooks (00 a 27).
 - [Glosario](glosario.md): definiciones breves de los términos usados aquí.

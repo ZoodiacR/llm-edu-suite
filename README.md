@@ -6,7 +6,7 @@
 
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-- **27 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
+- **28 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
 - **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free).
 - **Honest results**: when a technique does not help in our setup, the notebook shows it and explains why
 - **Tested**: fast tests with fake LLMs in CI on every push, integration tests against the local models
@@ -46,6 +46,7 @@ The number is the suggested study order; the folder is the topic.
 | **Agents & MCP** | [11 · tools & structured output](notebooks/05_agents_and_mcp/11_agents_tools_structured_output.ipynb) | how tool calling works, `bind_tools`, the loop by hand, `create_agent`, Pydantic outputs | LangChain |
 | | [14 · agentic AI](notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) | StateGraph, guardrails, human-in-the-loop, memory, plan-and-execute, reflection, routing, supervisor vs handoffs, sandboxed code execution | LangGraph |
 | | [16 · Model Context Protocol](notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb) | MCP from the wire up, a FastMCP server, an agent using MCP tools, security, sampling / elicitation / roots, a remote server with OAuth 2.1 bearer tokens | `mcp` SDK, `langchain-mcp-adapters` |
+| | [27 · agent harnesses](notebooks/05_agents_and_mcp/27_agent_harness.ipynb) | what turns a model into a coding agent (Claude Code, Codex CLI, opencode): mini-swe-agent read function by function, a sandboxed environment with a permission policy, 10 coding tasks scored by hidden tests with three local models, `AGENTS.md` project memory, a prompt injection planted in the repository | mini-swe-agent, Ollama |
 | **LLMOps** | [15 · observability & evaluation](notebooks/06_llmops/15_observability_llmops.ipynb) | tracing, latency percentiles, SLOs, feedback, PII anonymization, datasets + `evaluate()` | LangSmith |
 | | [22 · safety & guardrails](notebooks/06_llmops/22_safety_guardrails.ipynb) | refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, safety prompts, layered defences, validated judges | Ollama, Llama Guard 3 |
 
@@ -83,6 +84,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 15 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback surfaced a real tool-prompt bug |
 | 22 · safety (JailbreakBench, XSTest) | `qwen2.5:3b` refuses 89% of harmful requests but over-refuses 17% of safe ones (7B: 5%); **prefix injection lifts attack success from 4% to 64%**; Llama Guard 3 1B catches 95–100% of harmful requests, disguised or not, but blocks 8–22% of safe ones; a 7B LLM judge agreed with humans only 70% vs 90% for a keyword judge |
 | 16 · MCP | the FastMCP server passes **14/14 conformance checks**; the agent answers 6/6 questions through MCP tools (4/6 cited); a tool call costs 3.0 ms over stdio and 5.2 ms over authenticated Streamable HTTP; requests without a valid token get 401 with RFC 9728 metadata |
+| 27 · agent harness (mini-swe-agent, 10 coding tasks) | scored by hidden tests: `qwen2.5:3b` 30%, `qwen2.5:7b` 20%, `qwen3-coder:8b` 20%, a one-task spread that an earlier run reshuffled; **11 of 30 runs declared the task done while the hidden tests failed**; an `AGENTS.md` file took the 3B from 0% to 33% on convention-only tasks; a prompt injection in a code comment reached two models and neither followed it |
 
 ## Quick start
 
@@ -120,12 +122,13 @@ Switching the whole course to a hosted model is a `.env` change (`LLM_PROVIDER=o
 
 ```
 llm-edu-suite/
-├── notebooks/                 27 notebooks, one folder per topic
+├── notebooks/                 28 notebooks, one folder per topic
 │   ├── 00_start_here/  01_architecture/  02_pretraining_and_inference/
 │   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/
 ├── llm_edu_suite/             the from-scratch model (tokenizer, layers, model, training, inference, recsys,
 │                              evaluation) + config.py, the one place where models and services are chosen
-├── scripts/                   mini_llm, train, sample, finetune (TRL), rag_demo (LangChain), mcp_server (FastMCP)
+├── scripts/                   mini_llm, train, sample, finetune (TRL), rag_demo (LangChain), mcp_server (FastMCP),
+│                              harness_run (mini-swe-agent, run from its own .venv-harness)
 ├── tests/                     fast tests with fake LLMs + Ollama-marked integration tests
 ├── tools/notebooks/           one generator per notebook (the source of truth) + CONVENTIONS.md
 ├── data/                      knowledge base and eval sets (RAG, LangSmith, MCP, recommender), LLM item keywords;
@@ -155,6 +158,7 @@ llm-edu-suite/
 | [v2.5](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.5) | Retrieval and agents in depth: an embeddings-and-rerankers notebook (contrastive fine-tuning with hard negatives, Matryoshka, binary quantization with rescoring, rerankers, on BEIR SciFact); multi-agent supervisor vs handoffs and sandboxed code execution in notebook 14; MCP sampling, elicitation, roots and a remote server with OAuth 2.1 bearer tokens in notebook 16. |
 | [v2.6](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.6) | Production: a safety notebook (refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, layered defences, validated judges) and a serving notebook (latency metrics, prefill vs decode, prefix caching, batching slots, GGUF formats, a gateway and a cost-aware cascade). |
 | [v2.7](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.7) | Beyond text and beyond a single snapshot: multimodal models (CLIP zero-shot and probes, a vision-language model, document extraction, typographic attacks), clustering and topic modeling of user messages with emerging-intent detection, and online learning and drift (models aging on a stream, PSI, embedding drift tests). |
+| [v2.8](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.8) | Agent harness notebook: mini-swe-agent anatomy, 10 coding tasks × 3 local models, `AGENTS.md` memory, repo prompt injection. |
 
 ## Roadmap
 

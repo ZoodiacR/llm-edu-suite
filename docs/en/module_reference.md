@@ -69,7 +69,7 @@ Notebooks 07, 08 and 09 import nothing from `llm_edu_suite`: they work with Hugg
 | `notebooks/02_pretraining_and_inference/` | 18 (read before 05), 05, 19 (read after 05), 06, 23 (read after 06), 09 |
 | `notebooks/03_post_training/` | 07, 08, 20 (read after 08) |
 | `notebooks/04_applications/` | 21 (read before 10), 25 (read after 21), 24 (read after 21), 10, 12, 26 (read after 12), 13 |
-| `notebooks/05_agents_and_mcp/` | 11, 14, 16 |
+| `notebooks/05_agents_and_mcp/` | 11, 14, 16, 27 (read after 16) |
 | `notebooks/06_llmops/` | 15, 22 (read after 15) |
 
 For example, notebook 05 is `notebooks/02_pretraining_and_inference/05_pretraining.ipynb`. `python tools/run_notebooks.py 05` finds it by number wherever it lives (see [command-line scripts](cli_scripts.md#tools-and-makefile-targets)).
@@ -758,5 +758,5 @@ Before using Ollama, pull the models: `ollama pull qwen2.5:3b` and `ollama pull 
 ## See also
 
 - [Command-line scripts](cli_scripts.md): `train.py`, `sample.py`, `finetune.py`, `rag_demo.py`, `mini_llm.py`, `mcp_server.py`, `generate_item_keywords.py`.
-- [Notebooks guide](notebooks_guide.md): the course path through all 27 notebooks (00 to 26).
+- [Notebooks guide](notebooks_guide.md): the course path through all 28 notebooks (00 to 27).
 - [Glossary](glossary.md): short definitions of the terms used here.
