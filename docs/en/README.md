@@ -2,7 +2,7 @@
 
 🇪🇸 [Versión en español](../es/README.md) · [Main README](../../README.md)
 
-A hands-on LLM engineering course in two halves:
+A hands-on LLM engineering course in two halves, with a map to start from: notebook 30 (transformers, the big picture) is read before anything else. It follows one sentence through a real small model, SmolLM2-135M, from tokens to embeddings, attention, the prediction layer by layer (the logit lens) and the next-token distribution, and shows where the parameters live, without training anything. Then:
 
 1. **Inside the model (notebooks 00–06):** we build a language model from scratch in PyTorch (tokenizer, attention, RoPE, MoE, training, inference) to understand how it works.
 2. **With the industry's tools (notebooks 07–16):** fine-tuning with Hugging Face (`transformers`, `peft`, `trl`), quantization with `optimum-quanto`, RAG with LangChain evaluated with RAGAS, agents with LangGraph, observability and evaluation with LangSmith, and the Model Context Protocol with the official SDK.
@@ -29,6 +29,10 @@ Notebook 26 (online learning and drift) is read right after 12: it replays Movie
 
 Notebook 27 (agent harnesses) is read right after 16: it opens up the layer that turns a model into a coding agent, the kind of program Claude Code and Codex CLI are. It reads the source of mini-swe-agent, a minimal harness, function by function, extends it with a sandboxed environment and a permission policy, and runs it with three local models on ten coding tasks scored by hidden tests. Then it measures what an `AGENTS.md` project-memory file adds and what a prompt injection planted in the repository does.
 
+Notebook 28 (DSPy) is read right after 13: it stops writing prompts by hand. On notebook 17's Banking77 sample it declares the classifier as a DSPy signature, compares random few-shot examples with nearest-neighbour examples chosen per message and with retrieval alone, runs three prompt optimizers (bootstrap random search, MIPROv2 and GEPA, with `qwen2.5:7b` writing instructions for the 3B model), and measures what a bigger model and a router that calls the LLM only when the neighbours disagree add, in accuracy, latency and LLM calls.
+
+Notebook 29 (evaluation and tracing frameworks) is read right after 15: it puts the same ideas on open-source infrastructure that runs on the laptop. It reproduces notebook 20's GSM8K result as an Inspect AI task, measures how much the scorer and sampling epochs change the number, and traces a LangChain pipeline over OpenTelemetry to a self-hosted Phoenix server, reading latency and tokens per step back from the trace store, writing evaluations onto the traces as annotations and measuring what tracing costs.
+
 Everything runs locally: **Ollama** serves the LLMs (`qwen2.5:3b` and `nomic-embed-text`) and the training models are Hugging Face SmolLM2. An NVIDIA GPU makes it fast (the published results were measured on an RTX 3060, 6 GB); CPU works too, except for notebook 19, which needs a CUDA GPU. LangSmith is optional.
 
 ## Pages
@@ -36,27 +40,28 @@ Everything runs locally: **Ollama** serves the LLMs (`qwen2.5:3b` and `nomic-emb
 | Page | What it is for |
 |---|---|
 | [Installation and environment](installation.md) | `.venv`, CUDA PyTorch, Ollama and its models, the `.env`, the LangSmith key, troubleshooting |
-| [Notebook guide](notebooks_guide.md) | the 28 notebooks one by one: what you build, with which tools, which concepts and which results |
+| [Notebook guide](notebooks_guide.md) | the 31 notebooks one by one: what you build, with which tools, which concepts and which results |
 | [Theoretical foundations](foundations.md) | the theory behind each technique and pattern: the problem it solves, the idea, why it is used today, how it fails |
 | [Module reference](module_reference.md) | the `llm_edu_suite/` package (the from-scratch model and `config.py`) and where each topic is taught with frameworks |
-| [Command-line scripts](cli_scripts.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP), `harness_run` (mini-swe-agent) |
+| [Command-line scripts](cli_scripts.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP), `harness_run` (mini-swe-agent), `inspect_tasks/gsm8k_cot` (Inspect AI) |
 | [Case study](case_study.md) | the project as a portfolio case: v1 from scratch, v2 with frameworks, decisions, problems and results |
-| [Glossary](glossary.md) | GQA, LoRA, DPO, GRPO, RAGAS, LCEL, StateGraph, MCP, span, SLO… |
+| [Glossary](glossary.md) | GQA, logit lens, LoRA, DPO, GRPO, RAGAS, LCEL, DSPy signature, StateGraph, MCP, span, OpenTelemetry, SLO… |
 
 ## Topic map
 
 | Topic | Folder | Notebooks | Tools |
 |---|---|---|---|
-| Start here | `notebooks/00_start_here/` | 00 · a complete mini LLM | PyTorch |
+| Start here | `notebooks/00_start_here/` | 30 · transformers, the big picture (read first) · 00 · a complete mini LLM | `transformers` (30) · PyTorch |
 | Architecture | `notebooks/01_architecture/` | 01 tokenization · 02 attention, RoPE and normalization · 03 efficient attention · 04 FFN and MoE · 17 encoders and encoder-decoders | PyTorch from scratch · `transformers` and `scikit-learn` (17) |
 | Pre-training and inference | `notebooks/02_pretraining_and_inference/` | 18 data engineering (deduplication, filtering, decontamination) · 05 pre-training · 19 systems (memory, precision, kernels, parallelism) · 06 inference · 23 serving under load (TTFT, batching, caching, GGUF, gateways) · 09 quantization | PyTorch · `datasets` and `transformers` (18) · `torch.profiler` and `torch.distributed` (19) · Ollama over HTTP (23) · `optimum-quanto` |
 | Post-training | `notebooks/03_post_training/` | 07 SFT, LoRA, distillation and model merging · 08 DPO and GRPO · 20 reasoning and test-time compute | `transformers` · `peft` · `trl` · LangChain (Ollama) (20) |
-| Applications | `notebooks/04_applications/` | 21 embeddings and rerankers · 25 clustering and topic modeling (UMAP, HDBSCAN, c-TF-IDF) · 24 multimodal models (CLIP, VLMs, document extraction) · 10 RAG · 12 recommendation · 26 online learning and drift · 13 application patterns | LangChain · RAGAS · PyTorch · `sentence-transformers` (21, 25) · `umap-learn` and `scikit-learn` (25) · CLIP with `transformers` and `qwen2.5vl:3b` through Ollama (24) |
+| Applications | `notebooks/04_applications/` | 21 embeddings and rerankers · 25 clustering and topic modeling (UMAP, HDBSCAN, c-TF-IDF) · 24 multimodal models (CLIP, VLMs, document extraction) · 10 RAG · 12 recommendation · 26 online learning and drift · 13 application patterns · 28 prompt optimization with DSPy (signatures, kNN few-shot, MIPROv2, GEPA) | LangChain · RAGAS · PyTorch · `sentence-transformers` (21, 25, 28) · `umap-learn` and `scikit-learn` (25) · CLIP with `transformers` and `qwen2.5vl:3b` through Ollama (24) · DSPy (28) |
 | Agents and MCP | `notebooks/05_agents_and_mcp/` | 11 tools and structured output · 14 agentic AI · 16 MCP · 27 agent harnesses (mini-swe-agent, coding tasks, `AGENTS.md`) | LangChain · LangGraph · `mcp` SDK · mini-swe-agent through Ollama (27) |
-| LLMOps | `notebooks/06_llmops/` | 15 observability and evaluation · 22 safety: refusals, jailbreaks and guard models | LangSmith · Llama Guard 3 through Ollama (22) |
+| LLMOps | `notebooks/06_llmops/` | 15 observability and evaluation · 29 evaluation and tracing frameworks (Inspect AI, Phoenix) · 22 safety: refusals, jailbreaks and guard models | LangSmith · Inspect AI and Arize Phoenix on OpenTelemetry (29) · Llama Guard 3 through Ollama (22) |
 
 ```mermaid
 flowchart LR
+    ZZ["30 · Transformers, the big picture<br/>tokens · attention · logit lens"] --> Z
     Z[00 · mini LLM] --> B[01 Tokenizer]
     B --> C[02-04 Transformer<br/>RoPE · GQA/MLA · MoE]
     C --> Q["17 Encoders and encoder-decoders<br/>BERT · ModernBERT · T5"]
@@ -76,22 +81,24 @@ flowchart LR
     H --> K[12 Recommendation]
     K --> Y["26 Drift and online learning<br/>PSI · MMD · retraining"]
     H --> L[13 Patterns]
+    L --> DS["28 DSPy<br/>signatures · kNN few-shot · optimizers"]
     H --> J[11 Tools]
     J --> M["14 Agents · LangGraph"]
     J --> N["16 MCP · official SDK"]
     N --> AA["27 Agent harnesses<br/>mini-swe-agent · AGENTS.md · hidden tests"]
     M --> O["15 LangSmith"]
+    O --> PH["29 Inspect AI + Phoenix<br/>tasks · scorers · OpenTelemetry"]
     O --> U["22 Safety<br/>jailbreaks · over-refusal · Llama Guard"]
 ```
 
 ## Suggested learning path
 
-0. **Overview:** 00, to see how the pieces fit before studying them one by one.
+0. **Overview:** 30, to see what a real model does with a sentence, then 00, to build a whole one and see how the pieces fit before studying them one by one. After 30 you should know that a model reads token ids, that its output is a probability distribution turned into text by a decoding rule, and that most of its parameters are in the feed-forward layers.
 1. **Architecture:** 01 → 02 → 03 → 04 → 17. Afterwards you should be able to write a transformer from memory and know when an encoder or an encoder-decoder is a better fit than a decoder-only model.
 2. **Data, training and inference:** 18 → 05 → 19 → 06 → 23. First which text goes into the model and why, then how a model is trained on it and what that training costs in memory and time, on one GPU and on many. After 23 you should know what users wait for when a model is served (TTFT, TPOT, percentiles), why batching, prefix caching and quantized weights help, and how to size a server from its request rate.
 3. **Post-training with Hugging Face:** 07 → 08 → 20, then 09 (quantization). After 20 you should know what reasoning tokens buy, when voting or a verifier is worth its cost, and how to tell whether a judge can be trusted.
-4. **Applications with LangChain:** 21 → 25 → 24 → 10 → 13 → 12 → 26. After 21 you should know how to choose, fine-tune, compress and evaluate a retriever before putting it into RAG. After 25 you should know how to find the topics in unlabeled logs, why the number of clusters is a choice rather than a discovery, and how to watch for new intents. After 24 you should know when to classify images with embeddings and when a VLM is worth its cost, what an image costs in tokens, and why text inside an image is untrusted input. After 26 you should know why a model that worked last month may not work now, how to evaluate it on a stream, and why watching input distributions alone can miss the drift that matters. Golden rule: **build your evaluation set before the system**.
-5. **Agents:** 11 → 14 → 16 → 27 and finally 15, to see how everything is observed and evaluated in production, then 22. After 27 you should know what a coding agent's harness does besides calling the model, why an agent's own "done" needs hidden tests behind it, and why the defence against instructions hidden in a repository belongs in the harness. After 22 you should know how to measure a model's refusals and its over-refusals, why a model's own refusals are not enough of a defence, and what a guard model costs in false positives.
+4. **Applications with LangChain:** 21 → 25 → 24 → 10 → 13 → 28 → 12 → 26. After 21 you should know how to choose, fine-tune, compress and evaluate a retriever before putting it into RAG. After 25 you should know how to find the topics in unlabeled logs, why the number of clusters is a choice rather than a discovery, and how to watch for new intents. After 24 you should know when to classify images with embeddings and when a VLM is worth its cost, what an image costs in tokens, and why text inside an image is untrusted input. After 26 you should know why a model that worked last month may not work now, how to evaluate it on a stream, and why watching input distributions alone can miss the drift that matters. After 28 you should know how to write an LLM step as a signature instead of a prompt, why the examples you put in a prompt matter more than its wording, what prompt optimizers search and when they cannot help, and why a non-LLM baseline and a cascade come before any of them. Golden rule: **build your evaluation set before the system**.
+5. **Agents:** 11 → 14 → 16 → 27 and finally 15, to see how everything is observed and evaluated in production, then 29 and 22. After 27 you should know what a coding agent's harness does besides calling the model, why an agent's own "done" needs hidden tests behind it, and why the defence against instructions hidden in a repository belongs in the harness. After 29 you should know how to define an evaluation as code (dataset, solver, scorer, epochs), why a framework has to reproduce your trusted number before you adopt it, why the scorer is part of the metric, and how OpenTelemetry traces, spans and annotations give you per-step latency, tokens and searchable failures on your own machine. After 22 you should know how to measure a model's refusals and its over-refusals, why a model's own refusals are not enough of a defence, and what a guard model costs in false positives.
 
 ## Principles
 

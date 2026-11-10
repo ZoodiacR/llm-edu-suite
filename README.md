@@ -6,7 +6,7 @@
 
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-- **28 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
+- **31 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
 - **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free).
 - **Honest results**: when a technique does not help in our setup, the notebook shows it and explains why
 - **Tested**: fast tests with fake LLMs in CI on every push, integration tests against the local models
@@ -21,7 +21,8 @@ The number is the suggested study order; the folder is the topic.
 
 | Topic | Notebook | What you learn | Tools |
 |---|---|---|---|
-| **Start here** | [00 · mini LLM end to end](notebooks/00_start_here/00_mini_llm_end_to_end.ipynb) | a whole GPT in one notebook: BPE → RoPE/RMSNorm/SwiGLU → training → sampling → checkpoint | PyTorch |
+| **Start here** | [30 · transformers, the big picture](notebooks/00_start_here/30_transformers_big_picture.ipynb) | read this first: one sentence followed through a real model (SmolLM2-135M): tokens, embeddings, attention maps, the logit lens layer by layer, the next-token distribution and temperature, where the parameters live | `transformers` |
+| | [00 · mini LLM end to end](notebooks/00_start_here/00_mini_llm_end_to_end.ipynb) | a whole GPT in one notebook: BPE → RoPE/RMSNorm/SwiGLU → training → sampling → checkpoint | PyTorch |
 | **Architecture** | [01 · tokenization](notebooks/01_architecture/01_tokenization.ipynb) | byte-level BPE, vocabulary trade-offs, fertility | PyTorch (from scratch) |
 | | [02 · attention, RoPE, norms](notebooks/01_architecture/02_attention_rope_norm.ipynb) | RMSNorm, RoPE, MHA → GQA → MQA → MLA, KV-cache | PyTorch (from scratch) |
 | | [03 · efficient attention](notebooks/01_architecture/03_efficient_attention.ipynb) | sliding window, Longformer, block-sparse, linear attention, induction heads | PyTorch, FlexAttention |
@@ -43,11 +44,13 @@ The number is the suggested study order; the folder is the topic.
 | | [12 · recommender systems](notebooks/04_applications/12_recommender_systems.ipynb) | the industry funnel on MovieLens-1M: SASRec, two-tower + FAISS, LambdaMART ranker, exploration and diversity, LLM requests and explanations | PyTorch, FAISS, LightGBM, LangChain |
 | | [26 · online learning & drift](notebooks/04_applications/26_online_learning_drift.ipynb) | models aging on a stream, prequential evaluation, weekly / sliding / online updates, PSI, drift-triggered retraining, embedding drift tests (MMD, classifier two-sample) for LLM apps | NumPy, `sentence-transformers` |
 | | [13 · LLM application patterns](notebooks/04_applications/13_modern_llm_applications.ipynb) | extraction, classification, map-reduce summarization, caching, prompt-injection defense, batch jobs | LangChain |
+| | [28 · DSPy prompt optimization](notebooks/04_applications/28_dspy_prompt_optimization.ipynb) | prompts as programs: signatures, modules and adapters, random vs nearest-neighbour few-shot, the BootstrapFewShot, MIPROv2 and GEPA optimizers, a retrieval-first router, an optimized program saved as JSON; on notebook 17's Banking77 sample | DSPy, Ollama, `sentence-transformers` |
 | **Agents & MCP** | [11 · tools & structured output](notebooks/05_agents_and_mcp/11_agents_tools_structured_output.ipynb) | how tool calling works, `bind_tools`, the loop by hand, `create_agent`, Pydantic outputs | LangChain |
 | | [14 · agentic AI](notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) | StateGraph, guardrails, human-in-the-loop, memory, plan-and-execute, reflection, routing, supervisor vs handoffs, sandboxed code execution | LangGraph |
 | | [16 · Model Context Protocol](notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb) | MCP from the wire up, a FastMCP server, an agent using MCP tools, security, sampling / elicitation / roots, a remote server with OAuth 2.1 bearer tokens | `mcp` SDK, `langchain-mcp-adapters` |
 | | [27 · agent harnesses](notebooks/05_agents_and_mcp/27_agent_harness.ipynb) | what turns a model into a coding agent (Claude Code, Codex CLI, opencode): mini-swe-agent read function by function, a sandboxed environment with a permission policy, 10 coding tasks scored by hidden tests with three local models, `AGENTS.md` project memory, a prompt injection planted in the repository | mini-swe-agent, Ollama |
 | **LLMOps** | [15 · observability & evaluation](notebooks/06_llmops/15_observability_llmops.ipynb) | tracing, latency percentiles, SLOs, feedback, PII anonymization, datasets + `evaluate()` | LangSmith |
+| | [29 · evaluation & tracing frameworks](notebooks/06_llmops/29_eval_and_tracing_frameworks.ipynb) | notebook 20's GSM8K evaluation as an Inspect AI task (solvers, scorers, epochs, logs); OpenTelemetry tracing to a self-hosted Phoenix server: latency and tokens per step, annotations on traces, tracing overhead | Inspect AI, Arize Phoenix, OpenInference |
 | | [22 · safety & guardrails](notebooks/06_llmops/22_safety_guardrails.ipynb) | refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, safety prompts, layered defences, validated judges | Ollama, Llama Guard 3 |
 
 Detailed notebook-by-notebook guide: [English](docs/en/notebooks_guide.md) · [Español](docs/es/guia_notebooks.md).
@@ -58,6 +61,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 
 | Notebook | Result |
 |---|---|
+| 30 · transformers big picture (SmolLM2-135M) | Spanish needs **1.73×** the tokens of English for the same sentences; one attention head (layer 13, head 8) puts 0.73 on "animal" and 0.02 on "street" when reading "it", while **61% of all attention lands on the first token** (the attention sink); the logit lens shows the right answer reaching top-1 only in layers 28–30 of 30; 59% of the parameters are feed-forward (75% in Qwen2.5-7B) |
 | 00 · mini LLM | a 1.9M-parameter GPT trains in ~20 s on the GPU and ends **0.6% above its corpus's theoretical minimum loss**; 82% of sampled sentences are grammatical |
 | 03 · efficient attention | long-range copy accuracy: **dense 99.9%, block-sparse 88.7%, hybrid 48.4%, sliding window and linear ~0%**; at 300 steps even dense is at 0.3% (the induction-head phase transition) |
 | 17 · encoders | from scratch, bidirectional context recovers the first token of a word **100% vs 2.9%** for a decoder. On Banking77 (77 intents): fine-tuned ModernBERT **93.0%**, nomic embeddings + logistic regression **93.3%**, `qwen2.5:3b` 61.9% few-shot; function calling left 181 of 231 outputs invalid, constrained decoding none |
@@ -80,8 +84,10 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 12 · recommender (MovieLens-1M) | full-ranking hit@10: popularity 0.036, ItemKNN 0.125, two-tower 0.194, SASRec 0.293, **LambdaMART ranker 0.307** (+1.4 points, 95% CI [+0.7, +2.1]); a new-movie slot lifts cold-start hits 0.009 → 0.044; an LLM front end satisfies request constraints in **87% vs 60%** for embedding search, while LLM keywords did not help ranking |
 | 26 · drift (MovieLens-1M stream, Banking77) | a frozen co-visitation recommender decays 0.184 → 0.160 hit@10 in 22 weeks while weekly retraining holds ~0.20 (+18%); PSI stayed at 0.01–0.03, so **input monitors missed the concept drift**; embedding drift tests detect a 40% shift in user questions 90–100% of the time but a 20% shift only 25–30% |
 | 13 · application patterns | map-reduce summary covers **11/13 topics** vs 9/13 for one silently truncated call (6/13 in another run); an LLM injection guard catches **10/10 attacks with 0/10 false positives** |
+| 28 · DSPy (Banking77, `qwen2.5:3b`, 231 messages) | DSPy's zero-shot prompt scores 0.558 vs 0.489 for notebook 17's hand-written one; 16 random demos drop it to 0.433 and 16 nearest-neighbour demos lift it to 0.870; **MIPROv2, GEPA and bootstrap random search gain nothing** (0.554–0.558); retrieval alone (8-NN vote, no LLM) 0.913; a router that calls the LLM only when the neighbours disagree reaches **0.922 at 0.03 s per message, with 3% of the LLM calls** (the 7B with kNN demos: 0.926 at 1.6 s) |
 | 14 · LangGraph agents | every guardrail stops with an explicit reason; on 10 short tasks a single ReAct agent (70%, 2.2 model calls) beats plan-and-execute (60%, 6.6 calls), ties a supervisor (80% at 2.4× the calls) and beats free handoffs (30%); a code sandbox contains 8 of 9 attack probes (the `ctypes` hole shown on purpose) and no secret is reachable; a 7B code-writing agent answers 6/10 data questions with execution feedback |
 | 15 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback surfaced a real tool-prompt bug |
+| 29 · Inspect AI + Phoenix | Inspect reproduces notebook 20's GSM8K result exactly (**85.0%**); its built-in `match` scorer on the same generations gives 80.0% (−5 points, all four disagreements `oxed{}` answers); three sampled epochs land at 80.0–82.5%; Phoenix traces show the LLM call is the whole latency (p50 3.6 s, every other step < 1 ms), and tracing costs **2.5 ms per request** (0.07% of an LLM call) |
 | 22 · safety (JailbreakBench, XSTest) | `qwen2.5:3b` refuses 89% of harmful requests but over-refuses 17% of safe ones (7B: 5%); **prefix injection lifts attack success from 4% to 64%**; Llama Guard 3 1B catches 95–100% of harmful requests, disguised or not, but blocks 8–22% of safe ones; a 7B LLM judge agreed with humans only 70% vs 90% for a keyword judge |
 | 16 · MCP | the FastMCP server passes **14/14 conformance checks**; the agent answers 6/6 questions through MCP tools (4/6 cited); a tool call costs 3.0 ms over stdio and 5.2 ms over authenticated Streamable HTTP; requests without a valid token get 401 with RFC 9728 metadata |
 | 27 · agent harness (mini-swe-agent, 10 coding tasks) | scored by hidden tests: `qwen2.5:3b` 30%, `qwen2.5:7b` 20%, `qwen3-coder:8b` 20%, a one-task spread that an earlier run reshuffled; **11 of 30 runs declared the task done while the hidden tests failed**; an `AGENTS.md` file took the 3B from 0% to 33% on convention-only tasks; a prompt injection in a code comment reached two models and neither followed it |
@@ -97,7 +103,7 @@ cd llm-edu-suite
 powershell -ExecutionPolicy Bypass -File setup_env.ps1      # Windows
 bash setup_env.sh                                           # Linux / macOS
 
-jupyter lab notebooks/          # pick the kernel "Python (llm-edu-suite)" and start with 00_start_here/
+jupyter lab notebooks/          # pick the kernel "Python (llm-edu-suite)" and start with 00_start_here/ (30, then 00)
 ```
 
 Optional: put your LangSmith API key in `.env` (smith.langchain.com → Settings → API Keys) to see every LLM call of the course traced in LangSmith.
@@ -122,13 +128,14 @@ Switching the whole course to a hosted model is a `.env` change (`LLM_PROVIDER=o
 
 ```
 llm-edu-suite/
-├── notebooks/                 28 notebooks, one folder per topic
+├── notebooks/                 31 notebooks, one folder per topic
 │   ├── 00_start_here/  01_architecture/  02_pretraining_and_inference/
 │   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/
 ├── llm_edu_suite/             the from-scratch model (tokenizer, layers, model, training, inference, recsys,
 │                              evaluation) + config.py, the one place where models and services are chosen
 ├── scripts/                   mini_llm, train, sample, finetune (TRL), rag_demo (LangChain), mcp_server (FastMCP),
-│                              harness_run (mini-swe-agent, run from its own .venv-harness)
+│                              harness_run (mini-swe-agent, run from its own .venv-harness),
+│                              inspect_tasks/gsm8k_cot (an Inspect AI task, run from its own .venv-eco)
 ├── tests/                     fast tests with fake LLMs + Ollama-marked integration tests
 ├── tools/notebooks/           one generator per notebook (the source of truth) + CONVENTIONS.md
 ├── data/                      knowledge base and eval sets (RAG, LangSmith, MCP, recommender), LLM item keywords;
@@ -159,6 +166,7 @@ llm-edu-suite/
 | [v2.6](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.6) | Production: a safety notebook (refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, layered defences, validated judges) and a serving notebook (latency metrics, prefill vs decode, prefix caching, batching slots, GGUF formats, a gateway and a cost-aware cascade). |
 | [v2.7](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.7) | Beyond text and beyond a single snapshot: multimodal models (CLIP zero-shot and probes, a vision-language model, document extraction, typographic attacks), clustering and topic modeling of user messages with emerging-intent detection, and online learning and drift (models aging on a stream, PSI, embedding drift tests). |
 | [v2.8](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.8) | Agent harness notebook: mini-swe-agent anatomy, 10 coding tasks × 3 local models, `AGENTS.md` memory, repo prompt injection. |
+| [v2.9](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.9) | Ecosystem and foundations: transformers big picture (30), DSPy prompt optimization (28), Inspect AI + Phoenix (29); *Results* / *In production* closings on notebooks 00–15. |
 
 ## Roadmap
 

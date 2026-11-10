@@ -2,7 +2,7 @@
 
 # Command-line scripts
 
-> A guide to the eight scripts in `scripts/` (plus `tools/build_notebooks.py`, `tools/run_notebooks.py` and the `Makefile` targets): every real argument (taken from `argparse`), what each script does internally, usage examples and measured results.
+> A guide to the eight scripts in `scripts/` and the Inspect AI task in `scripts/inspect_tasks/` (plus `tools/build_notebooks.py`, `tools/run_notebooks.py` and the `Makefile` targets): every real argument (taken from `argparse`), what each script does internally, usage examples and measured results.
 >
 > Related documents: [README](README.md) · [Installation](installation.md) · [Module reference](module_reference.md) · [Notebooks guide](notebooks_guide.md) · [Case study](case_study.md) · [Glossary](glossary.md)
 
@@ -16,12 +16,13 @@
 | [`mcp_server.py`](#mcp_serverpy) | An MCP server (`llm-edu-docs`) that exposes `data/sample_docs` to Claude Code, Claude Desktop or any MCP client | Official MCP Python SDK (`FastMCP`) + `rank_bm25` | Nothing else (no PyTorch, no Ollama) |
 | [`generate_item_keywords.py`](#generate_item_keywordspy) | LLM-written keywords for every MovieLens-1M movie (used by notebook 12); resumable | `llm_edu_suite` (`config`, `recsys`) + LangChain | Ollama with `qwen2.5:7b`; downloads MovieLens-1M (6 MB) on first run |
 | [`harness_run.py`](#harness_runpy) | Run the mini-swe-agent coding-agent harness on one task folder with a local model, in a sandboxed bash environment with a permission policy; writes the trajectory as JSON (used by notebook 27) | mini-swe-agent 2.4.6 + litellm | Its own `.venv-harness`, bash (Git Bash on Windows), Ollama with the model to run |
+| [`inspect_tasks/gsm8k_cot.py`](#inspect_tasksgsm8k_cotpy) | Notebook 20's GSM8K chain-of-thought evaluation (80 problems, two scorers on the same generations) as an Inspect AI task, run with `inspect eval` (used by notebook 29) | Inspect AI 0.3.289 | Its own `.venv-eco`, Ollama with `qwen2.5:3b` (or any model Inspect can reach) |
 
 ---
 
 ## Before you start
 
-Run every command from the **repository root** with the project's virtual-environment interpreter (see [installation](installation.md)). The exception is `harness_run.py`, which runs with the interpreter of its own environment, `.venv-harness`. The scripts that import `llm_edu_suite` add the repo root to `sys.path` themselves, so there is no need to install the package with `pip install -e .`.
+Run every command from the **repository root** with the project's virtual-environment interpreter (see [installation](installation.md)). The exceptions are `harness_run.py`, which runs with the interpreter of its own environment, `.venv-harness`, and the Inspect task `inspect_tasks/gsm8k_cot.py`, which runs through the `inspect` command of `.venv-eco`. The scripts that import `llm_edu_suite` add the repo root to `sys.path` themselves, so there is no need to install the package with `pip install -e .`.
 
 **Windows (PowerShell or cmd):**
 
@@ -826,6 +827,79 @@ In notebook 27 (10 tasks, 15-step limit, temperature 0) a run took 64 s on avera
 
 ---
 
+## `inspect_tasks/gsm8k_cot.py`
+
+An [Inspect AI](https://inspect.aisi.org.uk) task with notebook 20's GSM8K evaluation: the same 80 test problems, the same chain-of-thought system message, and two scorers on the same generations, notebook 20's "last number" rule and Inspect's built-in numeric match. Notebook 29 runs it to check that the framework reproduces the hand-written loop before trusting it with anything else.
+
+It is not run with `python`: Inspect loads the file through its `inspect eval` command, which lives in its own environment, `.venv-eco`, because Inspect needs a newer `rich` than the course environment allows. See [installation](installation.md#the-inspect-and-phoenix-environment-notebook-29) for how to create it.
+
+### What it defines
+
+| Piece | What it is |
+|---|---|
+| `COT` | The system message: `Solve the problem step by step, then give the final answer as a number on the last line.` |
+| `load(n)` | The first `n` problems of GSM8K's test split (`openai/gsm8k`, config `main`) after `shuffle(seed=0)`, notebook 20's sample, as a `MemoryDataset` of `Sample(input=question, target=final number, id=i)`. |
+| `final_number(text)` | The last number in the answer, after removing `$` and thousands separators (and anything before `</think>`, for reasoning models). |
+| `last_number()` | A `@scorer` with the metrics `accuracy()` and `stderr()`: correct when the last number equals the reference to within 1e-6. It stores the extracted number as the score's `answer`, so the log shows what was read. |
+| `gsm8k_cot(n=80)` | The `@task`: solver `[system_message(COT), generate()]`, scorers `[last_number(), match(location="end", numeric=True)]`. |
+
+### Arguments
+
+The task has one argument, passed with `-T`: `n` (int, default `80`), the number of problems. Everything else is an option of `inspect eval`; these are the ones notebook 29 uses (`inspect eval --help` lists them all):
+
+| Option | In notebook 29 | What it does |
+|---|---|---|
+| `--model` | `ollama/qwen2.5:3b` | Inspect's `provider/model` id. |
+| `--model-base-url` | `http://localhost:11434/v1` | Ollama's OpenAI-compatible endpoint. |
+| `--temperature` | `0` (greedy run), `0.7` (sampled run) | Sampling temperature. |
+| `--max-tokens` | `512` | Maximum output tokens per answer. |
+| `--max-connections` | `1` | Concurrent requests to the model. One, because a single Ollama on a 6 GB card serves one request at a time anyway. |
+| `--epochs` | `3` (sampled run) | Runs every sample N times; the metrics are reduced over epochs (the mean by default) and every epoch stays in the log. |
+| `--seed` | `0` (sampled run) | Random seed for generation. |
+| `--log-format` | `json` | `json` (readable with `json.load`, which is what the notebook does) or Inspect's default `eval` format. |
+| `--display` | `none` | No progress display, because the notebook runs it as a subprocess. |
+| `--limit` | not used | Evaluate only some samples, for example `--limit 10`. |
+| `--log-dir` / `INSPECT_LOG_DIR` | `INSPECT_LOG_DIR=data/cache/inspect_logs` | Where the logs go. |
+
+### Examples
+
+**Windows (PowerShell):**
+
+```powershell
+# the greedy run of notebook 29
+.venv-eco\Scripts\inspect eval scripts\inspect_tasks\gsm8k_cot.py --model ollama/qwen2.5:3b `
+    --model-base-url http://localhost:11434/v1 --temperature 0 --max-tokens 512 --max-connections 1
+# three sampled epochs
+.venv-eco\Scripts\inspect eval scripts\inspect_tasks\gsm8k_cot.py --model ollama/qwen2.5:3b `
+    --model-base-url http://localhost:11434/v1 --temperature 0.7 --epochs 3 --seed 0 --max-tokens 512 --max-connections 1
+# a quick check on 5 problems
+.venv-eco\Scripts\inspect eval scripts\inspect_tasks\gsm8k_cot.py --model ollama/qwen2.5:3b `
+    --model-base-url http://localhost:11434/v1 --temperature 0 --max-tokens 512 --max-connections 1 -T n=5
+.venv-eco\Scripts\inspect view          # browse the logs in the browser
+```
+
+**Linux / macOS:**
+
+```bash
+.venv-eco/bin/inspect eval scripts/inspect_tasks/gsm8k_cot.py --model ollama/qwen2.5:3b \
+    --model-base-url http://localhost:11434/v1 --temperature 0 --max-tokens 512 --max-connections 1
+.venv-eco/bin/inspect eval scripts/inspect_tasks/gsm8k_cot.py --model ollama/qwen2.5:3b \
+    --model-base-url http://localhost:11434/v1 --temperature 0.7 --epochs 3 --seed 0 --max-tokens 512 --max-connections 1
+.venv-eco/bin/inspect view
+```
+
+In notebook 29 the greedy run took 307 s for the 80 problems and scored **0.850** with `last_number` (stderr 0.040), exactly notebook 20's 85.0 %, and 0.800 with `match` (stderr 0.045); its JSON log is 1.9 MB. The three sampled epochs took 918 s and scored 0.812 on average (stderr 0.043), with a 5.5 MB log.
+
+### Notes and pitfalls
+
+- **The two scorers grade the same generations, and they disagree.** On 4 of the 80 greedy answers, all ending in a LaTeX `\boxed{}`, the built-in `match(numeric=True)` read another number from the text and scored them wrong: 80.0 % against 85.0 %. Report which scorer a number comes from.
+- **Run it from `.venv-eco`, not from `.venv`.** `inspect-ai` is not installed in the course environment.
+- The first run downloads GSM8K's test split into the Hugging Face cache, through `.venv-eco`'s `datasets`.
+- Keep `--max-connections 1` on a 6 GB card, and do not run it next to another GPU job: two Ollama jobs at once can make Ollama hang (see [installation](installation.md#gpu-notes)).
+- Inspect records the generation settings in the log (model, temperature, max tokens, connections), so two runs can be compared afterwards without guessing how each was made.
+
+---
+
 ## Tools and Makefile targets
 
 **`tools/build_notebooks.py`** rebuilds the `.ipynb` files from their generators in `tools/notebooks/nbNN_*.py` (notebook 00's generator also writes `scripts/mini_llm.py`). Building **clears the outputs**.
@@ -885,5 +959,6 @@ It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the
 | `mcp_server.py` via an SDK stdio client | CPU | full session (start, initialize, list everything, 4 tool calls, 1 resource read) ≈ 2 s |
 | `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 90 passed in ~42 s / 4 passed in ~40 s |
 | `harness_run.py TASK MODEL OUT --steps 15` (through notebook 27, 10 tasks per model) | RTX 3060 Laptop GPU + Ollama | hidden tests passed: `qwen2.5:3b` **30 %**, `qwen2.5:7b` 20 %, `freehuntx/qwen3-coder:8b` 20 %; 64 / 82 / 216 s per task; 11 of 30 runs submitted as done while failing the hidden tests |
+| `inspect eval scripts/inspect_tasks/gsm8k_cot.py --model ollama/qwen2.5:3b --temperature 0 ...` (through notebook 29) | RTX 3060 Laptop GPU + Ollama | 80 problems in 307 s; `last_number` **85.0 %** (the same as notebook 20's loop), built-in `match` 80.0 %; with `--temperature 0.7 --epochs 3`, 81.2 % in 918 s |
 
 For the teaching context of each stage, see the [notebooks guide](notebooks_guide.md). For an end-to-end walkthrough with interpretation of the results, see the [case study](case_study.md).

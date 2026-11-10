@@ -4,7 +4,7 @@
 
 [← Volver al índice](README.md)
 
-Esta guía deja el proyecto listo para ejecutar **todo**: la suite de tests, los scripts de línea de comandos y los 28 notebooks.
+Esta guía deja el proyecto listo para ejecutar **todo**: la suite de tests, los scripts de línea de comandos y los 31 notebooks.
 
 El curso tiene dos mitades con necesidades distintas:
 
@@ -24,8 +24,11 @@ El curso tiene dos mitades con necesidades distintas:
 | **25** | `sentence-transformers` (all-MiniLM-L6-v2, bge-small-en-v1.5), `umap-learn`, `scikit-learn` (`KMeans`, `HDBSCAN`, `CountVectorizer`, las métricas de clustering), `datasets` de Hugging Face (Banking77) y LangChain con Ollama (`config.setup` y `get_llm`) para poner nombre a los clusters | **Ollama** con `qwen2.5:3b`; Banking77 (`PolyAI/banking77`) y los dos modelos de embeddings del Hugging Face Hub la primera vez (ya estarán en la caché si has ejecutado el 17 y el 21). La GPU acelera la codificación, pero no hace falta: los modelos son pequeños. No entrena nada. Tarda unos 196 s en GPU, 88 s de ellos en que el LLM ponga nombre a los clusters. |
 | **26** | NumPy y `llm_edu_suite.recsys` (`download_movielens_1m`, `load_movielens_1m`) para el flujo del recomendador, y `sentence-transformers`, `scikit-learn` y `datasets` de Hugging Face para los tests de drift sobre embeddings; `config.setup` en la celda de configuración | MovieLens-1M con el ayudante del propio curso (la misma descarga en `data/cache/` que el notebook 12), y Banking77 (`PolyAI/banking77`) y bge-small-en-v1.5 del Hugging Face Hub la primera vez (ya estarán en la caché si has ejecutado el 21 y el 25). Ninguna dependencia nueva y ninguna llamada a un LLM. La GPU solo acelera la codificación de Banking77. Tarda unos 90 s en GPU. |
 | **27** | mini-swe-agent 2.4.6 (con litellm) en un **entorno virtual aparte**, `.venv-harness`, que lanza `scripts/harness_run.py`; bash para los comandos del agente (Git Bash en Windows); `pytest` para los tests ocultos | El entorno del harness (ver [El entorno del harness de agentes](#el-entorno-del-harness-de-agentes-notebook-27)) y **Ollama** con `qwen2.5:3b`, `qwen2.5:7b` y `freehuntx/qwen3-coder:8b` (5,2 GB). Nada que descargar aparte de los modelos, sin entrenamiento y sin trazas de LangSmith. El modelo de 8B con un contexto de 16k no cabe en 6 GB de VRAM (cerca del 46 % va en la CPU, ~216 s por tarea). Tarda unos 101 minutos en GPU, casi todo ejecuciones del agente. |
+| **28** | DSPy 3.5 (signatures, módulos, `LabeledFewShot`, `BootstrapFewShotWithRandomSearch`, `MIPROv2`, `GEPA`) con su propio cliente HTTP (`engine="lm15"`) contra el endpoint `/v1` compatible con OpenAI de Ollama, Optuna (la búsqueda bayesiana de MIPROv2), `sentence-transformers` (bge-small-en-v1.5) y `datasets` de Hugging Face (Banking77) | **Ollama** con `qwen2.5:3b` y `qwen2.5:7b`; Banking77 y bge-small-en-v1.5 del Hugging Face Hub la primera vez (ya en la caché si ejecutaste el 17 y el 21). Sin litellm y sin trazas en LangSmith. Unos 57 minutos en GPU, casi todo los optimizadores y el clasificador de 7B. |
+| **29** | Inspect AI 0.3.289 y Phoenix 21.0.0 en un **entorno virtual aparte**, `.venv-eco` (sus comandos `inspect` y `phoenix`); en el entorno del curso, `arize-phoenix-otel` (un exportador de OpenTelemetry ya configurado para Phoenix) y `openinference-instrumentation-langchain`; LangChain con Ollama, y `httpx` para la API REST de Phoenix | El entorno de Inspect y Phoenix (ver [El entorno de Inspect y Phoenix](#el-entorno-de-inspect-y-phoenix-notebook-29)) y **Ollama** con `qwen2.5:3b`; GSM8K del Hugging Face Hub la primera vez (ya en la caché si ejecutaste el 20). Phoenix corre en tu máquina, en un puerto local libre. Unos 23 minutos en GPU, casi todo las cuatro pasadas de Inspect por los 80 problemas. |
+| **30** | `transformers` de Hugging Face sobre el SmolLM2-135M base, con sus pesos de atención y sus estados ocultos | SmolLM2-135M (260 MB) del Hugging Face Hub la primera vez. Sin Ollama y sin entrenar nada; CPU o GPU. Alrededor de minuto y medio. |
 
-No hace falta ninguna clave de API. Por defecto todo funciona en local.
+No hace falta ninguna clave de API. Por defecto todo funciona en local. Hay dos claves opcionales, para un experimento del notebook 27 (ver [Claves de API opcionales](#claves-de-api-opcionales-notebook-27)).
 
 ## Requisitos
 
@@ -38,9 +41,9 @@ No hace falta ninguna clave de API. Por defecto todo funciona en local.
 | Disco: entorno virtual | ~4 GB con la build CUDA de PyTorch (PyTorch solo ocupa ~2,9 GB); mucho menos con la de CPU | 4,1 GB |
 | Disco: modelos de Ollama | ~2,2 GB (`qwen2.5:3b` 1,9 GB + `nomic-embed-text` 0,27 GB); 4,7 GB más con el `qwen2.5:7b` opcional (juez en el 10, agente de código en el 14), 1,1 GB de `deepseek-r1:1.5b` (notebook 20), 1,6 GB de `llama-guard3:1b` (notebook 22), unos 5,7 GB de los tres formatos de `qwen2.5:1.5b-instruct` (notebook 23), 3,2 GB del modelo de visión `qwen2.5vl:3b` (notebook 24) y 5,2 GB de `freehuntx/qwen3-coder:8b` (notebook 27, que también usa `qwen2.5:7b`) | |
 | Disco: datos descargados | MovieLens-1M, 6 MB comprimido, y las muestras de FineWeb (12.000 documentos) y FineWeb-Edu (1.000), unos 45 MB en JSONL, en `data/cache/` | |
-| Disco: caché de Hugging Face | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB) y ~0,9 GB más con el notebook 17 (ModernBERT-base ~600 MB + Flan-T5-small ~300 MB, más Banking77) y ~0,45 GB más con el notebook 18 (`fineweb-edu-classifier` ~440 MB y el tokenizador de SmolLM2-135M), más los cuatro modelos y los dos conjuntos de datos del notebook 21, los tres pequeños benchmarks del notebook 22 y CLIP ViT-B/32 con Oxford-IIIT Pet para el notebook 24 (los notebooks 25 y 26 reutilizan Banking77 y los modelos del 21) | |
+| Disco: caché de Hugging Face | ~1 GB (SmolLM2-135M-Instruct 260 MB + SmolLM2-360M-Instruct 690 MB) y ~0,9 GB más con el notebook 17 (ModernBERT-base ~600 MB + Flan-T5-small ~300 MB, más Banking77) y ~0,45 GB más con el notebook 18 (`fineweb-edu-classifier` ~440 MB y el tokenizador de SmolLM2-135M), más los cuatro modelos y los dos conjuntos de datos del notebook 21, los tres pequeños benchmarks del notebook 22 y CLIP ViT-B/32 con Oxford-IIIT Pet para el notebook 24 (los notebooks 25, 26 y 28 reutilizan Banking77 y los modelos del 21), más el SmolLM2-135M base (260 MB) para el notebook 30 | |
 
-Las dependencias se declaran una sola vez, en `pyproject.toml` (con cotas inferiores); `requirements.txt` solo contiene `-e .[dev]`, es decir, instala el proyecto desde ahí con el extra `dev` (pytest y Jupyter). Ya no existe `requirements-dev.txt`. Los extras opcionales `openai` y `anthropic` añaden los proveedores en la nube (ver [Cambiar de proveedor](#cambiar-de-proveedor)). En v2.1 entraron dos dependencias: `lightgbm>=4.5` (el ranker LambdaMART del notebook 12) y `bitsandbytes>=0.45` (los pesos NF4 de QLoRA en el notebook 07). Con el notebook 17 entró `scikit-learn>=1.5` (la regresión logística y las métricas de clasificación), y con el 21, `sentence-transformers>=5.0` (bi-encoders, rerankers cross-encoder y entrenamiento contrastivo). Estas son las versiones con las que se verificó el curso:
+Las dependencias se declaran una sola vez, en `pyproject.toml` (con cotas inferiores); `requirements.txt` solo contiene `-e .[dev]`, es decir, instala el proyecto desde ahí con el extra `dev` (pytest y Jupyter). Ya no existe `requirements-dev.txt`. Los extras opcionales `openai` y `anthropic` añaden los proveedores en la nube (ver [Cambiar de proveedor](#cambiar-de-proveedor)). En v2.1 entraron dos dependencias: `lightgbm>=4.5` (el ranker LambdaMART del notebook 12) y `bitsandbytes>=0.45` (los pesos NF4 de QLoRA en el notebook 07). Con el notebook 17 entró `scikit-learn>=1.5` (la regresión logística y las métricas de clasificación), y con el 21, `sentence-transformers>=5.0` (bi-encoders, rerankers cross-encoder y entrenamiento contrastivo). Con el notebook 28 entraron `dspy>=3.5` y `optuna>=4` (la búsqueda bayesiana que hay detrás de MIPROv2), y con el 29, `arize-phoenix-otel>=0.17` y `openinference-instrumentation-langchain>=0.1.82` (la parte cliente de las trazas hacia Phoenix; Inspect AI y el servidor de Phoenix viven en su propio entorno, ver [más abajo](#el-entorno-de-inspect-y-phoenix-notebook-29)). Estas son las versiones con las que se verificó el curso:
 
 | Paquete | Versión | Paquete | Versión |
 |---|---|---|---|
@@ -53,7 +56,9 @@ Las dependencias se declaran una sola vez, en `pyproject.toml` (con cotas inferi
 | langchain-mcp-adapters | 0.3.2 | faiss-cpu | 1.15.1 |
 | bitsandbytes | 0.50.2 | lightgbm | 4.7.0 |
 | scikit-learn | 1.9.1 | sentence-transformers | 6.2.0 |
-| umap-learn | 0.6.0 | | |
+| umap-learn | 0.6.0 | dspy | 3.5.0 |
+| optuna | 5.0.0 | arize-phoenix-otel | 0.17.3 |
+| openinference-instrumentation-langchain | 0.1.82 | | |
 
 > **Por qué un entorno virtual propio.** Si instalas en tu Python global puedes heredar combinaciones rotas
 > (por ejemplo, un `matplotlib` compilado contra NumPy 1.x junto a NumPy 2.x falla con
@@ -82,7 +87,7 @@ El script hace, en orden:
 
 1. Crea `.venv/` si no existe y actualiza `pip`.
 2. Instala PyTorch: la build **CUDA** (índice `cu128`) si encuentra `nvidia-smi`, o la build **CPU** (pequeña) si no. En macOS instala el wheel por defecto, que incluye soporte MPS.
-3. Instala `requirements.txt`, que instala el proyecto con su extra `dev` desde `pyproject.toml` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, LightGBM, scikit-learn, umap-learn, sentence-transformers, transformers, peft, trl, datasets, accelerate, bitsandbytes, optimum-quanto, mcp, langchain-mcp-adapters) más pytest, JupyterLab, ipykernel, nbclient y nbformat.
+3. Instala `requirements.txt`, que instala el proyecto con su extra `dev` desde `pyproject.toml` (NumPy, matplotlib, python-dotenv, LangChain, LangGraph, LangSmith, RAGAS, FAISS, rank-bm25, LightGBM, scikit-learn, umap-learn, sentence-transformers, transformers, peft, trl, datasets, accelerate, bitsandbytes, optimum-quanto, mcp, langchain-mcp-adapters, DSPy, Optuna, arize-phoenix-otel, openinference-instrumentation-langchain) más pytest, JupyterLab, ipykernel, nbclient y nbformat.
 4. Registra el entorno como kernel de Jupyter con el nombre **"Python (llm-edu-suite)"**.
 5. Si existe el comando `ollama`, ejecuta `ollama pull qwen2.5:3b` y `ollama pull nomic-embed-text`. Si no existe, indica cómo instalar Ollama y continúa. El juez opcional `qwen2.5:7b` no lo descarga: hazlo a mano si lo quieres (ver [Ollama](#ollama)).
 6. Crea `.env` a partir de `.env.example` si todavía no hay `.env`.
@@ -204,6 +209,7 @@ Desde Python, `llm_edu_suite.config.setup()` imprime el proveedor, los modelos, 
 | `LANGSMITH_PROJECT` | `llm-edu-suite` | El proyecto de LangSmith al que van las trazas. `setup(project=...)` lo cambia por notebook, para que las trazas de cada notebook vayan a su propio proyecto. |
 | `LANGSMITH_ENDPOINT` | (comentada) | Solo para cuentas de la región UE: `https://eu.api.smith.langchain.com`. |
 | `OPENAI_API_KEY` | (comentada) | Solo hace falta con `LLM_PROVIDER=openai`. |
+| `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `HARNESS_API_MODEL` | (comentada / sin definir) | Opcionales, para el modelo por API del notebook 27; ver [Claves de API opcionales](#claves-de-api-opcionales-notebook-27). `ANTHROPIC_API_KEY` es también la clave de `LLM_PROVIDER=anthropic`. |
 
 Con `LANGSMITH_API_KEY` vacía, el trazado queda desactivado y todo lo demás funciona igual. El notebook 15 (observabilidad) es el que más partido saca de LangSmith.
 
@@ -232,6 +238,19 @@ pip install langchain-anthropic
 ```
 
 `langchain-openai` y `langchain-anthropic` son extras opcionales (`pip install -e ".[openai]"` o `".[anthropic]"`) porque la instalación por defecto no los necesita. Un modelo en la nube cuesta dinero por llamada, y algunos resultados de los notebooks (los números comentados en el texto) se obtuvieron con `qwen2.5:3b`, así que los tuyos serán distintos. `scripts/rag_demo.py --ragas` siempre llama a su juez a través del endpoint compatible con OpenAI de Ollama, así que necesita Ollama sea cual sea el proveedor.
+
+### Claves de API opcionales (notebook 27)
+
+Nada del curso necesita una API de pago. Hay dos claves opcionales, y las dos las usa un experimento del notebook 27: su comparación de perfiles de harness puede añadir un modelo por API junto a los tres locales, para separar lo que aporta el modelo de lo que aporta el harness. Sin clave, el notebook ejecuta solo los modelos locales e imprime `API model: none (add ANTHROPIC_API_KEY to .env to include one)`.
+
+| Variable | Qué hace |
+|---|---|
+| `ANTHROPIC_API_KEY` | Con ella, el notebook 27 añade **Claude Haiku 5.5** (`anthropic/claude-haiku-5-5`, el modelo pequeño y rápido de Anthropic, al que se llama con litellm desde dentro de mini-swe-agent) a la comparación: los ajustes de la línea base de la sección 3 y después las mismas dos condiciones que los modelos locales, con las mismas 10 tareas y los mismos tests ocultos. El notebook calcula que el experimento entero cuesta alrededor de un dólar. Es la misma variable que lee `ChatAnthropic` con `LLM_PROVIDER=anthropic` (ver [Cambiar de proveedor](#cambiar-de-proveedor)). |
+| `GEMINI_API_KEY` | Opcional, y solo se usa si apuntas el notebook a un modelo de Gemini con `HARNESS_API_MODEL` (por ejemplo `gemini/gemini-3.6-flash`). El nivel gratuito de Gemini permite unas 20 peticiones al día por modelo, demasiado pocas para este experimento. |
+| `HARNESS_API_MODEL` | Un id `proveedor/modelo` de litellm que sustituye al modelo por API por defecto. `scripts/harness_run.py` trata un modelo como modelo por API cuando su prefijo es `gemini`, `anthropic`, `openai`, `openrouter`, `groq`, `mistral`, `deepseek` o `xai`; todo lo demás va a Ollama. |
+| `HARNESS_MIN_INTERVAL` | Segundos de espera entre llamadas al modelo (por ejemplo `7`), para niveles gratuitos con un límite de peticiones por minuto. Por defecto `0`. |
+
+**Dónde van las claves.** En el `.env`, que está en `.gitignore` (`.env.example` ya trae `ANTHROPIC_API_KEY`, comentada), nunca en una celda de un notebook ni en la línea de comandos. El notebook carga el `.env` con `config.setup()` y lanza `scripts/harness_run.py` con su propio entorno, así que litellm puede leer la clave. **La clave nunca llega a la shell del agente**: cada comando que ejecuta el agente recibe un entorno limpio con solo `SYSTEMROOT`, `PATH`, `TEMP`, `TMP`, `HOME`, `USERPROFILE` y `LANG`, y la política de permisos rechaza los comandos que leen `.env`. `harness_run.py` no lee el `.env` por su cuenta: si lo ejecutas a mano con un modelo por API, la clave tiene que estar definida en la shell que lo arranca.
 
 ## El entorno del harness de agentes (notebook 27)
 
@@ -273,6 +292,37 @@ El runner pide a Ollama un **contexto de 16k** (`num_ctx=16384`), porque el hist
 
 > El sandbox del runner (un entorno limpio, un timeout, una lista de comandos denegados y la carpeta de la tarea como directorio de trabajo) es una capa didáctica, como la del notebook 14, no una frontera de seguridad. Úsalo solo con carpetas de tareas desechables.
 
+## El entorno de Inspect y Phoenix (notebook 29)
+
+El notebook 29 usa dos herramientas de código abierto que viven fuera del entorno del curso: [Inspect AI](https://inspect.aisi.org.uk) (UK AI Security Institute, MIT), que necesita un `rich` más nuevo del que admite el entorno del curso (el mismo motivo que `.venv-harness`), y el servidor de [Phoenix](https://github.com/Arize-ai/phoenix) (Arize, Elastic License 2.0). Las dos van en **un tercer entorno virtual**, `.venv-eco`, junto a `.venv`. El notebook en sí corre en el kernel del curso: llama al comando `inspect` de `.venv-eco` para las evaluaciones y arranca su comando `phoenix` como un proceso servidor aparte, como correría Phoenix junto a una aplicación en producción. La parte cliente de las trazas, el exportador de OpenTelemetry y el instrumentador de LangChain, está en el entorno del curso.
+
+**1. Crea el entorno** (desde la raíz del repositorio; `.venv-*/` ya está en `.gitignore`):
+
+```powershell
+# Windows
+python -m venv .venv-eco
+.venv-eco\Scripts\python -m pip install inspect-ai==0.3.289 arize-phoenix==21.0.0 datasets
+```
+
+```bash
+# Linux / macOS
+python3 -m venv .venv-eco
+.venv-eco/bin/python -m pip install inspect-ai==0.3.289 arize-phoenix==21.0.0 datasets
+```
+
+`datasets` está porque la tarea de Inspect carga GSM8K por su cuenta. Son las versiones con las que se ejecutó el notebook, y su primera celda las imprime (`Inspect AI 0.3.289 | Phoenix 21.0.0`). El notebook busca exactamente `.venv-eco/Scripts/inspect.exe` (Windows) o `.venv-eco/bin/inspect` (Linux/macOS) en la raíz del repositorio, y se para con `create .venv-eco first (see scripts/inspect_tasks/gsm8k_cot.py)` si no lo encuentra.
+
+**2. Los paquetes cliente** van en el `.venv` del curso y ya están en `pyproject.toml`: `arize-phoenix-otel` (el SDK de OpenTelemetry y un exportador ya configurado para Phoenix) y `openinference-instrumentation-langchain` (los spans de LangChain, en formato OpenInference). Si tu `.venv` es anterior al notebook 29, vuelve a ejecutar `pip install -r requirements.txt` dentro de él.
+
+**3. Dónde van los datos.** Inspect escribe un log en JSON por ejecución en `data/cache/inspect_logs/`, y Phoenix guarda su base de datos SQLite y su `server.log` en `data/cache/phoenix/`; el notebook vacía las dos carpetas al empezar cada ejecución. Phoenix solo escucha en `127.0.0.1`, en un puerto libre que elige el notebook, con su propia telemetría desactivada (`PHOENIX_TELEMETRY_ENABLED=false`), así que ninguna traza sale de la máquina. Mientras el notebook corre, la interfaz de Phoenix está en la dirección que imprime su celda.
+
+**4. Compruébalo** sin el notebook (el docstring de la propia tarea trae los mismos comandos; ver [scripts de línea de comandos](scripts_cli.md#inspect_tasksgsm8k_cotpy)):
+
+```powershell
+.venv-eco\Scripts\inspect eval scripts\inspect_tasks\gsm8k_cot.py --model ollama/qwen2.5:3b --model-base-url http://localhost:11434/v1 --temperature 0 --max-tokens 512 --max-connections 1 -T n=5
+.venv-eco\Scripts\inspect view          # recorre los logs
+```
+
 ## Qué ejecutar después
 
 Tiempos medidos en la máquina de verificación (RTX 3060 Laptop GPU, Ollama en local).
@@ -303,6 +353,7 @@ Los `.ipynb` se **generan** a partir de `tools/notebooks/nbNN_*.py` (y `scripts/
 - **JailbreakBench y XSTest** (notebook 22): los 100 comportamientos dañinos y sus 100 gemelos benignos de `JailbreakBench/JBB-Behaviors` (configuración `behaviors`, splits `harmful` y `benign`), los prompts de XSTest de `Paul/XSTest` (el notebook toma una muestra de 100 seguros y 100 inseguros) y `natolambert/xstest-v2-copy`, las 900 respuestas de GPT-4 y Llama 2 a XSTest con sus etiquetas humanas, que sirven para validar el juez de rechazos. Los tres se descargan del Hugging Face Hub a su caché la primera vez que se ejecuta el notebook. `llama-guard3:1b` viene de Ollama. El notebook puntúa las respuestas a las peticiones dañinas, pero nunca las imprime ni las guarda.
 - **ARC-Easy y GSM8K** (notebook 23): el test de ARC-Easy (`allenai/ai2_arc`, configuración `ARC-Easy`; el notebook toma 200 preguntas con una semilla fija) y los mismos 80 problemas de GSM8K que el notebook 20 (`openai/gsm8k`, configuración `main`) se descargan del Hugging Face Hub a su caché la primera vez que se ejecuta el notebook. Los documentos de políticas que hacen de system prompt cacheado son los del propio curso, en `data/sample_docs/`.
 - **Oxford-IIIT Pet y CLIP** (notebook 24): la copia `timm/oxford-iiit-pet` de Oxford-IIIT Pet (Parkhi et al., 2012; 37 razas de gatos y perros, 3.680 imágenes de entrenamiento; el notebook toma 600 imágenes de test con una semilla fija) y el modelo `openai/clip-vit-base-patch32` se descargan del Hugging Face Hub a su caché la primera vez que se ejecuta el notebook. `qwen2.5vl:3b` viene de Ollama. Las facturas son sintéticas, las dibuja el propio notebook con Pillow, así que no se descarga ningún documento.
+- **Notebooks 28, 29 y 30**: el 28 reutiliza Banking77 (la misma muestra de test de 231 mensajes que el notebook 17) y `BAAI/bge-small-en-v1.5`, y escribe su programa optimizado en `data/cache/dspy_banking77_program.json`, que borra después de comprobar que se recarga bien; el 29 reutiliza los 80 problemas de GSM8K del notebook 20 (los carga la tarea de Inspect desde `.venv-eco` y el notebook para las 20 peticiones trazadas), y deja los logs de Inspect y la base de datos de Phoenix dentro de `data/cache/`; el 30 descarga el modelo base `HuggingFaceTB/SmolLM2-135M` (260 MB) a la caché de Hugging Face.
 - **MovieLens-1M** (notebooks 12 y 26 y `scripts/generate_item_keywords.py`): `llm_edu_suite.recsys.download_movielens_1m()` baja el zip oficial de GroupLens (6 MB) y lo descomprime en `data/cache/ml-1m/` una sola vez. `data/cache/` está en `.gitignore`: la licencia de GroupLens no permite redistribuir el dataset, así que el repositorio no lo incluye y cada uno lo descarga de la fuente original. Si estás sin conexión, copia `ml-1m.zip` en `data/cache/` y la función lo usará.
 - Lo que sí está en el repositorio, porque es trabajo propio: `data/recsys/ml1m_llm_keywords.json` (las palabras clave que escribió `qwen2.5:7b` para cada película; regenerarlas lleva una hora, ver [`generate_item_keywords.py`](scripts_cli.md#generate_item_keywordspy)) y `data/recsys/conversational_eval.json` (20 peticiones con restricciones verificables).
 
@@ -314,6 +365,7 @@ Los `.ipynb` se **generan** a partir de `tools/notebooks/nbNN_*.py` (y `scripts/
 - **El notebook 23 mide latencias, así que ejecútalo solo.** Cualquier otro trabajo en la GPU (un notebook de entrenamiento, otro cliente de Ollama) cambia todos los números. Para la sección de concurrencia descarga los modelos del servidor de Ollama por defecto, arranca un segundo servidor con `OLLAMA_NUM_PARALLEL=4` y `OLLAMA_MAX_LOADED_MODELS=1` en un puerto libre y lo para al terminar, así que la configuración del servidor por defecto no cambia nunca. El segundo servidor tiene que encontrar los mismos modelos: el notebook lee `OLLAMA_MODELS` del `%LOCALAPPDATA%\Ollama\server.log` de la aplicación de escritorio y, si no, recurre a la variable de entorno `OLLAMA_MODELS` o a `~/.ollama/models`.
 - Si Ollama no consigue meter un modelo en la GPU, lo ejecuta (en parte) en CPU: sigue funcionando, solo que más lento.
 - **El notebook 27 es una larga cadena de llamadas a Ollama, así que ejecútalo solo.** `freehuntx/qwen3-coder:8b` con el contexto de 16k del runner necesita más de 6 GB y va cerca de un 46 % en la CPU, y otro trabajo de Ollama a la vez puede dejar Ollama atascado. En la ejecución publicada, una tarea del 3B llegó al timeout de seguridad de 420 s del notebook sin dar un solo paso, un atasco de Ollama; el notebook cuenta esa ejecución como fallida y sigue.
+- **Los notebooks 28 y 29 también son largas cadenas de llamadas a Ollama, así que ejecútalos de uno en uno.** El 28 hace miles de llamadas (solo los optimizadores, entre 650 y 870 cada uno) y carga `qwen2.5:7b` para sus optimizadores y su clasificador de 7B, con bge-small en la GPU al lado; el 29 manda 320 generaciones de Inspect y 20 peticiones trazadas a `qwen2.5:3b`. Inspect se ejecuta con `--max-connections 1`, una petición cada vez, por el mismo motivo.
 - **El notebook 19 en Windows.** Las wheels de PyTorch para Windows no traen FlashAttention-2 (SDPA usa entonces los kernels memory-efficient o cuDNN) ni Triton, así que el backend por defecto de `torch.compile`, `inductor`, falla con `TritonMissing` y el notebook usa `backend="cudagraphs"`. Para FlashAttention-2, `torch.compile` con `inductor` o el paquete `flash-attn`, usa Linux o WSL2. El DDP del notebook corre en dos procesos de CPU con `gloo`, lanzados con `torch.multiprocessing.spawn` y conectados por un fichero compartido (`init_method="file://..."`, un `FileStore`), porque el rendezvous TCP de `torchrun` necesita libuv, que la build de Windows no incluye; NCCL, el backend de GPU, solo existe en Linux.
 - **Lento en vez de sin memoria.** En Windows, cuando un proceso supera la VRAM, el driver puede desbordar a la RAM del sistema ("memoria de GPU compartida") en lugar de dar un error: en el notebook 19, el backend *math* de SDPA declaró 8,1 GB en una tarjeta de 6 GB y tardó 978 ms. Si algo se vuelve lento de repente, mira la memoria de GPU compartida en el Administrador de tareas.
 
@@ -343,4 +395,7 @@ Los `.ipynb` se **generan** a partir de `tools/notebooks/nbNN_*.py` (y `scripts/
 | El notebook 27 se para con `Create the harness environment first` | No hay un `.venv-harness` en la raíz del repositorio, o tiene otro nombre | Créalo como en [El entorno del harness de agentes](#el-entorno-del-harness-de-agentes-notebook-27); el notebook busca exactamente esa carpeta |
 | En el notebook 27 todas las ejecuciones fallan en su primer comando, con un estado de salida que empieza por `error: FileNotFoundError` | El runner no encontró bash (en Windows, Git Bash no está en `C:\Program Files\Git\bin\bash.exe`) | Instala Git for Windows, o define `HARNESS_BASH` con la ruta completa de tu `bash.exe` y reinicia el kernel |
 | En el notebook 27 las ejecuciones de qwen3-coder tardan minutos cada una, o una termina como `harness: TimeoutExpired` | El modelo de 8B con contexto de 16k se desborda a la CPU, u otro trabajo está usando Ollama | Es lo esperado en una tarjeta de 6 GB (~216 s por tarea); mira `ollama ps` y no ejecutes nada más en la GPU |
+| El notebook 28 se para con `ModuleNotFoundError: No module named 'dspy'`, o el 29 con `No module named 'phoenix.otel'` o `'openinference'` | El `.venv` se creó antes de que estos paquetes entraran en `pyproject.toml` | Vuelve a ejecutar `pip install -r requirements.txt` dentro de `.venv` y reinicia el kernel |
+| El notebook 29 se para con `create .venv-eco first` | No hay un `.venv-eco` en la raíz del repositorio, o tiene otro nombre | Créalo como en [El entorno de Inspect y Phoenix](#el-entorno-de-inspect-y-phoenix-notebook-29); el notebook busca exactamente esa carpeta |
+| El notebook 29 se queda en `Phoenix up at ...` o falla su primera consulta de spans | El servidor de Phoenix no arrancó a tiempo, o se cerró | Lee `data/cache/phoenix/server.log`, adonde el notebook manda la salida del servidor; comprueba que `.venv-eco` tiene `arize-phoenix==21.0.0` |
 | `torchrun` falla en Windows con un error sobre libuv | El rendezvous TCP de `torchrun` necesita libuv, que la build de Windows no trae | Lanza los procesos con `torch.multiprocessing.spawn` e `init_method="file://..."`, como el notebook 19, o usa Linux o WSL2 |

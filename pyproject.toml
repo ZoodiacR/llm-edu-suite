@@ -40,6 +40,10 @@ dependencies = [
     "scikit-learn>=1.5",               # linear classifiers and metrics (notebook 17)
     "sentence-transformers>=5.0",      # bi-encoders, cross-encoder rerankers and contrastive training (notebook 21)
     "umap-learn>=0.5",                 # dimensionality reduction for clustering and topic modeling (notebook 25)
+    "dspy>=3.5",                       # declarative prompt programs and prompt optimizers (notebook 28)
+    "optuna>=4",                       # Bayesian search used by DSPy's MIPROv2 (notebook 28)
+    "arize-phoenix-otel>=0.17",        # OpenTelemetry tracing to a local Phoenix server (notebook 29)
+    "openinference-instrumentation-langchain>=0.1.82",  # LangChain spans in OpenInference format (notebook 29)
     # fine-tuning and quantization (notebooks 07-09)
     "transformers>=5.0",
     "peft>=0.21",
