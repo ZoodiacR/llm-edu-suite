@@ -15,7 +15,7 @@
 3. [Post-training](#3-post-training)
    - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-and-parameter-efficient-fine-tuning) · [3.3 Distillation](#33-distillation) · [3.3b Model merging](#33b-model-merging) · [3.4 RLHF, DPO and GRPO](#34-from-rlhf-to-dpo-and-grpo) · [3.5 Reasoning and test-time compute](#35-reasoning-and-test-time-compute)
 4. [Applications](#4-applications)
-   - [4.0 Embeddings and rerankers](#40-embeddings-and-rerankers) · [4.1 RAG](#41-retrieval-augmented-generation) · [4.2 Retrieval metrics](#42-retrieval-metrics) · [4.3 RAGAS and LLM-as-judge](#43-ragas-and-llm-as-judge) · [4.4 Application patterns](#44-application-patterns) · [4.5 Recommendation](#45-recommender-systems)
+   - [4.0 Embeddings and rerankers](#40-embeddings-and-rerankers) · [4.0b Clustering and topic modeling](#40b-clustering-and-topic-modeling) · [4.0c Multimodal models](#40c-multimodal-models-clip-and-vision-language-models) · [4.1 RAG](#41-retrieval-augmented-generation) · [4.2 Retrieval metrics](#42-retrieval-metrics) · [4.3 RAGAS and LLM-as-judge](#43-ragas-and-llm-as-judge) · [4.4 Application patterns](#44-application-patterns) · [4.5 Recommendation](#45-recommender-systems) · [4.5b Drift and online learning](#45b-drift-online-learning-and-continual-updates)
 5. [Agents and MCP](#5-agents-and-mcp)
    - [5.1 Tool calling](#51-tool-calling) · [5.2 Constrained decoding](#52-constrained-decoding-and-structured-output) · [5.3 ReAct, plan-and-execute and reflection](#53-react-plan-and-execute-and-reflection) · [5.4 State graphs](#54-langgraph-agents-as-state-machines) · [5.5 Memory](#55-memory) · [5.6 Limits and human-in-the-loop](#56-limits-and-human-in-the-loop) · [5.7 Multi-agent teams](#57-multi-agent-teams-supervisor-and-handoffs) · [5.8 Code execution and sandboxes](#58-code-execution-and-sandboxes) · [5.9 MCP](#59-model-context-protocol)
 6. [LLMOps](#6-llmops)
@@ -810,7 +810,7 @@ with the $\beta$ fitted by maximum likelihood (Chatbot Arena does it with millio
 
 ## 4. Applications
 
-Terms for this part: [glossary, Embeddings and rerankers](glossary.md#embeddings-and-rerankers) and [Applications: LangChain and RAG](glossary.md#applications-langchain-and-rag).
+Terms for this part: [glossary, Embeddings and rerankers](glossary.md#embeddings-and-rerankers), [Clustering and topic modeling](glossary.md#clustering-and-topic-modeling), [Multimodal models](glossary.md#multimodal-models), [Applications: LangChain and RAG](glossary.md#applications-langchain-and-rag), [Recommender systems](glossary.md#recommender-systems) and [Drift and online learning](glossary.md#drift-and-online-learning).
 
 ### 4.0 Embeddings and rerankers
 
@@ -856,6 +856,89 @@ Modern models (E5, Wang et al., 2022; BGE, GTE, nomic-embed, Nussbaum et al., 20
 **Key papers.** Reimers and Gurevych (2019), *Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks*; van den Oord, Li and Vinyals (2018), *Representation Learning with Contrastive Predictive Coding* (InfoNCE); Karpukhin et al. (2020), *Dense Passage Retrieval for Open-Domain Question Answering* (DPR); Khattab and Zaharia (2020), *ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT*; Nogueira and Cho (2019), *Passage Re-ranking with BERT*; Thakur et al. (2021), *BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models*; Muennighoff et al. (2023), *MTEB: Massive Text Embedding Benchmark*; Wang et al. (2022), *Text Embeddings by Weakly-Supervised Contrastive Pre-training* (E5); Kusupati et al. (2022), *Matryoshka Representation Learning*; Nussbaum et al. (2024), *Nomic Embed: Training a Reproducible Long Context Text Embedder*.
 
 > **Notebook:** [21 · Embeddings and rerankers](../../notebooks/04_applications/21_embeddings_and_rerankers.ipynb) (read before 10) · **In the course:** on SciFact (5,183 abstracts, 300 test claims), BM25 reaches nDCG@10 0.652 and the classic all-MiniLM-L6-v2 0.648, while bge-small (0.706) and nomic-embed-text (0.708) beat it clearly, and forgetting nomic's prefixes costs only 0.006, within the noise; InfoNCE by hand equals `MultipleNegativesRankingLoss` (0.18594); fine-tuning MiniLM on 919 pairs lifts it to 0.723 with in-batch negatives and to 0.762 with one BM25 hard negative per pair, in 22 s, with no measurable forgetting on NFCorpus (within ±0.005); at 64 dimensions the Matryoshka model keeps 0.646 against 0.589 without the loss; binary codes with int8 rescoring score 0.760 against 0.762 for float32, at 48 bytes per document instead of 1,536; and on this task hybrid retrieval (0.735) and both general rerankers (ms-marco-MiniLM 0.692, bge-reranker-base 0.731 at best, 0.3–1.7 s per query) lose to the fine-tuned bi-encoder alone.
+
+### 4.0b Clustering and topic modeling
+
+**Problem.** A deployed LLM system produces piles of unlabeled text: user messages, tickets, failed agent runs, search queries, feedback. Before you can build an evaluation set, design a router or find what the system fails on, you need to know what is in there, and nobody has labelled it. Clustering groups similar texts; topic modeling also says what each group is about.
+
+**The modern pipeline.** Since BERTopic (Grootendorst, 2022) the standard recipe has four steps, each replaceable:
+
+| Step | Usual choice | Why |
+|---|---|---|
+| embed | a sentence-embedding model ([section 4.0](#40-embeddings-and-rerankers)) | similar meanings land close together |
+| reduce | UMAP to ~5 dimensions | distances and densities become reliable again |
+| cluster | HDBSCAN | finds the number of clusters and leaves outliers as noise |
+| describe | c-TF-IDF keywords, then an LLM that names the cluster | a person can tell what each cluster is |
+
+**Three families of clustering.**
+
+- **Centroid-based: k-means** (MacQueen, 1967; k-means++ seeding, Arthur and Vassilvitskii, 2007) minimizes the distance of every point to the centroid of its cluster, $\sum_i \lVert x_i - \mu_{c(i)} \rVert^2$, alternating assignment and update. It is fast, but needs $k$ in advance, assumes round clusters of similar size and assigns every point, outliers included.
+- **Hierarchical (agglomerative)** clustering starts with every point alone and repeatedly merges the closest pair (by single, complete, average or Ward linkage). The result is a tree that can be cut at any level, at a cost of $O(n^2)$ memory, which limits it to tens of thousands of points.
+- **Density-based: DBSCAN and HDBSCAN** (Campello, Moulavi and Sander, 2013). Clusters are dense regions separated by sparse ones. HDBSCAN builds a hierarchy over every density level and keeps the most stable clusters, so it **finds the number of clusters itself**, accepts clusters of any shape and size, and labels points in sparse regions as **noise** instead of forcing them into a cluster. Its main knob, `min_cluster_size`, is the smallest group you are willing to call a topic.
+
+**Why reduce first: the curse of dimensionality.** With 384–1,024 dimensions, distances concentrate: a point's nearest and farthest neighbours end up at similar distances, and density estimates (which HDBSCAN depends on) stop meaning much. **UMAP** (McInnes, Healy and Melville, 2018) builds a graph of each point's nearest neighbours and finds a low-dimensional layout that preserves that graph, keeping local neighbourhoods while discarding most of the noise in the other directions. Around 5 dimensions with `min_dist=0` is the usual setting for clustering; 2 dimensions are for pictures, since they lose too much structure. PCA is linear and keeps global variance, which is not what clustering needs; t-SNE is for plots only.
+
+**Describing clusters: c-TF-IDF and LLM names.** **c-TF-IDF** (class-based TF-IDF) concatenates the documents of each cluster into one and weights each word $w$ in cluster $c$ by
+
+$$W_{w,c} = \mathrm{tf}_{w,c} \cdot \log\left(1 + \frac{A}{f_w}\right)$$
+
+where $\mathrm{tf}_{w,c}$ is the word's frequency in the cluster, $A$ the average number of words per cluster and $f_w$ the word's total frequency across clusters: frequent here, rare elsewhere. It needs no model and costs nothing. An **LLM** then turns the top keywords and a few example documents into a readable name, the step that made topic modeling practical. Before embeddings, topics came from **LDA** (Latent Dirichlet Allocation, Blei, Ng and Jordan, 2003): a probabilistic model in which each document is a mixture of topics and each topic a distribution over words, fitted on bag-of-words counts. It ignores word order and meaning beyond co-occurrence, works poorly on short texts such as chat messages, and leaves you to interpret word lists; it is still used on long documents and where an interpretable generative model matters.
+
+**Evaluating clusters.**
+
+- **With labels** (benchmarks, or a hand-labelled sample): the **adjusted Rand index** (ARI; Hubert and Arabie, 1985) counts pairs of points that are together or apart in both the clustering and the labels, corrected for chance, so 0 is random and 1 perfect. **Normalized mutual information** (NMI) measures how much knowing the cluster tells you about the label, between 0 and 1. **Purity** is the share of a cluster's points that carry its majority label; it is easy to read per cluster, but it rewards many tiny clusters.
+- **Without labels** (the real situation): the **silhouette score** of a point is $s = (b - a) / \max(a, b)$, with $a$ its mean distance to its own cluster and $b$ to the nearest other cluster, averaged over points. It can rule out bad values of $k$, but real text rarely has a single right number of topics, because topics nest. In practice, a person reads a sample of every cluster.
+
+**Production uses.** Understanding what users ask, with counts and examples, is the first analysis on any LLM product's logs. Clusters also give evaluation sets that cover rare intents (sample from each), a way to find failures (cluster the conversations with negative feedback or failed tool calls and fix the biggest cluster), intents and routes designed from data, and **emerging-topic detection**: flag messages far from everything the system handles (low similarity to every known intent), cluster the flags, name them and review the largest each week. BERTopic packages the pipeline with topics over time and hierarchical merging; cuML runs UMAP and HDBSCAN on the GPU for millions of documents, or a sample is clustered and the rest assigned to the nearest centroid.
+
+**Failure modes.** Trusting LLM names without reading the examples; one giant cluster hiding several topics; an embedding model that does not understand the domain (codes, jargon, other languages); choosing $k$ by a metric instead of by the decision it serves; re-clustering from scratch each time, so cluster ids do not persist; personal data in the example messages shown on dashboards.
+
+**Key papers.** MacQueen (1967), *Some Methods for Classification and Analysis of Multivariate Observations* (k-means); Arthur and Vassilvitskii (2007), *k-means++: The Advantages of Careful Seeding*; Campello, Moulavi and Sander (2013), *Density-Based Clustering Based on Hierarchical Density Estimates* (HDBSCAN); McInnes, Healy and Melville (2018), *UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction*; Blei, Ng and Jordan (2003), *Latent Dirichlet Allocation*; Grootendorst (2022), *BERTopic: Neural topic modeling with a class-based TF-IDF procedure*; Hubert and Arabie (1985), *Comparing Partitions* (ARI).
+
+> **Notebook:** [25 · Clustering and topic modeling](../../notebooks/04_applications/25_clustering_topic_modeling.ipynb) (read after 21) · **In the course:** on Banking77's 3,080 test messages (77 intents, used only to measure), k-means with the true $k = 77$ reaches ARI 0.685 on a 5-d UMAP of bge-small embeddings, against 0.581 on the raw vectors and 0.576 with all-MiniLM-L6-v2 on UMAP; the silhouette score picks $k = 60$ and is flat between 50 and 100 (0.721–0.742); HDBSCAN with `min_cluster_size=20` finds 73 clusters on its own with ARI 0.683 and 5 % noise; the median cluster is 91 % one intent, but the largest (122 messages) is only 32 %; `qwen2.5:3b`'s names point to the majority intent for 58 % of clusters (42 of 73), many misses being right but broader; and with seven intents held out as unknown, a novelty flag at the 5th percentile of known-intent similarity reaches 53 % precision and 56 % recall, and clustering the flagged messages brings out all 7 unknown intents as clusters of their own.
+
+### 4.0c Multimodal models: CLIP and vision-language models
+
+**Problem.** Many inputs are not text: product photos, scanned invoices, screenshots, charts. Two families of models extend what the course built for text to images, and they do different jobs: **contrastive image-text encoders** (CLIP, SigLIP) give one vector per image and per text in a shared space, for classifying, searching and filtering; **vision-language models** (VLMs) generate text conditioned on images, for describing, answering questions and reading documents.
+
+**Images as tokens: the Vision Transformer.** ViT (Dosovitskiy et al., 2021) cuts the image into fixed-size patches (16×16 or 32×32 pixels), flattens each one and projects it linearly to a vector (the **patch embedding**), adds position embeddings for the 2-D layout and runs the sequence through the same blocks as text ([section 1.2](#12-the-transformer-block-and-the-residual-stream)). A 224×224 image with 32×32 patches is $7 \times 7 = 49$ tokens, plus a class token whose final vector stands for the whole image. Without the inductive biases of a CNN, ViT needs a lot of data to train, which is exactly what web-scale image-text pairs provide.
+
+**CLIP: a shared space learned from captions.** CLIP (Radford et al., 2021) trains an image encoder $f$ and a text encoder $g$ together on 400 million (image, caption) pairs, with the InfoNCE loss of [section 4.0](#40-embeddings-and-rerankers) applied in both directions: in a batch of $N$ pairs, image $i$ must be closer to caption $i$ than to the other $N-1$ captions, and caption $i$ closer to image $i$ than to the other images.
+
+$$\mathcal{L} = \tfrac{1}{2}\big(\mathrm{CE}_{\text{image}\to\text{text}} + \mathrm{CE}_{\text{text}\to\text{image}}\big), \qquad s_{ij} = \frac{f(x_i)^\top g(t_j)}{\tau}$$
+
+Nobody labels classes, yet the space supports **zero-shot classification**: write one sentence per class, embed the sentences and give each image the class of the most similar one. The wording is part of the model, as prompts are for LLMs. A bare class name is ambiguous ("boxer" the dog or the athlete) and unlike the captions CLIP saw; a template such as "a photo of a {}, a type of pet." fixes both, and **prompt ensembling**, averaging the text embeddings of several templates per class (CLIP's authors used 80), smooths out the quirks of any one wording. With a few labelled images per class, a **linear probe** (logistic regression on the frozen image embeddings, the image version of embeddings + classifier in [section 1.6](#16-encoders-and-encoder-decoders)) is the next step; whether it beats zero-shot depends on how well web captions already describe your categories.
+
+**SigLIP.** The softmax in CLIP's loss normalizes over the whole batch, which needs very large batches and a costly all-gather across devices. SigLIP (Zhai et al., 2023) treats every (image, text) pair in the batch as an independent binary problem, matched or not:
+
+$$\mathcal{L} = -\frac{1}{N}\sum_{i=1}^{N}\sum_{j=1}^{N} \log \sigma\big(z_{ij}\,(t\, \mathbf{x}_i^\top \mathbf{y}_j + b)\big), \qquad z_{ij} = \begin{cases}+1 & i = j\\ -1 & i \neq j\end{cases}$$
+
+with a learned temperature $t$ and bias $b$. It trains better, also at smaller batches, and SigLIP encoders sit inside many current VLMs.
+
+**VLMs: an image encoder wired into an LLM.** Two designs dominate:
+
+| Design | How the image reaches the LLM | Examples | Cost |
+|---|---|---|---|
+| **projected visual tokens** | a ViT/SigLIP encoder produces patch vectors; a small **projector** (linear layer or MLP) maps them into the LLM's embedding space; they are inserted into the prompt as ordinary tokens | LLaVA (Liu et al., 2023), Qwen-VL, InternVL | image tokens take up context and prefill |
+| **cross-attention** | extra cross-attention blocks inside the LLM's layers read the image features, as an encoder-decoder's decoder reads the encoder | Flamingo (Alayrac et al., 2022), Llama 3.2 Vision | images do not take up context; more new parameters |
+
+The first design is the simpler and more common one. It is usually trained in two steps: align the projector on captions with the encoder and the LLM frozen, then instruction-tune on visual question answering.
+
+**Dynamic resolution and what an image costs.** Early VLMs such as LLaVA resized every image to one fixed, small size, which blurs small text. Qwen2-VL and Qwen2.5-VL use **dynamic resolution**: the number of visual tokens grows with the number of pixels (one token per 28×28 area after merging neighbouring patches), and other models tile large images into crops. Detail is kept, and the bill grows with it: **an image is paid for in tokens**, which means prefill time, context length and, with a provider, money ([section 2.8b](#28b-serving-under-load)). How many tokens an image becomes depends on the serving stack as well as the model, so it has to be measured.
+
+**Typographic attacks: prompt injection through pixels.** Goh et al. (2021) found that CLIP reads text in images so well that an apple labelled "iPod" is classified as an iPod. A VLM is an LLM reading its visual tokens, so text it can read in an image becomes part of its input and may be obeyed, like any untrusted text ([section 6.6](#66-safety-refusals-jailbreaks-and-guard-models)). A screenshot, a scanned document or a web page seen by a browsing agent can carry instructions. The defences are those for prompt injection: treat image content as data, do not give an agent that reads images secrets or dangerous tools, and test with adversarial images.
+
+| Use | Family | Why |
+|---|---|---|
+| classification over a fixed label set, image search, deduplication, filtering | CLIP / SigLIP embeddings (+ a linear probe when labels exist) | milliseconds per image, a vector index, strong on common categories |
+| captions, visual questions, open-ended answers, following instructions | VLM | generates text; no fixed label set |
+| reading documents (invoices, forms, screenshots) | VLM with structured output, or OCR + layout model + LLM | fields a program can check; rule-based validation on top |
+
+**Failure modes.** Fine-grained confusion between similar classes; hallucinated objects or fields; OCR errors on small or degraded text; detail lost to downscaling; text in the image taking over the answer; an evaluation set cleaner than production data.
+
+**Key papers.** Dosovitskiy et al. (2021), *An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale*; Radford et al. (2021), *Learning Transferable Visual Models From Natural Language Supervision* (CLIP); Zhai et al. (2023), *Sigmoid Loss for Language Image Pre-Training* (SigLIP); Alayrac et al. (2022), *Flamingo: a Visual Language Model for Few-Shot Learning*; Liu et al. (2023), *Visual Instruction Tuning* (LLaVA); Bai et al. (2025), *Qwen2.5-VL Technical Report*; Goh et al. (2021), *Multimodal Neurons in Artificial Neural Networks*.
+
+> **Notebook:** [24 · Multimodal models](../../notebooks/04_applications/24_multimodal.ipynb) (read after 21) · **In the course:** on 600 test images of Oxford-IIIT Pet (37 breeds), CLIP ViT-B/32 zero-shot reaches 80.0 % with bare breed names, 85.2 % with one template and 86.3 % with an ensemble of five, at 5.9 ms per image; a linear probe on its frozen embeddings needs all ~100 labelled images per breed to pass that (89.0 %; 79.5 % with 16, 34.3 % with one); `qwen2.5vl:3b` through Ollama, choosing from the 37 names, gets 72.0 % on 150 images, 11.3 points below CLIP on the same images, at 1.45 s and about 1,071 prompt tokens per image, and that count stays at ~1,080 whether the image is capped at 224, 448 or 896 px (Ollama resizes to a fixed budget), while capping at 224 px drops accuracy to 55 %; with a JSON schema it extracts all five fields of 40 synthetic invoices, clean and degraded, in about 2.3 s per document, a sign that the invoices are too easy; and with a wrong breed written in a corner of the image, CLIP follows the label 8 % of the time and the VLM 72 %.
 
 ### 4.1 Retrieval-augmented generation
 
@@ -1056,6 +1139,53 @@ With a single relevant item, hit@k is the fraction of users whose target is in t
 The resulting division of labour: the LLM understands *what* is asked and talks about it; the user's history and the collaborative models decide *which*. The research line that tries to merge the two is generative retrieval with *semantic IDs* (TIGER, Rajput et al., 2023), where the model generates the item's identifier token by token.
 
 > **Notebook:** [12 · Recommender systems](../../notebooks/04_applications/12_recommender_systems.ipynb) · **In the course:** on MovieLens-1M with full ranking, SASRec trained with the full softmax reaches hit@10 0.293 (ItemKNN 0.125, popularity 0.036) and never hits a new movie; the union of five sources retrieves the target for 68.4 % of users; LambdaMART with the RecTools/OTTO recipe lifts it to 0.307 (+1.4 points, 95 % CI [+0.7, +2.1]) after passing the validation gate the first attempt failed; one exploration slot takes hit@10 on new movies from 0.009 to 0.044 for 0.7 points overall; MMR at $\lambda = 0.8$ raises diversity from 0.659 to 0.719 for 0.4 points; the LLM keywords hurt content retrieval and add nothing as a ranker feature, but the LLM that turns requests into filters satisfies the constraints in 87 % of the top 5, against 60 % for embedding search.
+
+### 4.5b Drift, online learning and continual updates
+
+**Problem.** A model is trained on the past and used on the future. When the world moves (new users, new products, new questions, changed tastes) quality decays, usually silently: nothing raises an error, results just get a little worse every week. Two questions follow: how to keep the model up to date, and how to notice that it needs updating, often before labels arrive.
+
+**What can drift.** Write the data as inputs $x$ and outcomes $y$, with $P(x, y) = P(x)\,P(y \mid x)$:
+
+| Kind | What changes | Example |
+|---|---|---|
+| **covariate shift** | $P(x)$, with $P(y \mid x)$ fixed | users from a new country; a new kind of question to a chatbot |
+| **label (prior) shift** | $P(y)$ | a blockbuster takes a large share of all views; a fraud wave |
+| **concept drift** | $P(y \mid x)$ | the same history now leads to different choices, because tastes or the catalogue changed |
+
+Drift can be **sudden** (a launch, an outage, a policy change), **gradual** or **recurring** (weekdays, seasons). Some of it is made by the model itself: a recommender decides what users see and therefore what they click, so the next training set reflects the last model's choices. That **feedback loop** narrows exposure and inflates the model's apparent accuracy unless exploration ([section 4.5](#45-recommender-systems)) or logged propensities break it.
+
+**Keeping models fresh.** The options trade freshness against cost and risk:
+
+- **periodic retraining** on all data so far (stable, slow to react) or on a **sliding window** that forgets the old (reacts faster, loses rare long-term patterns);
+- **warm starting**: continue training from the last model on the new data, much cheaper than starting over, standard for large models;
+- **online (incremental) learning**: update after every event or mini-batch, by SGD or with counts that decay exponentially ($c \leftarrow \gamma^{\Delta t} c + 1$) so recent events weigh more. It is the freshest option, but bad data goes live at once, and neural networks can suffer **catastrophic forgetting** of what they knew. This is the field of **continual learning** (Gama et al., 2014; Lu et al., 2018).
+
+Whatever the strategy, a new model is a deployment: it is evaluated offline on the most recent data and rolled out gradually (a **canary** on a small share of traffic, then an A/B test), with the previous model ready for rollback.
+
+**Evaluating on a stream: prequential.** A random train/test split leaks the future into training. On a stream, the honest protocol is **prequential** ("test-then-train", Dawid, 1984; Gama et al., 2014): each event is first predicted with the model as it is, and only then used for learning. Every prediction is out of sample, and plotting the score over time shows the model ageing, and how much each update strategy holds back the decay.
+
+**Detecting drift without labels.** Labels often arrive late (a purchase, a churn) or never, so monitoring watches **inputs** and **outputs** as well:
+
+- **PSI** (population stability index) between a reference distribution $q$ and the current one $p$ over bins $b$:
+
+$$\mathrm{PSI} = \sum_b (p_b - q_b)\,\ln\frac{p_b}{q_b}$$
+
+  a symmetrized KL divergence; the industry rule of thumb is < 0.1 stable, 0.1–0.25 moderate, > 0.25 a major shift. The **Kolmogorov-Smirnov** test (maximum gap between two empirical CDFs) and the chi-squared test do the same per feature with a p-value; **KL** and **Jensen-Shannon** divergences measure the gap between distributions directly.
+- **For embeddings** (text, images), feature-by-feature tests do not work: there are hundreds of dimensions and no single one means anything. Three tests compare the two clouds of vectors. The **centroid shift** is the distance between their means: cheap, but blind to changes that keep the mean. The **maximum mean discrepancy** (MMD; Gretton et al., 2012) compares the samples through a kernel,
+
+$$\mathrm{MMD}^2 = \mathbb{E}[k(x, x')] + \mathbb{E}[k(y, y')] - 2\,\mathbb{E}[k(x, y)]$$
+
+  with a p-value from a permutation test (shuffle which window each point came from). The **classifier two-sample test** (Lopez-Paz and Oquab, 2017) trains a classifier to tell reference from current data: a cross-validated AUC well above 0.5 means they differ, and the classifier's errors show *where*. Rabanser, Günnemann and Lipton (2019) compared these on many shifts; reducing dimensions first and using two-sample tests worked best.
+
+**What to monitor.** Three levels, from cheapest to most meaningful: **inputs** (feature and embedding drift, the share of never-seen items, users or intents), **outputs** (prediction distribution, confidence, refusal and fallback rates) and **outcomes** (online quality from delayed labels: clicks, purchases, ratings, task success, feedback). Only the last measures what you care about; input drift is an alarm to investigate, not proof of harm, and concept drift can happen with no input drift at all. Per-item novelty flags (as in [section 4.0b](#40b-clustering-and-topic-modeling)) catch a new topic long before it moves a whole window's distribution. Evidently, NannyML, WhyLabs and Arize implement these checks; for LLM applications they sit next to tracing ([section 6.1](#61-traces-spans-and-opentelemetry-genai)).
+
+**For LLM applications.** The weights of a pinned model do not change, but everything around them does: what users ask, the documents in the RAG index, the tools' APIs, and the provider's model behind an API name. Retraining is replaced by re-running the evaluation set on every change, refreshing the index and the evaluation set from production traffic, and tracking new-intent clusters.
+
+**Failure modes.** Watching only input distributions and missing concept drift; alarms nobody owns; retraining automatically on corrupted or poisoned data; feedback loops; windows too small to detect anything; silent upstream changes (a renamed field, a new tokenizer, a new model version behind the same API name).
+
+**Key papers.** Gama, Žliobaitė, Bifet, Pechenizkiy and Bouchachia (2014), *A Survey on Concept Drift Adaptation*; Lu et al. (2018), *Learning under Concept Drift: A Review*; Gretton et al. (2012), *A Kernel Two-Sample Test*; Lopez-Paz and Oquab (2017), *Revisiting Classifier Two-Sample Tests*; Rabanser, Günnemann and Lipton (2019), *Failing Loudly: An Empirical Study of Methods for Detecting Dataset Shift*; Harper and Konstan (2015), *The MovieLens Datasets: History and Context*.
+
+> **Notebook:** [26 · Online learning and drift](../../notebooks/04_applications/26_online_learning_drift.ipynb) (read after 12) · **In the course:** on MovieLens-1M replayed as 22 weekly windows after a training cut-off of 1 August 2000, a frozen co-visitation recommender falls from hit@10 0.184 to 0.160 while the weekly-retrained one holds at about 0.20 (0.207 against 0.175 over all weeks, +18 %); popularity barely ages, and its four update strategies (frozen, weekly, 4-week window, online with decay) end within 0.004 of each other; PSI on the item distribution stays at 0.01–0.03 every week, so the decay is concept drift that input monitoring misses, and a PSI > 0.25 retraining trigger never fires; on Banking77 with bge-small embeddings, all three detectors keep false alarms at 5 %, but with 400 messages per window a shift where 20 % of messages come from new intents is caught only 25–30 % of the time, while at 40 % MMD and the classifier test catch it every time.
 
 ---
 

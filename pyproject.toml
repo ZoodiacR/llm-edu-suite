@@ -39,6 +39,7 @@ dependencies = [
     "lightgbm>=4.5",                   # learning-to-rank (LambdaMART) for the recommender in notebook 12
     "scikit-learn>=1.5",               # linear classifiers and metrics (notebook 17)
     "sentence-transformers>=5.0",      # bi-encoders, cross-encoder rerankers and contrastive training (notebook 21)
+    "umap-learn>=0.5",                 # dimensionality reduction for clustering and topic modeling (notebook 25)
     # fine-tuning and quantization (notebooks 07-09)
     "transformers>=5.0",
     "peft>=0.21",

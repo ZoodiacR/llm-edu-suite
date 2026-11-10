@@ -21,6 +21,12 @@ El notebook 22 (seguridad y guardrails) se lee justo después del 15: la observa
 
 El notebook 23 (serving bajo carga) se lee justo después del 06: el 06 abre por dentro una sola generación y este sirve los modelos como lo hace una aplicación, a través de un servidor HTTP y con muchas peticiones a la vez. Con un cliente en streaming contra Ollama mide el TTFT, el TPOT y el throughput, el prefill frente al decode según crece el prompt, lo que ahorra el prefix caching, un slot de peticiones frente a cuatro con 1 a 8 peticiones en vuelo (y la ley de Little), el mismo modelo de 1.5B en GGUF Q4_K_M, Q8_0 y FP16 (memoria, velocidad y acierto) y un gateway pequeño con fallbacks, timeouts y una cascada consciente del coste de `qwen2.5:3b` a `qwen2.5:7b`.
 
+El notebook 24 (modelos multimodales) se lee justo después del 21: CLIP se entrena con la misma pérdida contrastiva que un modelo de embeddings de texto, solo que con imágenes en uno de los lados. Sobre 37 razas de gatos y perros (Oxford-IIIT Pet) mide CLIP en zero-shot con el nombre de la clase a secas, con una plantilla de prompt y con un ensemble de cinco, un linear probe con entre 1 y ~100 imágenes etiquetadas por raza y `qwen2.5vl:3b` en Ollama como clasificador (acierto, latencia, tokens por imagen y qué cambia con la resolución); después, extracción estructurada de imágenes de facturas sintéticas con un esquema JSON, limpias y degradadas, y un ataque tipográfico, una raza equivocada escrita sobre la imagen, contra CLIP y contra el VLM.
+
+El notebook 25 (clustering y modelado de temas) también se lee justo después del 21, antes del 24: usa los mismos embeddings para averiguar qué hay dentro de un montón de texto sin etiquetar. Sobre los 3.080 mensajes de clientes de Banking77, tratados como logs sin etiquetar, compara dos modelos de embeddings y UMAP antes de k-means, intenta elegir el número de clusters con el silhouette score, deja que HDBSCAN encuentre por su cuenta los clusters y el ruido, describe cada cluster con palabras clave de c-TF-IDF y un nombre puesto por `qwen2.5:3b` y monta un bucle de monitorización de intenciones emergentes. Las 77 etiquetas de intención solo se usan para medir cada paso (ARI, NMI, pureza).
+
+El notebook 26 (aprendizaje online y drift) se lee justo después del 12: reproduce MovieLens-1M como un flujo semanal y mide cómo envejece un recomendador congelado frente a reentrenarlo cada semana, a una ventana deslizante y a actualizaciones online con decaimiento (con evaluación precuencial, primero predecir y luego aprender), si el PSI de la distribución de entrada se da cuenta del cambio y si reentrenar cuando salta el drift es mejor que hacerlo según un calendario. Después, con Banking77, se pregunta si un cambio en lo que preguntan los usuarios se puede detectar solo con embeddings, con el desplazamiento del centroide, MMD con un test de permutaciones y un test de dos muestras con clasificador.
+
 Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-embed-text`) y los modelos de entrenamiento son SmolLM2 de Hugging Face. Con una GPU NVIDIA va rápido (los resultados publicados se midieron en una RTX 3060 de 6 GB); en CPU también funciona, salvo el notebook 19, que necesita una GPU CUDA. LangSmith es opcional.
 
 ## Páginas
@@ -28,7 +34,7 @@ Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-emb
 | Página | Para qué sirve |
 |---|---|
 | [Instalación y entorno](instalacion.md) | `.venv`, PyTorch con CUDA, Ollama y sus modelos, el `.env`, la clave de LangSmith, problemas frecuentes |
-| [Guía de notebooks](guia_notebooks.md) | los 24 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
+| [Guía de notebooks](guia_notebooks.md) | los 27 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
 | [Fundamentos teóricos](fundamentos.md) | la teoría detrás de cada técnica y patrón: el problema que resuelve, la idea, por qué se usa hoy, cómo falla |
 | [Referencia de módulos](referencia_modulos.md) | el paquete `llm_edu_suite/` (el modelo desde cero y `config.py`) y dónde se enseña cada tema con frameworks |
 | [Scripts de línea de comandos](scripts_cli.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP) |
@@ -43,7 +49,7 @@ Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-emb
 | Arquitectura | `notebooks/01_architecture/` | 01 tokenización · 02 atención, RoPE y normalización · 03 atención eficiente · 04 FFN y MoE · 17 encoders y encoder-decoders | PyTorch desde cero · `transformers` y `scikit-learn` (17) |
 | Pre-entrenamiento e inferencia | `notebooks/02_pretraining_and_inference/` | 18 ingeniería de datos (deduplicación, filtros, descontaminación) · 05 pre-entrenamiento · 19 sistemas (memoria, precisión, kernels, paralelismo) · 06 inferencia · 23 serving bajo carga (TTFT, batching, caché, GGUF, gateways) · 09 cuantización | PyTorch · `datasets` y `transformers` (18) · `torch.profiler` y `torch.distributed` (19) · Ollama por HTTP (23) · `optimum-quanto` |
 | Post-training | `notebooks/03_post_training/` | 07 SFT, LoRA, destilación y fusión de modelos · 08 DPO y GRPO · 20 razonamiento y cómputo en inferencia | `transformers` · `peft` · `trl` · LangChain (Ollama) (20) |
-| Aplicaciones | `notebooks/04_applications/` | 21 embeddings y rerankers · 10 RAG · 12 recomendación · 13 patrones de aplicación | LangChain · RAGAS · PyTorch · `sentence-transformers` (21) |
+| Aplicaciones | `notebooks/04_applications/` | 21 embeddings y rerankers · 25 clustering y modelado de temas (UMAP, HDBSCAN, c-TF-IDF) · 24 modelos multimodales (CLIP, VLMs, extracción de documentos) · 10 RAG · 12 recomendación · 26 aprendizaje online y drift · 13 patrones de aplicación | LangChain · RAGAS · PyTorch · `sentence-transformers` (21, 25) · `umap-learn` y `scikit-learn` (25) · CLIP con `transformers` y `qwen2.5vl:3b` con Ollama (24) |
 | Agentes y MCP | `notebooks/05_agents_and_mcp/` | 11 tools y salida estructurada · 14 IA agéntica · 16 MCP | LangChain · LangGraph · SDK `mcp` |
 | LLMOps | `notebooks/06_llmops/` | 15 observabilidad y evaluación · 22 seguridad: rechazos, jailbreaks y modelos guardián | LangSmith · Llama Guard 3 con Ollama (22) |
 
@@ -62,8 +68,11 @@ flowchart LR
     F --> R["20 Razonamiento<br/>CoT · self-consistency · verificadores"]
     E --> H[Aplicaciones con LangChain]
     H --> T["21 Embeddings y rerankers<br/>bi-encoder · InfoNCE · Matryoshka"]
+    T --> X["25 Clustering y temas<br/>UMAP · HDBSCAN · c-TF-IDF"]
+    T --> W["24 Modelos multimodales<br/>CLIP · VLM · ataques tipográficos"]
     T --> I["10 RAG + RAGAS"]
     H --> K[12 Recomendación]
+    K --> Y["26 Drift y aprendizaje online<br/>PSI · MMD · reentrenamiento"]
     H --> L[13 Patrones]
     H --> J[11 Tools]
     J --> M["14 Agentes · LangGraph"]
@@ -78,7 +87,7 @@ flowchart LR
 1. **Arquitectura:** 01 → 02 → 03 → 04 → 17. Al terminar deberías poder escribir un transformer de memoria y saber cuándo conviene un encoder o un encoder-decoder en lugar de un decoder-only.
 2. **Datos, entrenamiento e inferencia:** 18 → 05 → 19 → 06 → 23. Primero qué texto entra en el modelo y por qué, después cómo se entrena con él y cuánto cuesta ese entrenamiento en memoria y tiempo, en una GPU y en muchas. Después del 23 deberías saber qué espera el usuario cuando se sirve un modelo (TTFT, TPOT, percentiles), por qué ayudan el batching, el prefix caching y los pesos cuantizados, y cómo dimensionar un servidor a partir de su tasa de peticiones.
 3. **Post-training con Hugging Face:** 07 → 08 → 20, después 09 (cuantización). Después del 20 deberías saber qué compran los tokens de razonamiento, cuándo compensa votar o usar un verificador y cómo saber si te puedes fiar de un juez.
-4. **Aplicaciones con LangChain:** 21 → 10 → 13 → 12. Después del 21 deberías saber elegir, ajustar, comprimir y evaluar un recuperador antes de meterlo en un RAG. Regla de oro: **construye tu set de evaluación antes que el sistema**.
+4. **Aplicaciones con LangChain:** 21 → 25 → 24 → 10 → 13 → 12 → 26. Después del 21 deberías saber elegir, ajustar, comprimir y evaluar un recuperador antes de meterlo en un RAG. Después del 25 deberías saber encontrar los temas de unos logs sin etiquetar, por qué el número de clusters es una elección y no un descubrimiento, y cómo vigilar la aparición de intenciones nuevas. Después del 24 deberías saber cuándo clasificar imágenes con embeddings y cuándo compensa pagar un VLM, cuánto cuesta una imagen en tokens y por qué el texto que aparece en una imagen es una entrada no fiable. Después del 26 deberías saber por qué un modelo que funcionaba el mes pasado puede no funcionar ahora, cómo evaluarlo sobre un flujo y por qué vigilar solo las distribuciones de entrada puede dejar pasar el drift que importa. Regla de oro: **construye tu set de evaluación antes que el sistema**.
 5. **Agentes:** 11 → 14 → 16 y, al final, 15 para ver cómo se observa y evalúa todo en producción, y después 22. Al terminar el 22 deberías saber medir los rechazos de un modelo y también sus rechazos de más, por qué los rechazos del propio modelo no bastan como defensa y cuánto cuesta un modelo guardián en falsos positivos.
 
 ## Principios del proyecto

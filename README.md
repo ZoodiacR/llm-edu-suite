@@ -6,7 +6,7 @@
 
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-- **24 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
+- **27 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
 - **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free).
 - **Honest results**: when a technique does not help in our setup, the notebook shows it and explains why
 - **Tested**: fast tests with fake LLMs in CI on every push, integration tests against the local models
@@ -37,8 +37,11 @@ The number is the suggested study order; the folder is the topic.
 | | [08 · DPO & GRPO](notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb) | preference tuning, likelihood displacement, DPO + NLL, RL with verifiable rewards | `trl` |
 | | [20 · reasoning & test-time compute](notebooks/03_post_training/20_reasoning_test_time_compute.ipynb) | chain of thought, self-consistency (maj@k / pass@k), best-of-N with an LLM verifier, a distilled reasoning model, Bradley-Terry rankings, judge position bias | LangChain, Ollama |
 | **Applications** | [21 · embeddings & rerankers](notebooks/04_applications/21_embeddings_and_rerankers.ipynb) | bi-encoders vs cross-encoders, InfoNCE by hand, contrastive fine-tuning with hard negatives, Matryoshka, int8 / binary quantization with rescoring, hybrid retrieval and rerankers, on BEIR SciFact | `sentence-transformers`, Ollama |
+| | [24 · multimodal](notebooks/04_applications/24_multimodal.ipynb) | ViT, CLIP zero-shot and linear probes, a vision-language model as classifier and document reader, image token cost, typographic attacks | `transformers`, Ollama (`qwen2.5vl`) |
+| | [25 · clustering & topic modeling](notebooks/04_applications/25_clustering_topic_modeling.ipynb) | k-means vs UMAP + HDBSCAN, choosing k without labels, c-TF-IDF keywords and LLM-named topics, detecting emerging intents in production logs | `umap-learn`, scikit-learn, LangChain |
 | | [10 · RAG](notebooks/04_applications/10_rag.ipynb) | loaders, splitters, FAISS, BM25, hybrid RRF, LCEL chains with citations, RAGAS | LangChain, RAGAS |
 | | [12 · recommender systems](notebooks/04_applications/12_recommender_systems.ipynb) | the industry funnel on MovieLens-1M: SASRec, two-tower + FAISS, LambdaMART ranker, exploration and diversity, LLM requests and explanations | PyTorch, FAISS, LightGBM, LangChain |
+| | [26 · online learning & drift](notebooks/04_applications/26_online_learning_drift.ipynb) | models aging on a stream, prequential evaluation, weekly / sliding / online updates, PSI, drift-triggered retraining, embedding drift tests (MMD, classifier two-sample) for LLM apps | NumPy, `sentence-transformers` |
 | | [13 · LLM application patterns](notebooks/04_applications/13_modern_llm_applications.ipynb) | extraction, classification, map-reduce summarization, caching, prompt-injection defense, batch jobs | LangChain |
 | **Agents & MCP** | [11 · tools & structured output](notebooks/05_agents_and_mcp/11_agents_tools_structured_output.ipynb) | how tool calling works, `bind_tools`, the loop by hand, `create_agent`, Pydantic outputs | LangChain |
 | | [14 · agentic AI](notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) | StateGraph, guardrails, human-in-the-loop, memory, plan-and-execute, reflection, routing, supervisor vs handoffs, sandboxed code execution | LangGraph |
@@ -69,9 +72,12 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 20 · reasoning (GSM8K, `qwen2.5:3b`) | chain of thought lifts accuracy **12.5% → 85%**; self-consistency with 5 votes **90%** at 5× the tokens; best-of-5 with a 7B judge (85%) does **worse than the vote**; DeepSeek-R1-Distill 1.5B 63.7% with 16/80 answers cut off; a pairwise judge agrees with itself only 43% when the order is swapped |
 | 09 · quantization (SmolLM2-360M) | int8 and float8 keep ~96% top-1 agreement at 0.41 GB; int4 drops to 73% (KL 0.27); int2 breaks the model. Perplexity hides what KL shows |
 | 21 · embeddings & rerankers (SciFact) | fine-tuning MiniLM for **22 s** on 919 labelled pairs with BM25 hard negatives lifts nDCG@10 **0.648 → 0.762**, above bge-small (0.706) and nomic (0.708), with no loss on another domain; Matryoshka keeps 0.646 at 64 dims vs 0.589; binary codes + int8 rescoring match float32 (0.760 vs 0.762) in 32× less memory; general rerankers did not beat the fine-tuned bi-encoder |
+| 24 · multimodal (Oxford-IIIT Pet) | CLIP zero-shot names 37 breeds at **86.3%** in 6 ms/image (a linear probe needs ~100 labels per breed to pass it); `qwen2.5vl:3b` gets 72% at 1.45 s and ~1,071 tokens per image; a wrong breed name written on the image makes the VLM answer it **72%** of the time vs 8% for CLIP |
+| 25 · topic modeling (Banking77) | UMAP + HDBSCAN finds **73 clusters without being told k** (77 true intents), as good as k-means given k (ARI 0.683 vs 0.685); silhouette picks k = 60; an LLM names clusters; all **7 held-out intents surface as clusters** of flagged production messages |
 | 10 · RAG + RAGAS | hybrid BM25 + dense retrieval: **evidence MRR 0.84** vs 0.73 dense-only. RAGAS with a 7B judge and bootstrap intervals: the one clear gain is **context precision 0.79 → 0.92**; the faithfulness "gain" a 3B judge reported (0.38 → 0.54) was the judge's noise |
 | 11 · tool calling | 79% tool selection and 86% valid arguments on 14 labelled requests; `function_calling` / `json_mode` 98% field accuracy vs 85% for `json_schema` on Ollama |
 | 12 · recommender (MovieLens-1M) | full-ranking hit@10: popularity 0.036, ItemKNN 0.125, two-tower 0.194, SASRec 0.293, **LambdaMART ranker 0.307** (+1.4 points, 95% CI [+0.7, +2.1]); a new-movie slot lifts cold-start hits 0.009 → 0.044; an LLM front end satisfies request constraints in **87% vs 60%** for embedding search, while LLM keywords did not help ranking |
+| 26 · drift (MovieLens-1M stream, Banking77) | a frozen co-visitation recommender decays 0.184 → 0.160 hit@10 in 22 weeks while weekly retraining holds ~0.20 (+18%); PSI stayed at 0.01–0.03, so **input monitors missed the concept drift**; embedding drift tests detect a 40% shift in user questions 90–100% of the time but a 20% shift only 25–30% |
 | 13 · application patterns | map-reduce summary covers **11/13 topics** vs 9/13 for one silently truncated call (6/13 in another run); an LLM injection guard catches **10/10 attacks with 0/10 false positives** |
 | 14 · LangGraph agents | every guardrail stops with an explicit reason; on 10 short tasks a single ReAct agent (70%, 2.2 model calls) beats plan-and-execute (60%, 6.6 calls), ties a supervisor (80% at 2.4× the calls) and beats free handoffs (30%); a code sandbox contains 8 of 9 attack probes (the `ctypes` hole shown on purpose) and no secret is reachable; a 7B code-writing agent answers 6/10 data questions with execution feedback |
 | 15 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback surfaced a real tool-prompt bug |
@@ -114,7 +120,7 @@ Switching the whole course to a hosted model is a `.env` change (`LLM_PROVIDER=o
 
 ```
 llm-edu-suite/
-├── notebooks/                 24 notebooks, one folder per topic
+├── notebooks/                 27 notebooks, one folder per topic
 │   ├── 00_start_here/  01_architecture/  02_pretraining_and_inference/
 │   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/
 ├── llm_edu_suite/             the from-scratch model (tokenizer, layers, model, training, inference, recsys,
@@ -148,6 +154,7 @@ llm-edu-suite/
 | [v2.4](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.4) | Reasoning and adaptation: a notebook on test-time compute (chain of thought, self-consistency, best-of-N with an LLM verifier, a distilled reasoning model, Bradley-Terry rankings and judge position bias) and a model-merging section (task arithmetic, TIES, DARE vs multi-task training); notebook 07 closes with *Results* and *In production*. |
 | [v2.5](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.5) | Retrieval and agents in depth: an embeddings-and-rerankers notebook (contrastive fine-tuning with hard negatives, Matryoshka, binary quantization with rescoring, rerankers, on BEIR SciFact); multi-agent supervisor vs handoffs and sandboxed code execution in notebook 14; MCP sampling, elicitation, roots and a remote server with OAuth 2.1 bearer tokens in notebook 16. |
 | [v2.6](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.6) | Production: a safety notebook (refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, layered defences, validated judges) and a serving notebook (latency metrics, prefill vs decode, prefix caching, batching slots, GGUF formats, a gateway and a cost-aware cascade). |
+| [v2.7](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.7) | Beyond text and beyond a single snapshot: multimodal models (CLIP zero-shot and probes, a vision-language model, document extraction, typographic attacks), clustering and topic modeling of user messages with emerging-intent detection, and online learning and drift (models aging on a stream, PSI, embedding drift tests). |
 
 ## Roadmap
 
