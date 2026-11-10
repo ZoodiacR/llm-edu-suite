@@ -6,7 +6,7 @@
 
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-- **22 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
+- **24 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
 - **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free).
 - **Honest results**: when a technique does not help in our setup, the notebook shows it and explains why
 - **Tested**: fast tests with fake LLMs in CI on every push, integration tests against the local models
@@ -31,6 +31,7 @@ The number is the suggested study order; the folder is the topic.
 | | [05 · pre-training](notebooks/02_pretraining_and_inference/05_pretraining.ipynb) | the training pipeline, LR schedules, irreducible loss, scaling curves | PyTorch (from scratch) |
 | | [19 · systems](notebooks/02_pretraining_and_inference/19_systems_memory_and_parallelism.ipynb) | memory anatomy, bf16, activation checkpointing, fused attention kernels, profiling, CUDA graphs, MFU, real DDP, ZeRO/FSDP | PyTorch, `torch.distributed` |
 | | [06 · inference & serving](notebooks/02_pretraining_and_inference/06_inference_serving.ipynb) | sampling, KV-cache, speculative decoding, batching, TTFT; loading SmolLM2's real weights into our model | PyTorch (from scratch), `transformers` |
+| | [23 · serving under load](notebooks/02_pretraining_and_inference/23_serving_and_load.ipynb) | TTFT / TPOT / throughput, prefill vs decode, prefix caching, request slots and batching, Little's law, GGUF Q4 / Q8 / FP16, a gateway with fallbacks, a cost-aware 3B → 7B cascade | Ollama, `httpx` |
 | | [09 · quantization](notebooks/02_pretraining_and_inference/09_quantization.ipynb) | int8 / float8 / int4 / int2 on a real model, measured with KL and top-1 agreement | `optimum-quanto` |
 | **Post-training** | [07 · SFT, LoRA, distillation](notebooks/03_post_training/07_finetuning_sft_lora.ipynb) | chat templates and loss masking, full SFT vs LoRA vs QLoRA (4-bit NF4), the new-token trap, rank ablation, teacher → student, model merging (task arithmetic, TIES, DARE) | `transformers`, `peft`, `trl`, `bitsandbytes` |
 | | [08 · DPO & GRPO](notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb) | preference tuning, likelihood displacement, DPO + NLL, RL with verifiable rewards | `trl` |
@@ -43,6 +44,7 @@ The number is the suggested study order; the folder is the topic.
 | | [14 · agentic AI](notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) | StateGraph, guardrails, human-in-the-loop, memory, plan-and-execute, reflection, routing, supervisor vs handoffs, sandboxed code execution | LangGraph |
 | | [16 · Model Context Protocol](notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb) | MCP from the wire up, a FastMCP server, an agent using MCP tools, security, sampling / elicitation / roots, a remote server with OAuth 2.1 bearer tokens | `mcp` SDK, `langchain-mcp-adapters` |
 | **LLMOps** | [15 · observability & evaluation](notebooks/06_llmops/15_observability_llmops.ipynb) | tracing, latency percentiles, SLOs, feedback, PII anonymization, datasets + `evaluate()` | LangSmith |
+| | [22 · safety & guardrails](notebooks/06_llmops/22_safety_guardrails.ipynb) | refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, safety prompts, layered defences, validated judges | Ollama, Llama Guard 3 |
 
 Detailed notebook-by-notebook guide: [English](docs/en/notebooks_guide.md) · [Español](docs/es/guia_notebooks.md).
 
@@ -58,6 +60,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 18 · data engineering | MinHash + LSH from scratch follows the theoretical S-curve (100% of templated copies and 1% rewrites caught, 0 false merges); rules remove 12% of FineWeb; decontamination finds 50/50 planted leaks plus 29 natural overlaps; a model trained on the raw crawl memorizes 10×-repeated pages (loss 4.35 vs 5.28 for the deduplicated model) |
 | 19 · systems | memory matches the 16-bytes-per-parameter rule to the MB; fused attention needs **0.22 GB at 16k tokens** where naive attention runs out of memory; CUDA graphs **4.1×** faster; MFU 32%; two-process DDP reproduces large-batch training to 7e-9 |
 | 06 · inference | speculative decoding accepts **98% of draft tokens, ~4.6 tokens per target forward pass**. SmolLM2-135M's published weights run in our from-scratch `TransformerLM` with **identical greedy output** to Hugging Face (logits within 3e-5) |
+| 23 · serving (Ollama) | prefill runs **35× faster** than decode; prefix caching cuts TTFT from 654 to 39 ms; one request slot turns concurrency into a queue (TTFT 13.4 s at 8 in flight) while four slots double throughput (171 tok/s); Q4_K_M decodes 2× faster than FP16 in a third of the memory for −1.5 points on ARC-Easy; a 3B → 7B cascade beats both models (85% vs 82.5% / 78.8%) |
 | 07 · SFT & LoRA (SmolLM2-135M) | few-shot 17.5% → **full SFT 35%**, LoRA r=16 32.5% training 3.5% of the parameters, r=64 45%. A new special token with frozen embeddings is **never emitted (0%)**; with `modules_to_save` it is emitted **100%** of the time |
 | 07 · QLoRA | the same LoRA on a 4-bit NF4 base: **no loss of quality** (37.5% vs 32.5% exact, same 86.5% of fields), weights 269 → 110 MB; for a 7B model the frozen weights drop from 14 GB to 3.6 GB |
 | 07 · distillation | a 360M teacher (87.5%) labels 600 extra prompts; the 135M student rises from 35% to **55%** |
@@ -72,6 +75,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 13 · application patterns | map-reduce summary covers **11/13 topics** vs 9/13 for one silently truncated call (6/13 in another run); an LLM injection guard catches **10/10 attacks with 0/10 false positives** |
 | 14 · LangGraph agents | every guardrail stops with an explicit reason; on 10 short tasks a single ReAct agent (70%, 2.2 model calls) beats plan-and-execute (60%, 6.6 calls), ties a supervisor (80% at 2.4× the calls) and beats free handoffs (30%); a code sandbox contains 8 of 9 attack probes (the `ctypes` hole shown on purpose) and no secret is reachable; a 7B code-writing agent answers 6/10 data questions with execution feedback |
 | 15 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback surfaced a real tool-prompt bug |
+| 22 · safety (JailbreakBench, XSTest) | `qwen2.5:3b` refuses 89% of harmful requests but over-refuses 17% of safe ones (7B: 5%); **prefix injection lifts attack success from 4% to 64%**; Llama Guard 3 1B catches 95–100% of harmful requests, disguised or not, but blocks 8–22% of safe ones; a 7B LLM judge agreed with humans only 70% vs 90% for a keyword judge |
 | 16 · MCP | the FastMCP server passes **14/14 conformance checks**; the agent answers 6/6 questions through MCP tools (4/6 cited); a tool call costs 3.0 ms over stdio and 5.2 ms over authenticated Streamable HTTP; requests without a valid token get 401 with RFC 9728 metadata |
 
 ## Quick start
@@ -110,7 +114,7 @@ Switching the whole course to a hosted model is a `.env` change (`LLM_PROVIDER=o
 
 ```
 llm-edu-suite/
-├── notebooks/                 22 notebooks, one folder per topic
+├── notebooks/                 24 notebooks, one folder per topic
 │   ├── 00_start_here/  01_architecture/  02_pretraining_and_inference/
 │   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/
 ├── llm_edu_suite/             the from-scratch model (tokenizer, layers, model, training, inference, recsys,
@@ -143,6 +147,7 @@ llm-edu-suite/
 | [v2.3](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.3) | Training at scale: a data-engineering notebook (MinHash/LSH deduplication from scratch, quality filters, decontamination, raw vs clean training) and a systems notebook (memory anatomy, mixed precision, checkpointing, fused attention, profiling, CUDA graphs, MFU, real DDP, ZeRO/FSDP). |
 | [v2.4](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.4) | Reasoning and adaptation: a notebook on test-time compute (chain of thought, self-consistency, best-of-N with an LLM verifier, a distilled reasoning model, Bradley-Terry rankings and judge position bias) and a model-merging section (task arithmetic, TIES, DARE vs multi-task training); notebook 07 closes with *Results* and *In production*. |
 | [v2.5](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.5) | Retrieval and agents in depth: an embeddings-and-rerankers notebook (contrastive fine-tuning with hard negatives, Matryoshka, binary quantization with rescoring, rerankers, on BEIR SciFact); multi-agent supervisor vs handoffs and sandboxed code execution in notebook 14; MCP sampling, elicitation, roots and a remote server with OAuth 2.1 bearer tokens in notebook 16. |
+| [v2.6](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.6) | Production: a safety notebook (refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, layered defences, validated judges) and a serving notebook (latency metrics, prefill vs decode, prefix caching, batching slots, GGUF formats, a gateway and a cost-aware cascade). |
 
 ## Roadmap
 

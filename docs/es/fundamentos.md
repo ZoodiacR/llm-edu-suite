@@ -11,7 +11,7 @@
 1. [El modelo por dentro](#1-el-modelo-por-dentro)
    - [1.1 Tokenización](#11-tokenización) · [1.2 El bloque transformer](#12-el-bloque-transformer-y-el-flujo-residual) · [1.3 Atención, RoPE y normalización](#13-atención-rope-y-normalización) · [1.4 Atención eficiente](#14-atención-eficiente-para-contextos-largos) · [1.5 FFN y Mixture of Experts](#15-ffn-y-mixture-of-experts) · [1.6 Encoders y encoder-decoders](#16-encoders-y-encoder-decoders)
 2. [Pre-training e inferencia](#2-pre-training-e-inferencia)
-   - [2.0 Datos de pre-entrenamiento](#20-datos-de-pre-entrenamiento) · [2.1 El objetivo](#21-el-objetivo-predecir-el-siguiente-token) · [2.2 Optimizador y schedule](#22-optimizador-y-plan-de-learning-rate) · [2.3 Leyes de escalado](#23-leyes-de-escalado) · [2.3b Sistemas](#23b-sistemas-memoria-precisión-kernels-y-paralelismo) · [2.4 Decodificación](#24-estrategias-de-decodificación) · [2.5 KV-cache](#25-prefill-decode-y-kv-cache) · [2.6 Batching y serving](#26-batching-y-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Cuantización](#28-cuantización)
+   - [2.0 Datos de pre-entrenamiento](#20-datos-de-pre-entrenamiento) · [2.1 El objetivo](#21-el-objetivo-predecir-el-siguiente-token) · [2.2 Optimizador y schedule](#22-optimizador-y-plan-de-learning-rate) · [2.3 Leyes de escalado](#23-leyes-de-escalado) · [2.3b Sistemas](#23b-sistemas-memoria-precisión-kernels-y-paralelismo) · [2.4 Decodificación](#24-estrategias-de-decodificación) · [2.5 KV-cache](#25-prefill-decode-y-kv-cache) · [2.6 Batching y serving](#26-batching-y-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Cuantización](#28-cuantización) · [2.8b Serving bajo carga](#28b-serving-bajo-carga)
 3. [Post-training](#3-post-training)
    - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-y-fine-tuning-eficiente) · [3.3 Destilación](#33-destilación) · [3.3b Fusión de modelos](#33b-fusión-de-modelos) · [3.4 RLHF, DPO y GRPO](#34-de-rlhf-a-dpo-y-grpo) · [3.5 Razonamiento y cómputo en inferencia](#35-razonamiento-y-cómputo-en-inferencia)
 4. [Aplicaciones](#4-aplicaciones)
@@ -19,7 +19,7 @@
 5. [Agentes y MCP](#5-agentes-y-mcp)
    - [5.1 Tool calling](#51-tool-calling) · [5.2 Decodificación restringida](#52-decodificación-restringida-y-salida-estructurada) · [5.3 ReAct, plan-and-execute y reflexión](#53-react-plan-and-execute-y-reflexión) · [5.4 Grafos de estado](#54-langgraph-agentes-como-máquinas-de-estado) · [5.5 Memoria](#55-memoria) · [5.6 Límites y human-in-the-loop](#56-límites-y-human-in-the-loop) · [5.7 Equipos de agentes](#57-equipos-de-agentes-supervisor-y-handoffs) · [5.8 Ejecución de código y sandboxes](#58-ejecución-de-código-y-sandboxes) · [5.9 MCP](#59-model-context-protocol)
 6. [LLMOps](#6-llmops)
-   - [6.1 Trazas y spans](#61-trazas-spans-y-opentelemetry-genai) · [6.2 Evaluación offline y online](#62-evaluación-offline-y-online) · [6.3 Percentiles y SLOs](#63-percentiles-y-slos) · [6.4 PII y muestreo](#64-pii-y-muestreo-de-trazas) · [6.5 Estadística de sets pequeños](#65-estadística-de-sets-de-evaluación-pequeños)
+   - [6.1 Trazas y spans](#61-trazas-spans-y-opentelemetry-genai) · [6.2 Evaluación offline y online](#62-evaluación-offline-y-online) · [6.3 Percentiles y SLOs](#63-percentiles-y-slos) · [6.4 PII y muestreo](#64-pii-y-muestreo-de-trazas) · [6.5 Estadística de sets pequeños](#65-estadística-de-sets-de-evaluación-pequeños) · [6.6 Seguridad y guardrails](#66-seguridad-rechazos-jailbreaks-y-modelos-guardián)
 
 ---
 
@@ -502,7 +502,7 @@ La **KV-cache** convierte $O(N^2)$ trabajo de proyecciones en $O(N)$ y es una op
 | Desagregación prefill/decode | las dos fases quieren hardware distinto | DistServe (Zhong et al., 2024) |
 | CUDA graphs | el coste de lanzar kernels domina en pasos pequeños | — |
 
-**Compromiso latencia-throughput.** El tiempo de una petición es aproximadamente $\text{TTFT} + N_{out} \times \text{TPOT}$. Subir el batch aumenta el throughput agregado casi gratis mientras decode esté limitado por memoria; cuando el paso pasa a estar limitado por cómputo, cada secuencia extra ralentiza a todas. Un sistema de serving elige el mayor batch que cumple el objetivo de latencia en p99 ("goodput"). Los benchmarks que solo dan throughput pico o solo latencia de una petición esconden esa elección.
+**Compromiso latencia-throughput.** El tiempo de una petición es aproximadamente $\text{TTFT} + N_{out} \times \text{TPOT}$. Subir el batch aumenta el throughput agregado casi gratis mientras decode esté limitado por memoria; cuando el paso pasa a estar limitado por cómputo, cada secuencia extra ralentiza a todas. Un sistema de serving elige el mayor batch que cumple el objetivo de latencia en p99 ("goodput"). Los benchmarks que solo dan throughput pico o solo latencia de una petición esconden esa elección. La sección [2.8b](#28b-serving-bajo-carga) mide estos compromisos en un servidor real y bajo carga.
 
 ### 2.7 Speculative decoding
 
@@ -561,6 +561,45 @@ Cada bit extra divide $s$ por dos y la varianza del error por cuatro. Lo que dec
 **Modos de fallo.** Outliers con escala por tensor; RTN a 2-3 bits (colapso); habilidades concretas que se rompen primero (matemáticas, código, contexto largo, idiomas no ingleses); calibración de otro dominio; formato sin kernel fusionado, que ahorra memoria pero es *más lento*.
 
 > **Notebook:** [09 · Cuantización](../../notebooks/02_pretraining_and_inference/09_quantization.ipynb) · **En el curso:** con SmolLM2-360M y fp32 como referencia, bf16 ya da KL 0.001 y 97.2 % de acuerdo top-1 (el suelo de ruido); int8 y float8 bajan los pesos de 0.72 a 0.41 GB con ~96 % de acuerdo; int4 llega a 0.26 GB pero cae al 73 % de acuerdo y +29 % de perplejidad; int2 destruye el modelo. Los modelos cuantizados fueron *más lentos* que bf16 (~24 → 17 y 10.5 tok/s) por falta de kernel fusionado.
+
+### 2.8b Serving bajo carga
+
+**Problema.** Las secciones 2.5–2.8 miran una generación cada vez. Una aplicación manda muchas peticiones a la vez a un servidor HTTP, y entonces lo que importa es cuánto espera cada usuario, qué hace el hardware con ese tráfico y cuánto cuesta. Un servidor puede parecer rápido con una petición y hundirse con ocho.
+
+**Las métricas.** Una respuesta en streaming tiene dos fases, y cada una tiene su métrica:
+
+$$\text{e2e} \approx \text{TTFT} + \text{TPOT} \times (N_{out} - 1), \qquad \text{throughput} = \frac{\sum \text{tokens de salida}}{\text{tiempo de reloj}}$$
+
+El **TTFT** (time to first token) incluye el tiempo en cola, el prefill y la red: es el "¿está haciendo algo?" del usuario. El **TPOT** (time per output token, o latencia entre tokens) es el hueco entre tokens durante el decode, y $1/\text{TPOT}$ es la velocidad de lectura de un usuario (con 20–30 tokens por segundo ya se lee más despacio de lo que llega el texto). El **throughput** suma todos los usuarios y es de lo que depende la factura. Las colas de latencia son largas (sección 6.3), así que los objetivos son **SLOs sobre percentiles** (por ejemplo TTFT p95 < 1 s y TPOT p95 < 50 ms), y la capacidad útil es el **goodput**: las peticiones por segundo que cumplen el SLO, no los tokens por segundo en bruto (Zhong et al., 2024).
+
+**Por qué las dos fases se comportan distinto.** El prefill pasa el prompt entero por el modelo en una sola pasada de matmuls grandes, así que está limitado por cómputo; el decode lee todos los pesos para cada token nuevo, así que está limitado por memoria (sección 2.5). Todas las optimizaciones de serving aprovechan esa asimetría: el batching reparte una misma lectura de pesos entre muchas secuencias, el prefix caching se salta el prefill ya hecho, la cuantización reduce los bytes leídos por token y el speculative decoding (2.7) convierte varios pasos de decode en una sola verificación. El **serving desagregado** (DistServe; Mooncake) va más allá y ejecuta el prefill y el decode en GPUs distintas, porque un prefill largo dentro del mismo batch frena el decode de todos y las dos fases piden paralelismos distintos.
+
+**Batching.** El **batching estático** espera a juntar un batch y lo ejecuta hasta que termina la secuencia más larga, con los huecos de las ya terminadas ociosos. El **batching continuo** (Orca, Yu et al., 2022) planifica a nivel de iteración: las secuencias entran y salen en cada paso de decode, así que el batch siempre va lleno. Lo que limita entonces el batch es la memoria de la KV-cache, y **PagedAttention** (vLLM, Kwon et al., 2023) la guarda en bloques de tamaño fijo con una tabla de bloques, como las páginas de la memoria virtual, de modo que casi no se pierde nada por fragmentación y los bloques se pueden compartir entre secuencias. llama.cpp, y Ollama por encima, sirve un número fijo de **slots** (`OLLAMA_NUM_PARALLEL`): cada slot es una secuencia del batch con su parte de la KV-cache, y las peticiones que no caben esperan en una cola. El batching es un intercambio: sube el throughput total y, con él, el TPOT de cada usuario.
+
+**Colas y ley de Little.** En cualquier sistema estable, sea cual sea la distribución de llegadas (Little, 1961):
+
+$$L = \lambda W$$
+
+peticiones en el sistema = tasa de llegada × tiempo en el sistema. Convierte el dimensionado en una cuenta: con 2 peticiones por segundo y 3 s por petición hay 6 en vuelo de media, así que hay que poner más slots o réplicas que eso. Y explica el codo de toda curva de latencia: en cuanto las peticiones llegan más deprisa de lo que el servidor las termina, la cola crece sin límite y el TTFT con ella. En el modelo de colas más sencillo (M/M/1), $W = 1/(\mu - \lambda)$, que se dispara cuando la utilización $\lambda/\mu$ se acerca a 1. Por eso la capacidad se planifica con curvas de latencia frente a carga y se mantiene bien por debajo de la saturación, y por eso el autoescalado mira la longitud de la cola o el uso de la KV-cache, no la CPU.
+
+**Prefix caching.** Muchas peticiones comparten un prefijo largo: el system prompt, las definiciones de herramientas, los ejemplos few-shot, el documento del que se habla. Su KV-cache se puede guardar y reutilizar en lugar de recalcularla. El automatic prefix caching de vLLM identifica los bloques KV por un hash; **RadixAttention** de SGLang (Zheng et al., 2024) guarda los prefijos en un árbol radix que comparten todas las peticiones, con desalojo LRU; las APIs de los proveedores lo venden como **prompt caching**, con los tokens de entrada cacheados a una fracción del precio; llama.cpp reutiliza la caché de un slot cuando el siguiente prompt empieza con los mismos tokens. La coincidencia es token a token desde el principio, así que un solo token cambiado (una marca de tiempo arriba del todo) invalida todo lo que viene detrás: **lo compartido primero, el mensaje del usuario al final**.
+
+**Formatos de pesos: GGUF y k-quants.** GGUF es el formato de un solo fichero de llama.cpp: pesos, tokenizador y metadatos juntos. Sus **k-quants** (Q4_K_M, Q5_K_M, Q6_K...) cuantizan los pesos en superbloques de 256, divididos en subbloques pequeños cuyas escalas están a su vez cuantizadas: las escalas por grupo de la sección 2.8. El sufijo `_S`/`_M`/`_L` indica cuántos tensores sensibles se dejan en más precisión, así que Q4_K_M sale a algo menos de 5 bits por peso de media. Q8_0 son bloques de 32 valores int8 con una escala fp16; FP16 va sin cuantizar. Como el decode está limitado por memoria, menos bytes significa decode más rápido además de menos memoria, siempre que el runtime tenga un kernel para ese formato (al contrario que quanto en el notebook 09). Lo que cuesta en calidad hay que medirlo en tu propia tarea.
+
+**Gateways, cascadas y routers.** Las aplicaciones casi nunca llaman a un modelo directamente. Un **gateway** (LiteLLM, Portkey, OpenRouter, los AI gateways de la nube) ofrece a todos los clientes una única interfaz, normalmente compatible con OpenAI, y resuelve en un solo sitio lo que es transversal: enrutado, reintentos con backoff, **fallbacks** a otro modelo ante errores o **timeouts**, **circuit breakers** que dejan de mandar tráfico durante un rato a un backend que falla, límites de tasa, presupuestos, caché y logs. Encima va el enrutado consciente del coste:
+
+- una **cascada** (FrugalGPT, Chen, Zaharia y Zou, 2023) prueba los modelos por orden de coste y se para cuando un evaluador acepta la respuesta. Su coste esperado es $c_{small} + c_{signal} + p_{esc} \cdot c_{big}$: compensa cuando la tasa de escalado $p_{esc}$ es baja **y** la señal es barata;
+- un **router** (RouteLLM, Ong et al., 2024) predice antes de llamar a nadie si hace falta el modelo fuerte, con un clasificador entrenado con datos de preferencias, así que cada petición cuesta una sola llamada.
+
+La señal de incertidumbre puede ser el acuerdo entre muestras (como en la self-consistency, 3.5), las log-probabilidades de los tokens, un verificador o un clasificador entrenado. El enrutado compensa sobre todo cuando la diferencia de precio es grande: un modelo pequeño o local delante de una API frontera.
+
+**Lo que hace la industria.** llama.cpp u Ollama para local, edge y un solo usuario; vLLM, SGLang o TGI (y TensorRT-LLM para el máximo throughput en NVIDIA) para servir a muchos usuarios en GPUs de centro de datos, con batching continuo, PagedAttention, prefix caching entre usuarios, pesos FP8 o AWQ y speculative decoding; todos detrás de una API compatible con OpenAI y, a menudo, de un gateway. Las pruebas de carga usan longitudes de prompt y de salida y patrones de llegada realistas (`vllm bench`, `genai-perf`, Locust, k6).
+
+**Modos de fallo.** Tráfico en paralelo contra un servidor de un solo slot (la concurrencia se convierte en cola); un prompt montado de forma que anula la caché; tamaños de contexto que recargan el modelo sin avisar; capacidad planificada con el throughput pico en lugar del codo de latencia; modelos cuantizados de más que pasan una prueba rápida y fallan en los casos límite; timeouts más cortos que una carga del modelo en frío; fallbacks que esconden un modelo principal caído; routers cuya señal cuesta más de lo que ahorra.
+
+**Papers clave.** Little (1961), *A Proof for the Queuing Formula: L = λW*; Yu et al. (2022), *Orca*; Kwon et al. (2023), *Efficient Memory Management for Large Language Model Serving with PagedAttention*; Chen, Zaharia y Zou (2023), *FrugalGPT*; Zheng et al. (2024), *SGLang: Efficient Execution of Structured Language Model Programs*; Zhong et al. (2024), *DistServe*; Ong et al. (2024), *RouteLLM*.
+
+> **Notebook:** [23 · Serving bajo carga](../../notebooks/02_pretraining_and_inference/23_serving_and_load.ipynb) (se lee después del 06) · **En el curso:** con `qwen2.5:3b` en Ollama y una RTX 3060 Laptop de 6 GB, el prefill va a ~3.900 tokens/s y el decode a ~110 (35×), y el TTFT crece de 101 a 645 ms entre 338 y 2.322 tokens de prompt; con un system prompt compartido, el 99.1 % del prompt sale de la caché después de la primera petición y el TTFT baja de 654 a 39 ms; con un slot, 8 peticiones en vuelo llevan el TTFT p50 a 13.4 s mientras el throughput no se mueve (84 → 67 tok/s); cuatro slots llegan a 171 tok/s (2×) con el TTFT por debajo de 100 ms hasta 4 en vuelo, a cambio de un TPOT de 23 ms en vez de 12.5; la ley de Little se cumple hasta el decimal (1.33 peticiones/s × 3.00 s = 4.0); `qwen2.5:1.5b-instruct` ocupa 1.17 GB a 130 tok/s en Q4_K_M, 1.83 GB a 105 tok/s en Q8_0 y 3.28 GB a 64 tok/s en FP16, con un 89.5 %, un 91.0 % y un 91.0 % en 200 preguntas de ARC-Easy; y en 80 problemas de GSM8K una cascada 3B → 7B que escala cuando dos respuestas del 3B no coinciden (el 16 % de los problemas) llega al 85.0 %, frente al 82.5 % de usar siempre el 3B y al 78.8 % de usar siempre el 7B, pero con el 88 % del tiempo de GPU del 7B, porque la propia comprobación de acuerdo duplica el coste del 3B.
 
 ---
 
@@ -1229,7 +1268,7 @@ Dos reglas evitan los fallos clásicos de *confused deputy*. **Nada de token pas
 
 ## 6. LLMOps
 
-Términos de esta parte: [glosario, LLMOps y LangSmith](glosario.md#llmops-y-langsmith).
+Términos de esta parte: [glosario, LLMOps y LangSmith](glosario.md#llmops-y-langsmith) y [Seguridad y guardrails](glosario.md#seguridad-y-guardrails).
 
 ### 6.1 Trazas, spans y OpenTelemetry GenAI
 
@@ -1311,6 +1350,52 @@ Con $n = 12$ el intervalo del 95 % abarca aproximadamente ±0.28; con $n = 100$,
 **Qué va en el dataset.** Importa tanto como su tamaño: intenciones comunes, casos límite conocidos, entradas adversarias y cada fallo de producción ya corregido (un set de regresión). Versionado, para que cada experimento esté ligado a los ejemplos exactos, y fuera de cualquier ajuste de prompts, o las puntuaciones medirán memorización del test.
 
 > **Notebook:** [15 · Observabilidad y evaluación](../../notebooks/06_llmops/15_observability_llmops.ipynb) y [10 · RAG con LangChain y RAGAS](../../notebooks/04_applications/10_rag.ipynb) · **En el curso:** intervalos bootstrap y diferencia pareada híbrido-denso en RAGAS (notebook 10), bootstrap pareado sobre 6.040 usuarios en cada comparación entre etapas del recomendador (notebook 12), el cálculo de ±0.28 para $n = 12$ en el notebook 15, y en todos los notebooks de aplicaciones el recordatorio de cuánto vale un elemento del set antes de leer una diferencia.
+
+### 6.6 Seguridad: rechazos, jailbreaks y modelos guardián
+
+**Problema.** La observabilidad te dice qué hizo el sistema; la seguridad trata de lo que debería hacer y de lo que no. Un modelo que lo responde todo es un riesgo, y uno que se niega en cuanto ve una palabra alarmante no sirve para nada. Por eso la seguridad tiene **dos tasas de error**, las peticiones dañinas que se responden y las seguras que se rechazan, y cada defensa mueve las dos.
+
+**De dónde salen los rechazos.** Un modelo preentrenado no tiene noción de daño: continúa texto. A rechazar se le enseña en el post-training ([sección 3.4](#34-de-rlhf-a-dpo-y-grpo)): SFT con ejemplos de rechazos educados y después un ajuste por preferencias (RLHF, DPO) que convierte el rechazo a una petición dañina en la respuesta preferida. Constitutional AI (Bai et al., 2022) sustituyó la mayor parte de las etiquetas humanas de daño por un modelo que critica y corrige sus propias respuestas según una lista de principios escritos (RLAIF). Sea cual sea la receta, el resultado es una **preferencia aprendida, no una regla**: generaliza a partir de la distribución de entrenamiento y puede fallar fuera de ella.
+
+**Por qué falla el entrenamiento de seguridad.** Wei, Haghtalab y Steinhardt (2023) reducen casi todos los jailbreaks a dos mecanismos:
+
+- **Objetivos en competencia.** El modelo se entrenó para seguir instrucciones y también para no hacer daño, y un prompt puede enfrentar una cosa con la otra. La *inyección de prefijo* pide una respuesta que empiece de forma afirmativa; la *supresión del rechazo* prohíbe las palabras de las que están hechos los rechazos. Una vez que los primeros tokens ceden, lo más probable es seguir por ahí.
+- **Generalización desajustada.** El entrenamiento de capacidades cubrió muchas más situaciones que el de seguridad. Una petición envuelta en ficción o en un juego de rol, traducida a un idioma con pocos recursos o codificada (base64, cifrados) queda fuera de lo que vio el entrenamiento de rechazo, mientras el modelo sigue sabiendo hacer la tarea.
+
+Las plantillas escritas a mano son solo el principio. **GCG** (Zou et al., 2023) optimiza un sufijo adversario con los gradientes de modelos abiertos, y los sufijos se transfieren a modelos cerrados. **PAIR** (Chao et al., 2023) no necesita gradientes: un LLM atacante reescribe el prompt en bucle, guiándose por las respuestas del objetivo y por un juez, y a menudo lo consigue en menos de veinte consultas. Los dos son *adaptativos*, que es el atacante con el que se encuentra de verdad un sistema desplegado.
+
+**El otro fallo: el sobre-rechazo.** El entrenamiento de rechazo también enseña atajos: "kill", "shoot" o "poison" se convierten en disparadores sea cual sea el contexto. **XSTest** (Röttger et al., 2024) mide esta *seguridad exagerada* con 250 prompts seguros pensados para activar los atajos (homónimos como matar un proceso, lenguaje figurado, contextos seguros como una novela policiaca, preguntas de privacidad sobre personajes de ficción) y 200 prompts inseguros de contraste. Rechazar de más no es una opción segura por defecto: le cuesta usuarios al producto, los empuja a reformular hasta que algo pasa y entierra los rechazos de verdad entre el ruido.
+
+**Modelos guardián.** En lugar de fiarse solo de los rechazos del propio modelo, los sistemas en producción ponen clasificadores delante (sobre el prompt) y detrás (sobre la respuesta). **Llama Guard** (Inan et al., 2023) es un LLM ajustado para responder `safe` o `unsafe` más una categoría de riesgo; Llama Guard 3 usa la taxonomía **S1–S14** de MLCommons (delitos violentos, delitos no violentos, delitos sexuales, explotación infantil, difamación, asesoramiento especializado, privacidad, propiedad intelectual, armas de destrucción masiva, odio, autolesiones, contenido sexual, elecciones y abuso del intérprete de código). Un guardián es barato (un modelo de 1B etiqueta un prompt en decenas de milisegundos) e independiente del modelo que protege, así que las plantillas escritas para manipular al modelo objetivo no lo manipulan a él, y un mismo guardián cubre todos los modelos que tenga detrás. También es un clasificador con sus propios falsos positivos y sus fallos, más fuerte en los riesgos en los que más insisten sus datos de entrenamiento, y se le puede atacar como a cualquier modelo.
+
+| Opción | Tipo | Notas |
+|---|---|---|
+| Llama Guard 3 (1B, 8B), ShieldGemma, Granite Guardian | modelos guardián abiertos | en tu propia infraestructura; las categorías y el umbral se pueden adaptar a tu política |
+| Prompt Guard y otros encoders pequeños parecidos | clasificadores abiertos | pensados para patrones de jailbreak y de inyección más que para categorías de daño ([sección 1.6](#16-encoders-y-encoder-decoders)) |
+| endpoint de moderación de OpenAI, Azure AI Content Safety, Amazon Bedrock Guardrails | servicios gestionados | sin modelo que mantener; la política es la del proveedor, con algo de configuración |
+| NVIDIA NeMo Guardrails, Guardrails AI | frameworks | conectan comprobaciones, reglas y flujos de diálogo en una aplicación, alrededor de cualquiera de los anteriores |
+
+**Cómo se puntúa la seguridad.**
+
+- **Tasa de rechazo** en los prompts dañinos (cuanto más alta, más seguro) y **tasa de sobre-rechazo** en los seguros (cuanto más baja, mejor). Siempre las dos.
+- **Tasa de éxito del ataque (ASR)**: la proporción de peticiones dañinas que obtienen una respuesta *dañina*. No rechazar no equivale a ayudar de verdad: una respuesta con jailbreak puede ser vaga, errónea o vacía. **StrongREJECT** (Souly et al., 2024) demostró que puntuar solo "¿ha rechazado?" exagera el éxito de los jailbreaks, y los benchmarks puntúan la nocividad con un juez: el clasificador de HarmBench (Mazeika et al., 2024), el juez de JailbreakBench (Chao et al., 2024), la rúbrica de StrongREJECT.
+- **Los jueces hay que validarlos.** Un juez de rechazos o de daño es un modelo con su propia tasa de error; se mide contra etiquetas humanas antes de fiarse de las tasas que produce ([sección 4.3](#43-ragas-y-llm-as-judge)). Y tiene que ser **independiente de las defensas**: puntuar la salida de un sistema protegido con el mismo guardián da cero éxito del ataque por construcción.
+
+**Defensa en profundidad.** Ninguna capa basta por sí sola, así que en producción se apilan varias que fallan de formas distintas:
+
+| Capa | Qué para | Qué cuesta | Fallo típico |
+|---|---|---|---|
+| el entrenamiento de seguridad del modelo | las peticiones dañinas directas | nada extra | jailbreaks; sobre-rechazo |
+| system prompt de seguridad | un poco de las dos cosas | algo de utilidad | gana una instrucción que compite con él más adelante en el prompt |
+| guardián de entrada | la mayoría de las peticiones dañinas, disfrazadas o no | falsos positivos; decenas de ms | redacciones suaves; ataques adaptativos contra el guardián |
+| guardián de salida | contenido dañino que se ha colado | latencia; falsos positivos en respuestas factuales | para evaluarlo hace falta un juez independiente |
+| controles de la aplicación (autenticación, límites de tasa, nada de herramientas peligrosas al alcance de entradas no fiables, registro para revisar abusos) | el daño, haga lo que haga el modelo | trabajo de ingeniería | tratar cualquier prompt como un control de seguridad |
+
+Cada capa añade falsos rechazos, y se suman; la pila solo se entiende tan bien como el juez con el que se mide. La inyección de prompts, el ataque a las *aplicaciones* a través de los datos que leen, está en las secciones [4.4](#44-patrones-de-aplicación) y [5.8](#58-ejecución-de-código-y-sandboxes).
+
+**Papers clave.** Bai et al. (2022), *Constitutional AI: Harmlessness from AI Feedback*; Wei, Haghtalab y Steinhardt (2023), *Jailbroken: How Does LLM Safety Training Fail?*; Zou et al. (2023), *Universal and Transferable Adversarial Attacks on Aligned Language Models* (GCG); Chao et al. (2023), *Jailbreaking Black Box Large Language Models in Twenty Queries* (PAIR); Chao et al. (2024), *JailbreakBench*; Mazeika et al. (2024), *HarmBench*; Souly et al. (2024), *A StrongREJECT for Empty Jailbreaks*; Röttger et al. (2024), *XSTest: A Test Suite for Identifying Exaggerated Safety Behaviours in Large Language Models*; Inan et al. (2023), *Llama Guard: LLM-based Input-Output Safeguard for Human-AI Conversations*.
+
+> **Notebook:** [22 · Seguridad y guardrails](../../notebooks/06_llmops/22_safety_guardrails.ipynb) (se lee después del 15) · **En el curso:** un juez de rechazos por palabras clave coincide con las etiquetas humanas de XSTest en el 89.7 % de 900 respuestas, y un juez LLM de 7B solo en el 70.0 %; ante la petición directa, `qwen2.5:3b` y `qwen2.5:7b` rechazan el 89 % y el 92 % de los 100 comportamientos dañinos de JailbreakBench, y rechazan sin motivo el 17 % y el 5 % de los prompts seguros de XSTest; contra el 3B, la inyección de prefijo llega a un 64 % de éxito, la supresión del rechazo a un 24 % y la ficción a un 12 %, y el 70 % de los comportamientos cae con al menos una; Llama Guard 3 1B como filtro de entrada marca el 95–100 % de los prompts dañinos, disfrazados o no, pero bloquea el 8 % de los prompts seguros de XSTest y deja pasar el 27 % de los inseguros; un system prompt de seguridad solo baja la inyección de prefijo al 44 % y sube el sobre-rechazo al 21 %; con el guardián, el éxito del ataque baja al 1 % (optimista, porque el mismo guardián hace de juez) a cambio de un 21–25 % de falsos rechazos.
 
 ---
 

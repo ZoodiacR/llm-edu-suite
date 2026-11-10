@@ -17,6 +17,10 @@ El notebook 20 (razonamiento y cómputo en inferencia) se lee justo después del
 
 El notebook 21 (embeddings y rerankers) se lee justo antes del 10: abre por dentro la capa de recuperación sobre la que se construye el RAG. Sobre SciFact compara BM25 con tres modelos de embeddings (con y sin prefijos de tarea), escribe InfoNCE a mano y ajusta un bi-encoder pequeño con negativos del batch y negativos difíciles, encoge los vectores con truncado Matryoshka y cuantización int8 / binaria con rescoring, y prueba la recuperación híbrida con dos rerankers cross-encoder, midiendo tanto la calidad como la latencia.
 
+El notebook 22 (seguridad y guardrails) se lee justo después del 15: la observabilidad te dice qué hizo el sistema; este notebook trata de lo que debería hacer y de lo que no. Con `qwen2.5:3b` y `qwen2.5:7b` sobre benchmarks públicos (JailbreakBench y XSTest) mide las dos caras de la seguridad, las peticiones dañinas que rechaza y las seguras que rechaza sin motivo, y después tres plantillas de jailbreak publicadas, Llama Guard 3 (1B) como filtro de entrada, un system prompt de seguridad y todas las capas juntas, después de validar su juez de rechazos con etiquetas humanas.
+
+El notebook 23 (serving bajo carga) se lee justo después del 06: el 06 abre por dentro una sola generación y este sirve los modelos como lo hace una aplicación, a través de un servidor HTTP y con muchas peticiones a la vez. Con un cliente en streaming contra Ollama mide el TTFT, el TPOT y el throughput, el prefill frente al decode según crece el prompt, lo que ahorra el prefix caching, un slot de peticiones frente a cuatro con 1 a 8 peticiones en vuelo (y la ley de Little), el mismo modelo de 1.5B en GGUF Q4_K_M, Q8_0 y FP16 (memoria, velocidad y acierto) y un gateway pequeño con fallbacks, timeouts y una cascada consciente del coste de `qwen2.5:3b` a `qwen2.5:7b`.
+
 Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-embed-text`) y los modelos de entrenamiento son SmolLM2 de Hugging Face. Con una GPU NVIDIA va rápido (los resultados publicados se midieron en una RTX 3060 de 6 GB); en CPU también funciona, salvo el notebook 19, que necesita una GPU CUDA. LangSmith es opcional.
 
 ## Páginas
@@ -24,7 +28,7 @@ Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-emb
 | Página | Para qué sirve |
 |---|---|
 | [Instalación y entorno](instalacion.md) | `.venv`, PyTorch con CUDA, Ollama y sus modelos, el `.env`, la clave de LangSmith, problemas frecuentes |
-| [Guía de notebooks](guia_notebooks.md) | los 22 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
+| [Guía de notebooks](guia_notebooks.md) | los 24 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
 | [Fundamentos teóricos](fundamentos.md) | la teoría detrás de cada técnica y patrón: el problema que resuelve, la idea, por qué se usa hoy, cómo falla |
 | [Referencia de módulos](referencia_modulos.md) | el paquete `llm_edu_suite/` (el modelo desde cero y `config.py`) y dónde se enseña cada tema con frameworks |
 | [Scripts de línea de comandos](scripts_cli.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP) |
@@ -37,11 +41,11 @@ Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-emb
 |---|---|---|---|
 | Empieza aquí | `notebooks/00_start_here/` | 00 · un mini LLM completo | PyTorch |
 | Arquitectura | `notebooks/01_architecture/` | 01 tokenización · 02 atención, RoPE y normalización · 03 atención eficiente · 04 FFN y MoE · 17 encoders y encoder-decoders | PyTorch desde cero · `transformers` y `scikit-learn` (17) |
-| Pre-entrenamiento e inferencia | `notebooks/02_pretraining_and_inference/` | 18 ingeniería de datos (deduplicación, filtros, descontaminación) · 05 pre-entrenamiento · 19 sistemas (memoria, precisión, kernels, paralelismo) · 06 inferencia · 09 cuantización | PyTorch · `datasets` y `transformers` (18) · `torch.profiler` y `torch.distributed` (19) · `optimum-quanto` |
+| Pre-entrenamiento e inferencia | `notebooks/02_pretraining_and_inference/` | 18 ingeniería de datos (deduplicación, filtros, descontaminación) · 05 pre-entrenamiento · 19 sistemas (memoria, precisión, kernels, paralelismo) · 06 inferencia · 23 serving bajo carga (TTFT, batching, caché, GGUF, gateways) · 09 cuantización | PyTorch · `datasets` y `transformers` (18) · `torch.profiler` y `torch.distributed` (19) · Ollama por HTTP (23) · `optimum-quanto` |
 | Post-training | `notebooks/03_post_training/` | 07 SFT, LoRA, destilación y fusión de modelos · 08 DPO y GRPO · 20 razonamiento y cómputo en inferencia | `transformers` · `peft` · `trl` · LangChain (Ollama) (20) |
 | Aplicaciones | `notebooks/04_applications/` | 21 embeddings y rerankers · 10 RAG · 12 recomendación · 13 patrones de aplicación | LangChain · RAGAS · PyTorch · `sentence-transformers` (21) |
 | Agentes y MCP | `notebooks/05_agents_and_mcp/` | 11 tools y salida estructurada · 14 IA agéntica · 16 MCP | LangChain · LangGraph · SDK `mcp` |
-| LLMOps | `notebooks/06_llmops/` | 15 observabilidad y evaluación | LangSmith |
+| LLMOps | `notebooks/06_llmops/` | 15 observabilidad y evaluación · 22 seguridad: rechazos, jailbreaks y modelos guardián | LangSmith · Llama Guard 3 con Ollama (22) |
 
 ```mermaid
 flowchart LR
@@ -52,6 +56,7 @@ flowchart LR
     P --> D[05 Pre-training]
     D --> S["19 Sistemas<br/>memoria · kernels · paralelismo"]
     S --> E[06 Inferencia]
+    E --> V["23 Serving bajo carga<br/>TTFT · batching · caché · gateway"]
     D --> F["07-08 Post-training<br/>HF · peft · trl"]
     F --> G["09 Cuantización<br/>optimum-quanto"]
     F --> R["20 Razonamiento<br/>CoT · self-consistency · verificadores"]
@@ -64,16 +69,17 @@ flowchart LR
     J --> M["14 Agentes · LangGraph"]
     J --> N["16 MCP · SDK oficial"]
     M --> O["15 LangSmith"]
+    O --> U["22 Seguridad<br/>jailbreaks · sobre-rechazo · Llama Guard"]
 ```
 
 ## Ruta de aprendizaje sugerida
 
 0. **Visión general:** 00, para ver cómo encajan las piezas antes de estudiarlas por separado.
 1. **Arquitectura:** 01 → 02 → 03 → 04 → 17. Al terminar deberías poder escribir un transformer de memoria y saber cuándo conviene un encoder o un encoder-decoder en lugar de un decoder-only.
-2. **Datos, entrenamiento e inferencia:** 18 → 05 → 19 → 06. Primero qué texto entra en el modelo y por qué, después cómo se entrena con él y cuánto cuesta ese entrenamiento en memoria y tiempo, en una GPU y en muchas.
+2. **Datos, entrenamiento e inferencia:** 18 → 05 → 19 → 06 → 23. Primero qué texto entra en el modelo y por qué, después cómo se entrena con él y cuánto cuesta ese entrenamiento en memoria y tiempo, en una GPU y en muchas. Después del 23 deberías saber qué espera el usuario cuando se sirve un modelo (TTFT, TPOT, percentiles), por qué ayudan el batching, el prefix caching y los pesos cuantizados, y cómo dimensionar un servidor a partir de su tasa de peticiones.
 3. **Post-training con Hugging Face:** 07 → 08 → 20, después 09 (cuantización). Después del 20 deberías saber qué compran los tokens de razonamiento, cuándo compensa votar o usar un verificador y cómo saber si te puedes fiar de un juez.
 4. **Aplicaciones con LangChain:** 21 → 10 → 13 → 12. Después del 21 deberías saber elegir, ajustar, comprimir y evaluar un recuperador antes de meterlo en un RAG. Regla de oro: **construye tu set de evaluación antes que el sistema**.
-5. **Agentes:** 11 → 14 → 16 y, al final, 15 para ver cómo se observa y evalúa todo en producción.
+5. **Agentes:** 11 → 14 → 16 y, al final, 15 para ver cómo se observa y evalúa todo en producción, y después 22. Al terminar el 22 deberías saber medir los rechazos de un modelo y también sus rechazos de más, por qué los rechazos del propio modelo no bastan como defensa y cuánto cuesta un modelo guardián en falsos positivos.
 
 ## Principios del proyecto
 

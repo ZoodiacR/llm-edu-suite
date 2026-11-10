@@ -11,7 +11,7 @@
 1. [Inside the model](#1-inside-the-model)
    - [1.1 Tokenization](#11-tokenization) · [1.2 The transformer block](#12-the-transformer-block-and-the-residual-stream) · [1.3 Attention, RoPE and normalization](#13-attention-rope-and-normalization) · [1.4 Efficient attention](#14-efficient-attention-for-long-contexts) · [1.5 FFN and Mixture of Experts](#15-ffn-and-mixture-of-experts) · [1.6 Encoders and encoder-decoders](#16-encoders-and-encoder-decoders)
 2. [Pre-training and inference](#2-pre-training-and-inference)
-   - [2.0 Pre-training data](#20-pre-training-data) · [2.1 The objective](#21-the-objective-next-token-prediction) · [2.2 Optimizer and schedule](#22-optimizer-and-learning-rate-schedule) · [2.3 Scaling laws](#23-scaling-laws) · [2.3b Systems](#23b-systems-memory-precision-kernels-and-parallelism) · [2.4 Decoding](#24-decoding-strategies) · [2.5 KV-cache](#25-prefill-decode-and-the-kv-cache) · [2.6 Batching and serving](#26-batching-and-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Quantization](#28-quantization)
+   - [2.0 Pre-training data](#20-pre-training-data) · [2.1 The objective](#21-the-objective-next-token-prediction) · [2.2 Optimizer and schedule](#22-optimizer-and-learning-rate-schedule) · [2.3 Scaling laws](#23-scaling-laws) · [2.3b Systems](#23b-systems-memory-precision-kernels-and-parallelism) · [2.4 Decoding](#24-decoding-strategies) · [2.5 KV-cache](#25-prefill-decode-and-the-kv-cache) · [2.6 Batching and serving](#26-batching-and-serving) · [2.7 Speculative decoding](#27-speculative-decoding) · [2.8 Quantization](#28-quantization) · [2.8b Serving under load](#28b-serving-under-load)
 3. [Post-training](#3-post-training)
    - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-and-parameter-efficient-fine-tuning) · [3.3 Distillation](#33-distillation) · [3.3b Model merging](#33b-model-merging) · [3.4 RLHF, DPO and GRPO](#34-from-rlhf-to-dpo-and-grpo) · [3.5 Reasoning and test-time compute](#35-reasoning-and-test-time-compute)
 4. [Applications](#4-applications)
@@ -19,7 +19,7 @@
 5. [Agents and MCP](#5-agents-and-mcp)
    - [5.1 Tool calling](#51-tool-calling) · [5.2 Constrained decoding](#52-constrained-decoding-and-structured-output) · [5.3 ReAct, plan-and-execute and reflection](#53-react-plan-and-execute-and-reflection) · [5.4 State graphs](#54-langgraph-agents-as-state-machines) · [5.5 Memory](#55-memory) · [5.6 Limits and human-in-the-loop](#56-limits-and-human-in-the-loop) · [5.7 Multi-agent teams](#57-multi-agent-teams-supervisor-and-handoffs) · [5.8 Code execution and sandboxes](#58-code-execution-and-sandboxes) · [5.9 MCP](#59-model-context-protocol)
 6. [LLMOps](#6-llmops)
-   - [6.1 Traces and spans](#61-traces-spans-and-opentelemetry-genai) · [6.2 Offline and online evaluation](#62-offline-and-online-evaluation) · [6.3 Percentiles and SLOs](#63-percentiles-and-slos) · [6.4 PII and sampling](#64-pii-and-trace-sampling) · [6.5 Statistics of small eval sets](#65-statistics-of-small-evaluation-sets)
+   - [6.1 Traces and spans](#61-traces-spans-and-opentelemetry-genai) · [6.2 Offline and online evaluation](#62-offline-and-online-evaluation) · [6.3 Percentiles and SLOs](#63-percentiles-and-slos) · [6.4 PII and sampling](#64-pii-and-trace-sampling) · [6.5 Statistics of small eval sets](#65-statistics-of-small-evaluation-sets) · [6.6 Safety and guardrails](#66-safety-refusals-jailbreaks-and-guard-models)
 
 ---
 
@@ -502,7 +502,7 @@ The **KV-cache** turns $O(N^2)$ projection work into $O(N)$ and is an *exact* op
 | Prefill/decode disaggregation | the two phases want different hardware | DistServe (Zhong et al., 2024) |
 | CUDA graphs | kernel launch overhead dominates small steps | — |
 
-**The latency-throughput trade-off.** A request takes roughly $\text{TTFT} + N_{out} \times \text{TPOT}$. Raising the batch increases aggregate throughput almost for free while decode is memory-bound; once a step becomes compute-bound, every extra sequence slows everyone down. A serving system picks the largest batch that meets the p99 latency target ("goodput"). Benchmarks that report only peak throughput, or only single-request latency, hide that choice.
+**The latency-throughput trade-off.** A request takes roughly $\text{TTFT} + N_{out} \times \text{TPOT}$. Raising the batch increases aggregate throughput almost for free while decode is memory-bound; once a step becomes compute-bound, every extra sequence slows everyone down. A serving system picks the largest batch that meets the p99 latency target ("goodput"). Benchmarks that report only peak throughput, or only single-request latency, hide that choice. Section [2.8b](#28b-serving-under-load) measures these trade-offs on a real server under load.
 
 ### 2.7 Speculative decoding
 
@@ -561,6 +561,45 @@ Each extra bit halves $s$ and divides the error variance by four. What makes or 
 **Failure modes.** Outliers with per-tensor scales; RTN at 2-3 bits (collapse); specific skills that break first (math, code, long context, non-English languages); calibration on the wrong domain; a format with no fused kernel, which saves memory but runs *slower*.
 
 > **Notebook:** [09 · Quantization](../../notebooks/02_pretraining_and_inference/09_quantization.ipynb) · **In the course:** with SmolLM2-360M and fp32 as the reference, bf16 alone gives KL 0.001 and 97.2 % top-1 agreement (the noise floor); int8 and float8 cut the weights from 0.72 to 0.41 GB at ~96 % agreement; int4 reaches 0.26 GB but drops to 73 % agreement and +29 % perplexity; int2 destroys the model. The quantized models were *slower* than bf16 (~24 → 17 and 10.5 tok/s) for lack of a fused kernel.
+
+### 2.8b Serving under load
+
+**Problem.** Sections 2.5–2.8 look at one generation at a time. An application sends many requests at once to an HTTP server, and what matters then is what each user waits for, what the hardware does with the traffic and what it costs. A server can look fast for one request and collapse under eight.
+
+**The metrics.** A streamed response has two phases, and each has its own metric:
+
+$$\text{e2e} \approx \text{TTFT} + \text{TPOT} \times (N_{out} - 1), \qquad \text{throughput} = \frac{\sum \text{output tokens}}{\text{wall time}}$$
+
+**TTFT** (time to first token) includes the time in the queue, the prefill and the network: it is the "is it doing anything?" of the user. **TPOT** (time per output token, or inter-token latency) is the gap between tokens during decode, and $1/\text{TPOT}$ is one user's reading speed (20–30 tokens per second already outpaces reading). **Throughput** adds up every user and is what the bill depends on. Latency tails are long (section 6.3), so targets are **SLOs on percentiles** (TTFT p95 < 1 s, TPOT p95 < 50 ms, say), and the useful capacity is **goodput**: requests per second that meet the SLO, not raw tokens per second (Zhong et al., 2024).
+
+**Why the two phases behave differently.** Prefill pushes the whole prompt through the model in one pass of large matmuls, so it is compute-bound; decode reads every weight for each new token, so it is memory-bound (section 2.5). Every serving optimization exploits that asymmetry: batching shares one weight read among many sequences, prefix caching skips prefill already done, quantization reduces the bytes read per token, speculative decoding (2.7) turns several decode steps into one verification. **Disaggregated serving** (DistServe; Mooncake) goes further and runs prefill and decode on different GPUs, because a long prefill in the same batch stalls everyone's decode and the two phases want different parallelism.
+
+**Batching.** **Static batching** waits for a batch and runs it until the longest sequence ends, leaving finished slots idle. **Continuous batching** (Orca, Yu et al., 2022) schedules at the iteration level: sequences join and leave at every decode step, so the batch stays full. What limits the batch is then KV-cache memory, and **PagedAttention** (vLLM, Kwon et al., 2023) stores it in fixed-size blocks with a block table, like virtual-memory pages, so almost nothing is lost to fragmentation and blocks can be shared between sequences. llama.cpp, and Ollama on top of it, serves a fixed number of **slots** (`OLLAMA_NUM_PARALLEL`): each slot is one sequence in the batch with its own share of the KV-cache, and requests beyond the slots wait in a queue. Batching is a trade: total throughput goes up and each user's TPOT goes up with it.
+
+**Queues and Little's law.** For any stable system, whatever the arrival distribution (Little, 1961):
+
+$$L = \lambda W$$
+
+requests in the system = arrival rate × time in the system. It turns sizing into arithmetic: at 2 requests per second and 3 s per request, 6 are in flight on average, so provision slots or replicas above that. And it explains the knee of every latency curve: once requests arrive faster than the server completes them, the queue grows without bound and TTFT with it. In the simplest queueing model (M/M/1), $W = 1/(\mu - \lambda)$, which explodes as the utilization $\lambda/\mu$ approaches 1. That is why capacity is planned on latency-against-load curves and kept well below saturation, and why autoscaling watches queue length or KV-cache usage rather than CPU.
+
+**Prefix caching.** Many requests share a long prefix: the system prompt, the tool definitions, the few-shot examples, the document under discussion. Its KV-cache can be kept and reused instead of recomputed. vLLM's automatic prefix caching hashes KV blocks; SGLang's **RadixAttention** (Zheng et al., 2024) keeps cached prefixes in a radix tree shared by all requests, with LRU eviction; provider APIs sell it as **prompt caching**, with cached input tokens billed at a fraction of the price; llama.cpp reuses a slot's cache when the next prompt starts with the same tokens. The match is token by token from the start, so one changed token (a timestamp at the top) invalidates everything after it: **shared content first, the user's message last**.
+
+**Weight formats: GGUF and k-quants.** GGUF is llama.cpp's single-file format: weights, tokenizer and metadata together. Its **k-quants** (Q4_K_M, Q5_K_M, Q6_K...) quantize weights in super-blocks of 256, split into small sub-blocks whose scales are themselves quantized, the per-group scales of section 2.8; the `_S`/`_M`/`_L` suffix says how many sensitive tensors are kept at a higher precision, so Q4_K_M averages a little under 5 bits per weight. Q8_0 is blocks of 32 int8 values with one fp16 scale; FP16 is unquantized. Because decode is memory-bound, fewer bytes means faster decode on top of less memory, provided the runtime has a kernel for the format (unlike notebook 09's quanto). The quality cost has to be measured on your own task.
+
+**Gateways, cascades and routers.** Applications rarely call one model directly. A **gateway** (LiteLLM, Portkey, OpenRouter, cloud AI gateways) gives every caller one interface, usually OpenAI-compatible, and handles the cross-cutting concerns in one place: routing, retries with backoff, **fallbacks** to another model on errors or **timeouts**, **circuit breakers** that stop sending traffic to a failing backend for a while, rate limits, budgets, caching and logs. On top of it, cost-aware routing:
+
+- a **cascade** (FrugalGPT, Chen, Zaharia and Zou, 2023) tries models in order of cost and stops when a scorer accepts the answer. Its expected cost is $c_{small} + c_{signal} + p_{esc} \cdot c_{big}$: it pays off when the escalation rate $p_{esc}$ is low **and** the signal is cheap;
+- a **router** (RouteLLM, Ong et al., 2024) predicts before any call whether the strong model is needed, with a classifier trained on preference data, so each request costs one call.
+
+The uncertainty signal can be agreement between samples (as in self-consistency, 3.5), token log-probabilities, a verifier or a trained classifier. Routing pays most when the price gap is large, a small or local model in front of a frontier API.
+
+**What the industry does.** llama.cpp or Ollama for local, edge and single-user setups; vLLM, SGLang or TGI (and TensorRT-LLM for the highest throughput on NVIDIA) for multi-user serving on data-center GPUs, with continuous batching, PagedAttention, prefix caching across users, FP8 or AWQ weights and speculative decoding; all of them behind an OpenAI-compatible API and, often, a gateway. Load tests use realistic prompt and output lengths and arrival patterns (`vllm bench`, `genai-perf`, Locust, k6).
+
+**Failure modes.** Parallel traffic sent to a single-slot server (concurrency becomes a queue); a prompt layout that defeats the cache; context sizes that silently reload the model; capacity planned on peak throughput instead of the latency knee; over-quantized models that pass a smoke test and fail on edge cases; timeouts shorter than a cold model load; fallbacks that hide a dead primary; routers whose signal costs more than it saves.
+
+**Key papers.** Little (1961), *A Proof for the Queuing Formula: L = λW*; Yu et al. (2022), *Orca*; Kwon et al. (2023), *Efficient Memory Management for Large Language Model Serving with PagedAttention*; Chen, Zaharia and Zou (2023), *FrugalGPT*; Zheng et al. (2024), *SGLang: Efficient Execution of Structured Language Model Programs*; Zhong et al. (2024), *DistServe*; Ong et al. (2024), *RouteLLM*.
+
+> **Notebook:** [23 · Serving under load](../../notebooks/02_pretraining_and_inference/23_serving_and_load.ipynb) (read after 06) · **In the course:** with `qwen2.5:3b` on Ollama and a 6 GB RTX 3060 Laptop, prefill runs at ~3,900 tokens/s and decode at ~110 (35×), and TTFT grows from 101 to 645 ms between 338 and 2,322 prompt tokens; with a shared system prompt, 99.1 % of the prompt comes from the cache after the first request and TTFT falls from 654 to 39 ms; with one slot, 8 requests in flight push TTFT p50 to 13.4 s while throughput stays flat (84 → 67 tok/s); four slots reach 171 tok/s (2×) with TTFT under 100 ms up to 4 in flight, at the price of a TPOT of 23 ms instead of 12.5; Little's law holds to the decimal (1.33 req/s × 3.00 s = 4.0); `qwen2.5:1.5b-instruct` takes 1.17 GB at 130 tok/s in Q4_K_M, 1.83 GB at 105 tok/s in Q8_0 and 3.28 GB at 64 tok/s in FP16, with 89.5 %, 91.0 % and 91.0 % on 200 ARC-Easy questions; and on 80 GSM8K problems a 3B → 7B cascade that escalates when two 3B answers disagree (16 % of the problems) reaches 85.0 % against 82.5 % for always-3B and 78.8 % for always-7B, but at 88 % of the 7B's GPU time, because the agreement check itself doubles the 3B's cost.
 
 ---
 
@@ -1229,7 +1268,7 @@ Two rules prevent the classic confused-deputy failures. **No token passthrough**
 
 ## 6. LLMOps
 
-Terms for this part: [glossary, LLMOps and LangSmith](glossary.md#llmops-and-langsmith).
+Terms for this part: [glossary, LLMOps and LangSmith](glossary.md#llmops-and-langsmith) and [Safety and guardrails](glossary.md#safety-and-guardrails).
 
 ### 6.1 Traces, spans and OpenTelemetry GenAI
 
@@ -1311,6 +1350,52 @@ With $n = 12$ the 95 % interval spans roughly ±0.28; with $n = 100$, ±0.10. In
 **What goes into the dataset** matters as much as its size: common intents, known edge cases, adversarial inputs and every production failure already fixed (a regression set). Version it, so each experiment is tied to the exact examples, and keep it out of prompt tuning, or the scores will measure memorization of the test set.
 
 > **Notebook:** [15 · Observability and evaluation](../../notebooks/06_llmops/15_observability_llmops.ipynb) and [10 · RAG with LangChain and RAGAS](../../notebooks/04_applications/10_rag.ipynb) · **In the course:** bootstrap intervals and the paired hybrid-minus-dense difference on RAGAS (notebook 10), a paired bootstrap over 6,040 users for every comparison between recommender stages (notebook 12), the ±0.28 calculation for $n = 12$ in notebook 15, and in every application notebook a reminder of what one item is worth before reading a difference.
+
+### 6.6 Safety: refusals, jailbreaks and guard models
+
+**Problem.** Observability tells you what the system did; safety is about what it should and should not do. A model that answers everything is a liability, and one that refuses whenever it sees an alarming word is useless. Safety therefore has **two error rates**, harmful requests answered and safe requests refused, and every defence moves both.
+
+**Where refusals come from.** A pretrained model has no notion of harm: it continues text. Refusing is taught in post-training ([section 3.4](#34-from-rlhf-to-dpo-and-grpo)): SFT on examples of polite refusals, then preference tuning (RLHF, DPO) that makes refusing a harmful request the preferred answer. Constitutional AI (Bai et al., 2022) replaced most of the human harm labels with a model that critiques and revises its own answers against a written list of principles (RLAIF). Whatever the recipe, the result is a **learned preference, not a rule**: it generalizes from the training distribution and can fail outside it.
+
+**Why safety training fails.** Wei, Haghtalab and Steinhardt (2023) traced almost every jailbreak to two mechanisms:
+
+- **Competing objectives.** The model was trained both to follow instructions and to be harmless, and a prompt can set one against the other. *Prefix injection* asks for an answer that opens affirmatively; *refusal suppression* forbids the words refusals are made of. Once the first tokens comply, continuing is the likely text.
+- **Mismatched generalization.** Capability training covered far more situations than safety training. A request wrapped in fiction or role-play, translated into a low-resource language or encoded (base64, ciphers) falls outside what refusal training saw, while the model can still do the task.
+
+Hand-written templates are only the start. **GCG** (Zou et al., 2023) optimizes an adversarial suffix with gradients from open models, and the suffixes transfer to closed ones. **PAIR** (Chao et al., 2023) needs no gradients: an attacker LLM rewrites the prompt in a loop, guided by the target's replies and a judge, and often succeeds within twenty queries. Both are *adaptive*, which is the attacker a deployed system actually faces.
+
+**The other failure: over-refusal.** Refusal training also teaches shortcuts: "kill", "shoot" or "poison" become triggers whatever the context. **XSTest** (Röttger et al., 2024) measures this *exaggerated safety* with 250 safe prompts built to trip the shortcuts (homonyms such as killing a process, figurative language, safe contexts such as a crime novel, privacy questions about fictional characters) and 200 unsafe contrast prompts. Over-refusal is not a safe default: it costs users, pushes them to rephrase until something gets through, and hides real refusals in noise.
+
+**Guard models.** Instead of relying only on the model's own refusals, production systems put classifiers in front of it (on the prompt) and behind it (on the reply). **Llama Guard** (Inan et al., 2023) is an LLM fine-tuned to answer `safe` or `unsafe` plus a hazard category; Llama Guard 3 uses the MLCommons taxonomy **S1–S14** (violent crimes, non-violent crimes, sex crimes, child exploitation, defamation, specialized advice, privacy, intellectual property, weapons of mass destruction, hate, self-harm, sexual content, elections and code-interpreter abuse). A guard is cheap (a 1B model labels a prompt in tens of milliseconds) and independent of the model it protects, so templates written to manipulate the target model do not manipulate it, and one guard covers every model behind it. It is also a classifier with its own false positives and misses, strongest on the hazards its training data emphasizes, and it can be attacked like any model.
+
+| Option | Kind | Notes |
+|---|---|---|
+| Llama Guard 3 (1B, 8B), ShieldGemma, Granite Guardian | open guard models | self-hosted; the categories and the threshold can be adapted to your policy |
+| Prompt Guard and similar small encoders | open classifiers | aimed at jailbreak and injection patterns rather than harm categories ([section 1.6](#16-encoders-and-encoder-decoders)) |
+| OpenAI moderation endpoint, Azure AI Content Safety, Amazon Bedrock Guardrails | managed services | no model to run; the policy is the vendor's, with some configuration |
+| NVIDIA NeMo Guardrails, Guardrails AI | frameworks | wire checks, rules and dialogue flows into an application around any of the above |
+
+**How safety is scored.**
+
+- **Refusal rate** on harmful prompts (higher is safer) and **over-refusal rate** on safe ones (lower is better). Always report both.
+- **Attack success rate (ASR)**: the share of harmful requests that get a *harmful* reply. Not refusing is not the same as complying usefully: a jailbroken reply can be vague, wrong or empty. **StrongREJECT** (Souly et al., 2024) showed that "did it refuse?" scoring overstates jailbreak success, and benchmarks score harmfulness with a judge instead: HarmBench's classifier (Mazeika et al., 2024), JailbreakBench's judge (Chao et al., 2024), StrongREJECT's rubric.
+- **Judges must be validated.** A refusal or harm judge is a model with its own error rate; measure it against human labels before trusting the rates it produces ([section 4.3](#43-ragas-and-llm-as-judge)). And keep it **independent of the defences**: scoring the output of a guarded system with the same guard reports zero attack success by construction.
+
+**Defence in depth.** No single layer is enough, so production stacks several that fail in different ways:
+
+| Layer | Stops | Costs | Typical failure |
+|---|---|---|---|
+| model's own safety training | direct harmful requests | nothing extra | jailbreaks; over-refusal |
+| safety system prompt | a little of both | some helpfulness | a competing instruction later in the prompt wins |
+| input guard | most harmful requests, disguised or not | false positives; tens of ms | mild phrasings; adaptive attacks against the guard |
+| output guard | harmful content that got through | latency; false positives on factual answers | needs an independent judge to be evaluated |
+| application controls (auth, rate limits, no dangerous tools near untrusted input, abuse logging) | damage, whatever the model does | engineering | treating any prompt as a security control |
+
+Every layer adds false refusals, and they add up; the stack is only as well understood as the judge used to measure it. Prompt injection, the attack on *applications* through the data they read, is the subject of [section 4.4](#44-application-patterns) and [5.8](#58-code-execution-and-sandboxes).
+
+**Key papers.** Bai et al. (2022), *Constitutional AI: Harmlessness from AI Feedback*; Wei, Haghtalab and Steinhardt (2023), *Jailbroken: How Does LLM Safety Training Fail?*; Zou et al. (2023), *Universal and Transferable Adversarial Attacks on Aligned Language Models* (GCG); Chao et al. (2023), *Jailbreaking Black Box Large Language Models in Twenty Queries* (PAIR); Chao et al. (2024), *JailbreakBench*; Mazeika et al. (2024), *HarmBench*; Souly et al. (2024), *A StrongREJECT for Empty Jailbreaks*; Röttger et al. (2024), *XSTest: A Test Suite for Identifying Exaggerated Safety Behaviours in Large Language Models*; Inan et al. (2023), *Llama Guard: LLM-based Input-Output Safeguard for Human-AI Conversations*.
+
+> **Notebook:** [22 · Safety and guardrails](../../notebooks/06_llmops/22_safety_guardrails.ipynb) (read after 15) · **In the course:** a keyword refusal judge agrees with XSTest's human labels on 89.7 % of 900 replies, a 7B LLM judge on only 70.0 %; asked directly, `qwen2.5:3b` and `qwen2.5:7b` refuse 89 % and 92 % of JailbreakBench's 100 harmful behaviours, while over-refusing 17 % and 5 % of safe XSTest prompts; against the 3B model, prefix injection reaches 64 % attack success, refusal suppression 24 % and fiction framing 12 %, and 70 % of the behaviours fall to at least one; Llama Guard 3 1B as an input filter flags 95–100 % of the harmful prompts, disguised or not, but blocks 8 % of safe XSTest prompts and misses 27 % of its unsafe ones; a safety system prompt cuts prefix injection only to 44 % and raises over-refusal to 21 %; with the guard, attack success drops to 1 % (optimistic, because the same guard is the judge) at the price of 21–25 % false refusals.
 
 ---
 

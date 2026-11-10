@@ -94,11 +94,11 @@ NOTEBOOKS_DIR = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..",
 TOPICS = {
     "00_start_here": ["00"],
     "01_architecture": ["01", "02", "03", "04", "17"],
-    "02_pretraining_and_inference": ["05", "06", "09", "18", "19"],
+    "02_pretraining_and_inference": ["05", "06", "09", "18", "19", "23"],
     "03_post_training": ["07", "08", "20"],
     "04_applications": ["21", "10", "12", "13"],
     "05_agents_and_mcp": ["11", "14", "16"],
-    "06_llmops": ["15"],
+    "06_llmops": ["15", "22"],
 }
 
 
