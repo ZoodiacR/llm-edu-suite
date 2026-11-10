@@ -170,11 +170,12 @@ llm-edu-suite/
 
 ## Roadmap
 
-The next additions extend the hands-on side of the course:
+Everything the previous roadmap listed has shipped: reasoning at inference time (v2.4, notebook 20), fine-tuned embeddings and rerankers (v2.5, notebook 21) and a serving benchmark under load (v2.6, notebook 23). Since then the course has added safety, multimodal models, clustering, drift, the agent harness and the ecosystem notebooks (DSPy, Inspect AI and Phoenix, the transformer big picture); the [Versions](#versions) table has the details.
 
-- **Reasoning at inference time:** chain of thought, self-consistency and best-of-N with a verifier, measured as a cost-accuracy curve.
-- **Better retrieval:** fine-tuned embedding models and cross-encoder rerankers for the RAG notebook.
-- **Serving:** a benchmark of time to first token, time per output token and throughput under concurrent load.
+What remains:
+
+- **Renumbering in study order.** Notebook numbers record when each one was added, not the order to read them in: 30 comes first, 21 before 10, 28 after 13. A later version will renumber the notebooks, their generators and every link to follow the study path. Until then, the [topic map](#topic-map) gives the order.
+- **A closing guide on production.** Every notebook ends with an *In production* section. A final guide will bring them together, topic by topic, into what it takes to put each technique into production: evaluation, serving, monitoring, cost and safety.
 
 ## Documentation
 
