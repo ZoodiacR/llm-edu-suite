@@ -246,7 +246,7 @@ ax[1].set_title("load per expert"); ax[1].legend(); plt.tight_layout(); plt.show
 nb.md(r'''
 ## Evaluation: MoE vs dense at equal *active* compute
 
-The fair comparison is not "same total parameters" but "same FLOPs per token". We train (a) a dense model, (b) a MoE with the same active parameters but 4× total, (c) the same MoE with aux-free routing, for the same steps, and compare validation perplexity and expert utilization. On a toy corpus the MoE advantage is small or absent — MoE pays off with large data and compute; the notebook shows **how to measure**, not that MoE always wins.
+The fair comparison is not "same total parameters" but "same FLOPs per token". We train (a) a dense model, (b) a MoE with the same active parameters but 4 experts (about 1.6× the total parameters), (c) the same MoE with aux-free routing, for the same steps, and compare validation perplexity and expert utilization. On a toy corpus the MoE advantage is small or absent — MoE pays off with large data and compute; the notebook shows **how to measure**, not that MoE always wins.
 
 **Choosing the comparison axis.** There are three honest ways to compare an MoE with a dense model, and they answer different questions:
 
@@ -284,10 +284,35 @@ for name, cfg in runs.items():
         print(f"{'':14s} expert load (last batch), layer 0: {loads[0]}")
 ''')
 nb.md(r'''
-**Takeaways**
-- Watch the *expert load* row: values near `[0.5, 0.5, 0.5, 0.5]` (k/E = 2/4) mean balanced routing; a dead expert shows as `0.0`.
-- MoE's wall time is higher here because the expert loop is Python; grouped GEMM kernels remove that overhead in practice.
-- Use MoE when compute-bound at scale with lots of data and expert-parallel infrastructure; otherwise dense. For fine-tuning, dense is far simpler.
+**How to read it:** values near `[0.5, 0.5, 0.5, 0.5]` (k/E = 2/4) in the *expert load* row mean balanced routing; a dead expert shows as `0.0`. MoE's wall time is higher here because the expert loop is Python; grouped GEMM kernels remove that overhead in practice.
+
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| SwiGLU at matched size | GELU d_ff=512: 131,072 params; SwiGLU d_ff=344: 132,096 | the 2/3 rule keeps the parameter count equal |
+| MoE layer, 8 experts, top-2, 1 shared | 443,392 total vs 148,480 active parameters (2.99×); aux loss 2.024 at init (uniform = 2.0) | capacity is paid in memory, not compute |
+| aux-free balancing, bias_lr = 0.01 | imbalance 4.00× → 1.15× in 80 steps, with no gradient on the router | a small bias nudge is enough |
+| aux-free balancing, bias_lr = 0.1 | imbalance 3.98× → 1.68×; expert 0 drops from 1020 to 8 tokens | too large a step overshoots and oscillates |
+| MoE vs dense at equal active compute (300 steps) | val perplexity: dense 3.24 (623.74K params), MoE aux-loss 3.31, MoE aux-free 3.24 (1.02M total, 625.79K active) | no gain on a small, simple corpus |
+| expert usage after training | layer-0 loads 0.48–0.53 (aux loss) and 0.42–0.54 (aux-free), ideal 0.5 | no dead experts |
+| wall time | dense 7.2 s vs MoE 16.4 s | a Python expert loop is slow; real systems use grouped GEMM |
+
+## In production
+
+**Where MoE is used.**
+- Most large frontier and open-weights models are MoE: DeepSeek-V3 and R1, Qwen3 MoE variants, Llama 4, gpt-oss, Kimi K2. They have hundreds of billions of total parameters with a few tens of billions active.
+- Small and on-device models are still mostly dense, because MoE needs all experts in memory.
+- Use MoE when you are compute-bound at scale, with lots of data and expert-parallel infrastructure; otherwise dense. For fine-tuning, dense is far simpler.
+
+**Tools.** Megatron-Core and DeepSpeed-MoE for training with expert parallelism; vLLM and SGLang serve MoE models with fused MoE kernels; llama.cpp can keep experts in CPU RAM and the rest on the GPU.
+
+**Failure modes.**
+- Router collapse: a few experts take most tokens and the rest never train.
+- Load imbalance across GPUs: the busiest expert sets the step time.
+- Expecting dense-model memory: a 30B-total MoE with 3B active is fast to run but still needs memory for 30B parameters.
+- Fine-tuning that breaks routing, for example a learning rate too high on the router or LoRA on the router weights.
+- Comparing MoE and dense on the wrong axis (total vs active parameters vs wall-clock).
 
 **Next:** `17_encoders_and_encoder_decoders.ipynb` — the other two transformer families (encoders and encoder-decoders), then `05_pretraining.ipynb` — the full training pipeline end to end.
 ''')

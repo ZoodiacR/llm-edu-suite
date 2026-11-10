@@ -441,6 +441,34 @@ Small test sets (40 and 100 items) mean differences of a few points are noise; t
 - **GRPO** needs only prompts and a verifier. The group-relative advantage replaces the critic, and the reward function *is* the specification: a dense reward learns from every sample but optimizes a proxy (Goodhart's law), so always evaluate on the metric you care about.
 - Diagnose RL with the reward curves, the KL to the reference, and the fraction of groups with zero reward variance (they carry no gradient).
 - At scale: `DPOTrainer` with a learning rate around 5e-7 to 5e-6 for full fine-tuning; `GRPOTrainer(use_vllm=True, num_generations=8–16)` with reasoning-length completions. Read: DPO (Rafailov 2023), DeepSeekMath (GRPO), DeepSeek-R1, DAPO and Dr. GRPO (the loss variants TRL offers as `loss_type`).
+''')
+nb.md(r'''
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| does plain DPO improve the SFT model? | exact match 30.0 % → 7.5 % on 40 held-out bookings; log-prob of the chosen answer -1.91 → -5.63 | DPO can win the comparison while making the good answer less likely |
+| does adding the SFT (NLL) loss fix it? | exact match 32.5 %; chosen log-prob -1.91 → -2.01 | a cheap, safe default, but no real gain when the model lacks a rule |
+| can RL with only a verifier teach arithmetic? | GRPO: exact 5.0 % → 46.0 % (sparse reward) and 42.0 % (dense) on 100 problems, about 200 s per run | a checker plus sampling replaces labelled answers |
+| sparse or dense reward? | 46.0 % vs 42.0 % exact; median absolute error 46 → 2 for both | the dense reward is a proxy; judge it on the real metric |
+| memory | peak VRAM 1.40 GB (DPO), 0.88 GB (GRPO) | with LoRA the reference model is free |
+
+## In production
+
+**Where these methods sit today.**
+- The usual open post-training recipe is SFT, then preference optimization (DPO or a variant such as SimPO, KTO or ORPO), then RL with verifiable rewards for math, code and tool use.
+- Reasoning models are trained mostly with GRPO-style RL against verifiers: unit tests, math checkers, format and length checks. Preference data for the "soft" qualities comes from human raters or an LLM judge, increasingly sampled on-policy from the current model.
+
+**Tools.**
+- TRL (`DPOTrainer`, `GRPOTrainer`) and Unsloth for one GPU; verl, OpenRLHF and NeMo-RL for multi-node runs.
+- vLLM or SGLang generate the rollouts, which are most of the cost of RL.
+
+**Failure modes.**
+- Reward hacking: the policy finds the gap in the verifier (output format tricks, special-casing tests).
+- Likelihood displacement in DPO, as measured here; off-policy pairs the model would never produce teach little.
+- Losing general skills while chasing one metric: keep a broad regression set next to the target metric and watch the KL to the reference.
+- Groups with zero reward variance carry no gradient: prompts that are always solved or never solved are wasted compute.
+- Small evaluation sets: a few points of difference on 40 or 100 items is noise.
 
 **Next:** `20_reasoning_test_time_compute.ipynb`, which spends the compute at inference time instead of training time, then `09_quantization.ipynb`.
 ''')

@@ -210,9 +210,32 @@ def fertility(t, text):
 print(f"fertility (tokens/word) — in-domain: {fertility(tok, eval_text_in):.2f}   out-of-domain: {fertility(tok, eval_text_out):.2f}")
 ''')
 nb.md(r'''
-**Takeaways**
-- In-domain compression improves quickly with vocabulary size and then saturates; out-of-domain text barely benefits — the merges learned are the *wrong* merges for it. This is why Llama 3 (128k vocab) and Gemma (256k) train tokenizers on multilingual + code mixes.
-- Real tokenizers add a regex *pre-tokenizer* (no merges across spaces/punctuation), digit splitting (helps arithmetic), and are implemented in Rust (`tokenizers`, `tiktoken`). The algorithm is the same one you just ran.
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| what does training produce? | 255 merges on 168,406 characters → vocabulary 514 (including 3 special tokens); late merges are whole words such as ` optimizer`, ` KV`, ` cache` | BPE learns the frequent strings of its corpus |
+| compression in-domain | a 52-byte sentence → 7 tokens (7.43 bytes per token) | in-domain text becomes short sequences |
+| unseen characters | emoji, accents and code still round-trip exactly, by falling back to single bytes | byte-level BPE never needs `<UNK>` |
+| in-domain vs out-of-domain | fertility 1.00 tokens per word on new English sentences vs 3.90 on code + Spanish | a tokenizer is cheap only on the data it was trained on |
+| vocabulary size (plot) | in-domain compression rises and then saturates; out-of-domain text barely benefits | more merges do not help text they were not learned from |
+
+## In production
+
+**What real tokenizers add.**
+- A regex pre-tokenizer (no merges across spaces and punctuation), digit splitting (helps arithmetic) and a Rust implementation (`tokenizers`, `tiktoken`, SentencePiece). The algorithm is the one you just ran.
+- Large vocabularies trained on multilingual and code mixes: Llama 3 uses 128k tokens, Gemma 256k. This is the fix for the out-of-domain fertility measured above.
+
+**Where tokenization shows up in daily work.**
+- Cost and limits: APIs bill and cap context in tokens, so the same request costs more in languages the tokenizer covers poorly.
+- Fine-tuning: the chat template and special tokens must match the base model exactly.
+- Counting tokens before sending a request, with the model's own tokenizer, not an approximation.
+
+**Failure modes.**
+- Mixing up tokenizers between training and serving: no error, just garbage.
+- Adding special tokens without resizing the embedding matrix.
+- Prompts ending in a trailing space, which splits a token boundary the model rarely saw.
+- Expecting letter-level tasks (counting, reversing) to be easy for a model that sees opaque ids.
 
 **Next:** `02_attention_rope_norm.ipynb` — what the model does with these ids.
 ''')

@@ -293,6 +293,35 @@ nb.md(r'''
 - Timing here reflects *mask-based* implementations; the asymptotic savings appear only with real kernels (FlexAttention, FlashAttention, Triton) at long sequence lengths.
 - Decision rule: dense + GQA by default; SWA/hybrid when context ≥ 32k or KV-cache memory binds; linear/hybrid for ≥ 256k; learned block-sparse when you can afford the kernels — and always test exact long-range recall on your own data (needle-in-a-haystack, RULER).
 
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| how far can a sliding window see? | 32 layers × w=4096 → receptive field 131,072 tokens | depth relays information, but only hop by hop |
+| how sparse is a window mask? | FlexAttention block mask skips 93.8 % of blocks | the savings come from skipping blocks in the kernel |
+| is linear attention a real RNN? | parallel == recurrent (max diff 4.8e-07); state 4,352 values vs 25,600,000 for a softmax cache at T=100k | constant memory, at the price of a lossy state |
+| exact recall 42 tokens back (1500 steps) | copy accuracy: dense 99.9 %, block-sparse 88.7 %, hybrid LLLG 48.4 %, SWA w=16 0.6 %, linear 0.3 % | only layers that can jump there by content can copy |
+| does training length matter? | dense after 300 steps: 0.3 %; after 1500: 99.9 % | induction heads appear suddenly; short runs mislead |
+| cost here | 29.5–38.9 s for 1500 steps, all variants | with mask-based code there are no savings; they need real kernels |
+
+## In production
+
+**What long-context models do today.**
+- Hybrids are the common answer: mostly local or linear layers with some global ones (Gemma 3 interleaves sliding-window and global layers; Qwen3-Next and several other recent models mix linear-attention and full-attention layers).
+- Content-selected sparse attention (DeepSeek's NSA and DSA line) for very long contexts.
+- Dense GQA attention with FlashAttention remains the default up to tens of thousands of tokens.
+
+**Tools.** FlashAttention, FlexAttention (`torch.nn.attention.flex_attention`), Triton kernels, and serving engines (vLLM, SGLang) that support sliding-window and hybrid caches.
+
+**Evaluate before trusting a context length.**
+- Advertised context is not usable context. Test with needle-in-a-haystack, RULER or long-document QA on your own data.
+- For many applications, retrieval (notebook 10) is cheaper and more reliable than a very long prompt.
+
+**Failure modes.**
+- Assuming a deep sliding-window stack can recall exact tokens because its receptive field is large enough.
+- Linear-attention models that are fluent but forget exact names, numbers and code.
+- Concluding an architecture "cannot" do a task after too short a run.
+- Measuring speed with reference implementations instead of the kernels you will deploy.
 ''')
 nb.md(r'''
 **Next:** `04_ffn_moe.ipynb`.

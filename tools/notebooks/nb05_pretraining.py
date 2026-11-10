@@ -288,7 +288,35 @@ with torch.no_grad():
 print("reloaded model identical:", torch.allclose(a, b, atol=1e-6))
 ''')
 nb.md(r'''
-**From here to a real LLM:** the same loop wrapped in FSDP/DDP (`torchtitan` is the reference), a memory-mapped token file instead of a tensor in RAM, far more data than the compute-optimal ~20 tokens per parameter of Chinchilla (modern small models are over-trained on 100–2000 tokens per parameter, because a smaller model is cheaper to serve), all of it deduplicated and filtered, bf16 + `torch.compile`, and checkpoints every few hundred steps. Read the Llama 3 and DeepSeek-V3 reports for the recipes.
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| tokenization | 1,121,799 characters → 182,129 tokens (6.16 characters per token) with a 1,024-token BPE | a domain tokenizer compresses its own text well |
+| sanity checks | 1.67M parameters; initial loss 6.295 vs ln V = 6.240; no future leak | check both before spending compute |
+| training | 600 steps in 13.1 s: val loss 6.180 → 1.023; grad norm 3.90 → 0.15 | a stable run: loss falls, grad norm stays O(1) |
+| how close to the best possible? | floor 1.011 nats/token (perplexity 2.75); model perplexity 2.79, +1.5 % in loss | this corpus is learned; more steps cannot help |
+| cosine vs WSD (150 steps) | final val loss 1.024 vs 1.027 | same result; WSD's advantage is operational |
+| bigger model (150 steps) | 125.31K params: 1.259 at step 50, 1.037 final; 1.67M: 1.054 and 1.024 | larger models learn faster per step |
+| save and reload | reloaded model identical | inference needs config + weights + tokenizer |
+
+## In production
+
+**From here to a real LLM.**
+- The same loop wrapped in FSDP or DDP (`torchtitan` is the reference), a memory-mapped token file instead of a tensor in RAM, bf16 + `torch.compile`, and checkpoints every few hundred steps that also save optimizer state, step and data position.
+- Far more data than the compute-optimal ~20 tokens per parameter of Chinchilla: modern small models are over-trained on 100–2000 tokens per parameter, because a smaller model is cheaper to serve.
+- Data work dominates: deduplication, quality filtering and mixing (FineWeb-style pipelines, notebook 18). Read the Llama 3 and DeepSeek-V3 reports for the recipes.
+
+**Who does this today.** Full pre-training is done by a few labs and well-funded groups. Most teams do continued pre-training on domain text, or fine-tuning (notebooks 07–08), starting from open weights. Small from-scratch runs are still useful for research, ablations and tokenizer or architecture tests.
+
+**Tools.** `torchtitan`, Megatron-LM, DeepSpeed, Hugging Face `nanotron` and `datatrove`; Weights & Biases or MLflow for the training dashboard.
+
+**Failure modes.**
+- Loss spikes from too high a learning rate or too short a warmup (QK-norm and gradient clipping help).
+- Validation contaminated by near-duplicates of training documents.
+- Benchmark contamination: test sets that leaked into the crawl.
+- Hardware failures without recent, complete checkpoints.
+- A flat curve blamed on "the floor" when the data is too small or repetitive.
 
 **Next:** `19_systems_memory_and_parallelism.ipynb` (what training costs in memory, kernels and GPUs, and how it scales), then `06_inference_serving.ipynb`.
 ''')

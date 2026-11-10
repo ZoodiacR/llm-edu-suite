@@ -333,7 +333,35 @@ for name, kw in {"MHA": dict(attn="gqa", n_kv_heads=8), "GQA-2": dict(attn="gqa"
     print(f"{name:6s} val ppl {ppl:7.2f} | kv-cache {model.kv_cache_bytes_per_token():5d} B/token | {res.wall_time:.1f}s")
 ''')
 nb.md(r'''
-**How to read this:** perplexity should be similar across variants (GQA ≈ MHA is the published finding; MLA ≥ MHA in DeepSeek's experiments) while the cache column shrinks 4–10×. If one variant is clearly worse here, increase `steps` before concluding — 250 steps on a toy corpus is a smoke test, not a benchmark.
+**How to read this:** perplexity should be similar across variants (GQA ≈ MHA is the published finding; MLA ≥ MHA in DeepSeek's experiments) while the cache column shrinks 4–13×. If one variant is clearly worse here, increase `steps` before concluding — 250 steps on a toy corpus is a smoke test, not a benchmark.
+
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| is our RMSNorm right? | matches `torch.nn.RMSNorm`; RMSNorm(3x) == RMSNorm(x) | no mean subtraction, same scale invariance |
+| does RoPE encode only relative position? | score at distance 5 is +3.3047 at positions (5, 0), (105, 100) and (905, 900) | absolute position cancels out |
+| is hand-written attention correct? | matches `F.scaled_dot_product_attention`; rows sum to 1, upper triangle 0 | the causal mask is the whole trick |
+| KV-cache per token per layer (toy, d=128) | MHA 512 B, GQA-2 128 B, MQA 64 B, MLA 40 B | fewer or compressed KV heads shrink the cache |
+| same at DeepSeek-V3 size | MHA 65,536 B vs MLA 1,152 B (÷57) | MLA is why very large MoE models fit long contexts |
+| does the cache change the result? | prefill + decode == full forward: max diff 1.19e-07 (GQA), 1.79e-07 (MLA) | caching is an optimization, not an approximation |
+| does it cost quality? | after 250 steps: val perplexity MHA 2.65, GQA-2 2.64, MQA 2.64, MLA 2.65; cache 2048 → 160 B per token | on this toy task, no measurable loss |
+
+## In production
+
+**What current models use.**
+- RMSNorm in pre-norm position, RoPE (with a scaled base or YaRN-style interpolation for long context) and GQA are the default in open decoders such as Llama, Qwen, Mistral and Gemma.
+- MLA (DeepSeek-V3 and later DeepSeek models, and some other recent large models) when KV-cache memory is the bottleneck.
+- Attention runs in fused kernels: FlashAttention, PyTorch SDPA, FlexAttention; nobody ships the hand-written softmax.
+
+**Why the cache numbers matter.** In serving, KV-cache memory decides how many sequences fit on a GPU at once, so it decides throughput and cost per token (notebooks 06 and 23). vLLM, SGLang and TensorRT-LLM all page and share this cache.
+
+**Failure modes.**
+- An off-by-one `start_pos` in RoPE: no crash, quality drops quietly.
+- A different RoPE layout (interleaved vs rotate-half) when porting weights; notebook 06 shows the effect.
+- Extending context without adjusting RoPE scaling.
+- Evicting the first tokens from the cache and breaking attention sinks.
+- Comparing variants on one seed and a short run, as here, and calling it a benchmark.
 
 **Next:** `03_efficient_attention.ipynb` — what to do when the sequence gets long.
 ''')

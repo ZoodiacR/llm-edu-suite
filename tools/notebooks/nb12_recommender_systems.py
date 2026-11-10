@@ -984,8 +984,42 @@ This matches what the field has found: small LLMs do not beat collaborative mode
 - **Cold start is solved by content and exploration, not by collaborative models.** Text and metadata place a new item; a reserved slot gives it exposure; the cost on warm items is explicit.
 - **Use LLMs for language.** Offline item enrichment, turning requests into filters and grounded explanations are cheap and measurable. Asking a small LLM to re-rank a strong recommender is the expensive way to make it worse.
 - **Report uncertainty.** With a few thousand users a difference of one or two points of hit@10 can be noise; the paired bootstrap tells you which differences to believe.
+''')
+nb.md(r'''
+## Results
 
-**What production adds.** Online A/B tests (offline metrics only predict them imperfectly), real bandits instead of a fixed slot, feature stores and streaming updates, sampled-softmax training with $\log Q$ correction at catalog scale, multi-objective ranking (watch time, satisfaction, diversity), and frameworks built for it: TorchRec and FBGEMM (Meta), NVIDIA Merlin, RecTools and RePlay for two-stage pipelines.
+| question | measured | lesson |
+|---|---|---|
+| which single model is best? | SASRec hit@10 0.293, nDCG@10 0.172; item-kNN 0.125, popularity 0.036 | the sequence of interactions is the strongest signal |
+| does a second-stage ranker help? | LambdaMART hit@10 0.307, nDCG@10 0.181; nDCG +0.0092 over SASRec, 95 % CI [+0.0055, +0.0128] | yes, when gated against the first stage |
+| how much does retrieval find? | union of five sources: recall 0.684 (cold 0.149); SASRec top-100 alone 0.608 | retrieval sets the ceiling for the ranker |
+| what does a slot for new movies cost? | one slot: cold hit@10 0.009 → 0.044, overall 0.307 → 0.300 | exploration has an explicit, small price |
+| can diversity be raised cheaply? | MMR λ = 0.8: intra-list diversity 0.659 → 0.719, hit@10 0.307 → 0.303 | at light settings it is almost free |
+| do LLM keywords help ranking? | item text: content hit@10 0.033 → 0.023; as a ranker feature +0.0012, CI [-0.0012, +0.0035] | not here; not worth the cost |
+| do LLMs help understand requests? | constraint satisfaction@5 0.60 → 0.87; 1 structured-output failure in 221 calls | use LLMs for language |
+| do anchors keep explanations honest? | cites a movie not in the history: 7 % grounded vs 13 % ungrounded (30 users) | ground explanations in data you can check |
+| is approximate search good enough? | HNSW overlap with the exact top-100: 0.987 | yes, at catalog scale it is required |
+
+## In production
+
+**The architecture.**
+- Real systems are the same funnel at a larger scale: many retrieval sources, a ranker with hundreds of features, and a re-ranking layer for business rules, exploration and diversity.
+- The trend of the last two years is generative recommenders: large sequence models over user histories (Meta's HSTU, Netflix's foundation model), sometimes with items encoded as semantic IDs.
+- What production adds on top: online A/B tests (offline metrics only predict them imperfectly), real bandits instead of a fixed slot, feature stores and streaming updates, sampled-softmax training with $\log Q$ correction at catalog scale, and multi-objective ranking (watch time, satisfaction, diversity).
+- Frameworks: TorchRec and FBGEMM (Meta), NVIDIA Merlin, RecTools and RePlay for two-stage pipelines.
+
+**LLMs in recommenders.** As measured here: offline item enrichment, conversational front ends that turn requests into filters, and grounded explanations. LLM re-ranking of a strong recommender is expensive and rarely pays.
+
+**Keeping it fresh.** A recommender starts ageing the day it ships. Notebook 26 replays MovieLens-1M week by week to measure how a frozen recommender decays, compares retraining strategies, and shows why input-drift monitors can miss the decay.
+
+**Failure modes.**
+- Offline gains that do not survive the A/B test.
+- Feedback loops: the model trains on clicks its own recommendations caused, and popularity bias grows.
+- Leakage from random (not time-based) splits.
+- New items that never get exposure.
+- Position bias in logged data treated as preference.
+
+**Next:** `13_modern_llm_applications.ipynb`. For what happens to this recommender after deployment, see `26_online_learning_drift.ipynb`.
 ''')
 
 if __name__ == "__main__":

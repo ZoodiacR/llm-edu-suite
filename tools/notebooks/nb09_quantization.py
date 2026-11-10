@@ -355,6 +355,33 @@ nb.md(r'''
 - int8 and fp8 weights were almost free in quality (~96 % top-1 agreement). int4 with groups is the usual sweet spot for 7B+ models, but on our 360M model it cost a quarter of the top-1 agreement, so measure on *your* model. Naive 2-bit destroys the model.
 - Measure **KL and top-1 agreement**, not only perplexity, and then your task metric.
 - Memory savings are guaranteed; speed depends on having a kernel for the format on your hardware.
+''')
+nb.md(r'''
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| how much do block scales matter? | 4-bit relative weight error: per tensor 58.72 %, per row 16.65 %, blocks of 64 11.39 % | outliers make per-tensor scales useless |
+| does NF4 beat uniform int4? | blocks of 64: 11.39 % → 9.31 % | put the levels where the weights are |
+| 8-bit weights (int8 / fp8) | top-1 agreement 96.6 % / 95.1 %, perplexity 17.32 / 17.13 vs 17.16 for fp32; 0.41 GB vs 0.72 GB in bf16 | almost free in quality |
+| 4-bit weights (int4, groups of 128) | perplexity 22.16, KL 0.27, top-1 agreement 73.3 %, 0.26 GB | on a 360M model 4 bit is expensive; measure on your model |
+| 2-bit weights | perplexity 227,817, top-1 agreement 1.4 % | naive 2 bit destroys the model |
+| speed | 24.0 tok/s (bf16) vs 16.8 (int8) and 10.5 (int4) | without a fused kernel, quantized can be slower |
+
+## In production
+
+**What people ship (late 2026).** The tool table above covers the libraries; in practice:
+- Large-scale serving runs FP8 weights and activations on Hopper and newer GPUs, and FP4 formats (NVFP4, MXFP4) on Blackwell. Some open models now ship natively in 4 bit (gpt-oss uses MXFP4 weights).
+- Local and edge inference uses GGUF k-quants (`Q4_K_M`, `Q5_K_M`) through llama.cpp, Ollama or LM Studio, and MLX on Apple Silicon.
+- Fine-tuning on one GPU is still mostly QLoRA: NF4 base weights from bitsandbytes plus LoRA adapters.
+- Long-context serving quantizes the KV cache to fp8, because there the cache, not the weights, fills the memory.
+
+**Failure modes.**
+- Perplexity looks fine while specific skills break: math, code, long context and non-English text degrade first.
+- A calibration set (GPTQ, AWQ) that does not look like your traffic.
+- A format with no fast kernel on the target hardware: memory goes down, latency goes up.
+- Small models lose much more than large ones at the same bit width.
+- Converted checkpoints with the wrong chat template or tokenizer: the model is fine, the conversion is not.
 
 **Next:** `10_rag.ipynb`.
 ''')

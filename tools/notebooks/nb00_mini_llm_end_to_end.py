@@ -482,6 +482,36 @@ print(f"saved to {ckpt_path} ({os.path.getsize(ckpt_path) / 1e6:.1f} MB) | reloa
       f"tokenizer identical: {tok2.encode(text[:500]) == tok.encode(text[:500])}")
 ''')
 nb.md(r'''
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| does the tokenizer work? | 199 merges → vocabulary 455, 5.01 characters per token, exact round-trip | a tiny BPE already compresses its own domain well |
+| is the untrained model sane? | 1.86M parameters, initial loss 6.144 vs ln V = 6.120 | start near ln V or something is wrong with the init |
+| how far does training get? | 800 steps in about 19 s on a laptop RTX 3060: validation loss 6.025 → 0.778 (perplexity 2.18) | most of the learning happens in the first 100 steps |
+| how good is "good"? | irreducible loss of the corpus 0.774 (perplexity 2.17): the model is 0.6 % above it | a known floor turns "lower is better" into "how much is left" |
+| did it learn the grammar? | 40 of 49 sampled sentences (82 %) valid under the corpus grammar | structure emerges from next-token prediction alone |
+| greedy vs sampling | greedy repeats "in the garden" in every sentence; sampling varies all slots | greedy is deterministic and collapses to the most likely pattern |
+| save and reload | 7.4 MB checkpoint; reloaded model and tokenizer identical | a checkpoint is config + weights + tokenizer |
+
+## In production
+
+**The same pipeline, scaled up.**
+- Every step here (tokenizer, decoder-only transformer with RoPE, RMSNorm and SwiGLU, AdamW with warmup and cosine decay, sampling) is what open models such as Llama, Qwen, Mistral and Gemma use. What changes is scale: trillions of tokens, billions of parameters, thousands of GPUs.
+- Few teams pre-train from scratch. Most start from an open-weights checkpoint and fine-tune it (notebooks 07–08), or call a hosted model through an API.
+
+**Tools.**
+- Tokenizers: Hugging Face `tokenizers`, `tiktoken`, SentencePiece.
+- Training: PyTorch with `torchtitan`, Megatron-LM or DeepSpeed for multi-GPU runs; nanoGPT-style repositories for learning and small experiments.
+- Checkpoints: `safetensors` files plus a config and tokenizer files, the layout the Hugging Face Hub expects.
+
+**Failure modes.**
+- Loading a checkpoint with a different tokenizer than the one it was trained with: no error, just bad output.
+- Judging a model by training loss alone; validation must be held out by document, after deduplication.
+- No floor or baseline to compare against, so nobody knows whether a loss of 0.78 is good.
+- Greedy decoding in open-ended generation, which loops.
+''')
+nb.md(r'''
 ## Where to go next
 
 | You want to understand… | Notebook |

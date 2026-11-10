@@ -625,6 +625,36 @@ Latency depends heavily on how busy the GPU is (other processes shared it during
 - **Return errors to the model on purpose:** validation errors come back automatically; execution errors only when you opt in (`ToolErrorMiddleware`), with messages that say how to fix the call.
 - **Structured output:** prefer the constrained `json_schema` method when the server supports it, keep business rules in Pydantic validators, use `include_raw=True` in production and retry *with the error*, not blindly.
 - **Evaluate trajectories:** tool selection, argument validity, success, latency and tokens on a labelled set, every time a prompt, tool description or model changes. Production practice: sandbox code execution, log every trajectory (LangSmith), cap steps and spend, and treat tool output as untrusted data (notebook 13 covers prompt injection).
+''')
+    nb.md(r'''
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| does the model pick the right tool? | tool selection 79 % on 14 labelled requests | a 3B model both skips tools (did arithmetic "in its head") and over-uses them (chit-chat → `search_docs`) |
+| are the arguments valid, and does the task succeed? | argument validity 86 %, task success 64 %; median latency 0.8 s, 864 tokens per request on average | score the trajectory, not only the final text |
+| which structured-output method? | 8/8 valid outputs for all three; field accuracy `json_schema` 85 %, `function_calling` 98 %, `json_mode` 98 % | valid JSON is not correct JSON; `json_schema` dropped `order_id` 5 times |
+| does retrying with the error fix a rule? | summary length 22 → 13 → 13 words against a limit of 12, still failing after 3 attempts | retries help with format, not with rules the model cannot follow; enforce those in code |
+| what do the tool schemas cost? | about 390 prompt tokens per call with four tools, before any conversation | schemas are re-sent on every model call |
+
+## In production
+
+**How tool use is wired today (late 2026).**
+- Native tool calling is part of every major model API and open serving engine; strict modes and constrained decoding (vLLM and SGLang with grammar backends such as XGrammar or Outlines) make schema-valid arguments the norm, so the remaining errors are semantic.
+- MCP is the standard way to expose tools to any agent (notebook 16).
+- Common frameworks: LangChain `create_agent` / LangGraph, the OpenAI Agents SDK, the Claude Agent SDK, Pydantic AI; Instructor for structured output alone.
+
+**Engineering practice.**
+- Few tools with clear descriptions; normalise inputs inside the tool and keep strict validation for real errors.
+- Idempotent tools, timeouts, step and cost caps, and human approval for actions with side effects (notebook 14).
+- Sandbox code execution; log every trajectory (notebook 15).
+- Choose models with public tool-use benchmarks (BFCL, tau-bench), then confirm on your own labelled trajectories after every prompt, tool or model change.
+
+**Failure modes.**
+- Wrong or missing tool calls, invented arguments, loops that never stop.
+- Selection gets worse as the number of tools grows.
+- Tool output used as an injection channel (notebooks 13 and 22).
+- Token cost of large tool schemas on every call.
 
 **Next:** `12_recommender_systems.ipynb`. The agents track continues in `14_agentic_ai.ipynb` (LangGraph graphs: guardrails, human approval, memory, planning, reflection, multi-agent routing) and `16_mcp_model_context_protocol.ipynb` (the standard way to expose tools to any agent).
 ''')

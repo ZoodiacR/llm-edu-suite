@@ -670,8 +670,47 @@ nb.md(r'''
 | the question needs facts from several places | single-shot retrieval | iterative or agentic retrieval (notebook 14), parent-document retrieval |
 | wrong on names, codes, versions | dense-only retrieval | add BM25 |
 | slow | big context, brute-force index | smaller k, ANN index (HNSW), cache embeddings |
+''')
+nb.md(r'''
+## Results
 
-In production the same structure scales up: a hosted or larger embedding model, a vector database (pgvector, Qdrant, Weaviate), a cross-encoder reranker on the top 20-50 candidates, and RAGAS or LangSmith evaluations run on every change. `scripts/rag_demo.py` packages this notebook's pipeline as a command-line tool.
+| question | measured | lesson |
+|---|---|---|
+| does retrieval find the right file? | file hit@4 1.00 for every retriever (chunks of 800 characters) | a saturated metric; score the evidence chunk instead |
+| which retriever ranks the evidence best? | evidence hit@1: dense 0.65, BM25 0.70, hybrid 0.80; MRR 0.73 / 0.80 / 0.84 | hybrid (BM25 + dense with RRF) is the default to beat |
+| does multi-query help? | MRR 0.82 vs 0.84 for plain hybrid, plus 15 s of LLM calls for 20 questions | an extra call per question, no gain on precise questions |
+| does chunk size matter? | dense MRR 0.77 → 0.67 from 300 to 1500 characters; hybrid 0.75 → 0.89 | tune it on your own questions |
+| RAGAS, dense vs hybrid (7B judge) | context precision 0.79 → 0.92 (+0.13, 95 % CI [+0.03, +0.25]); faithfulness 0.87 and context recall 0.95 for both | only precision differs clearly at n = 20 |
+| what does the judge cost? | 1038 s to score 40 answers × 4 metrics | evaluation is a real budget line |
+
+## Limitations
+
+- **Small evaluation set.** 20 questions over one corpus (five Markdown files of this repository's docs). Intervals are about ±0.1 to 0.15, so only large differences are real.
+- **One generator, one judge, same family.** `qwen2.5:3b` answers and `qwen2.5:7b` judges; a judge from the same family may favour its relative, and we did not validate it against human labels, only by reading the low rows.
+- **Labels can be wrong.** The evidence strings were written by hand, and one question (DPO + NLL) showed a label miss.
+- **No reranker, no vector database, no access control.** The index is an in-memory FAISS store; rerankers are measured in notebook 21.
+- **One execution.** Judge verdicts on borderline answers can flip between runs.
+
+## In production
+
+**The architecture.**
+- The same structure scales up: a hosted or larger embedding model, a vector database (pgvector, Qdrant, Weaviate, or Elasticsearch / OpenSearch with hybrid search built in), a cross-encoder reranker on the top 20-50 candidates (notebook 21), and metadata filters that enforce who may see which document.
+- `scripts/rag_demo.py` packages this notebook's pipeline as a command-line tool.
+
+**Today's practice (late 2026).**
+- Long-context models have not replaced retrieval: retrieving is cheaper, faster, and gives citations you can check. Many systems retrieve a little, then read bigger parent chunks or whole documents.
+- Agentic retrieval, where the model decides when and what to search over several steps (notebook 14), is common for questions that need several sources.
+- Chunks are often enriched before embedding (a short LLM-written context per chunk), and stable context is reused with prompt caching.
+
+**Evaluation.** RAGAS, DeepEval, LangSmith or Phoenix (notebooks 15 and 29), on a fixed set built from real user questions, run on every change to chunking, embeddings, prompt or model.
+
+**Failure modes.**
+- A stale index: documents changed, embeddings did not.
+- Changing the embedding model without re-indexing everything.
+- Retrieving documents the user is not allowed to see.
+- Prompt injection inside retrieved documents (notebooks 13 and 22).
+- Chunking that splits tables and code blocks.
+- Trusting a judge nobody validated.
 
 **Next:** `11_agents_tools_structured_output.ipynb`, where the model stops only reading context and starts calling tools.
 ''')

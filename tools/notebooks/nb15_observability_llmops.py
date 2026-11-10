@@ -870,20 +870,6 @@ else:
 ''')
 
 nb.md(r'''
-## Evaluation
-
-| metric (this execution) | value |
-|---|---|
-| experiment `closed_book`: exact_match / contains_fact / correctness | 0.00 / 0.17 / 0.17 |
-| experiment `rag`: exact_match / contains_fact / correctness | 0.58 / 1.00 / 0.83 |
-| LLM judge vs `contains_fact` agreement | 20 / 24 answers |
-| traffic: requests, error rate | 18, 11.1 % (the two unknown orders) |
-| tokens per request (input + output) | 104 (1605 in, 270 out over 18 requests) |
-| request latency p50 / p95 | 0.22 s / 2.8 s in this execution on a free GPU (up to ~7 s / 10 s when the GPU was shared) |
-| online groundedness, mean over 16 successful requests | 0.81, with two real tool-prompt bugs among the three lowest |
-
-The practitioner's summary: retrieval lifts judged correctness from 0.17 to 0.83 at the price of a longer prompt (the RAG prompt in section 2 has 115 input tokens); the order-tool prompt needs a fix (found by online feedback, not by the offline set, which has no order questions); and error rate breaks its SLO by design.
-
 ## Takeaways
 
 | what to record | how in LangSmith | why |
@@ -898,6 +884,46 @@ The practitioner's summary: retrieval lifts judged correctness from 0.17 to 0.83
 - Report **p50/p95/p99**, not only the mean, and write SLOs down so a breach is a fact, not an opinion.
 - Measure quality with several signals: deterministic checks where you can, an LLM judge where you must, and check the judge against them (or against humans) before trusting it.
 - Compare versions on a fixed dataset **before** shipping; watch online feedback **after**.
+''')
+nb.md(r'''
+## Results
+
+| question | measured | lesson |
+|---|---|---|
+| does retrieval make the app correct? | closed book: exact match 0.00, contains_fact 0.17, judged correctness 0.17; RAG: 0.58 / 1.00 / 0.83 (12 questions) | compare versions on a fixed dataset before shipping |
+| can the LLM judge be trusted? | agrees with the `contains_fact` check on 20 of 24 answers; of the 4 disagreements it was right twice and wrong twice | check the judge against deterministic evaluators or human labels |
+| what does the traffic look like? | 18 requests, error rate 11.1 % (the two unknown orders); p50 0.22 s, p95 2.80 s; 104 tokens per request (1605 in, 270 out in total) | report percentiles, not only the mean |
+| does it meet the SLO? | p95 latency and tokens OK; error rate 0.111 against a limit of 0.05: violated | written SLOs turn a breach into a fact |
+| what does online feedback find? | mean groundedness 0.81 over 16 successful requests; the query `groundedness < 0.5` returns 3 traces, two of them real tool-prompt bugs | online signals find bugs the offline set (no order questions) cannot |
+| does PII redaction hold? | 8 runs in the redacted trace; none still contains the PII | redact before data leaves the process |
+| sampling | rate 0.25 kept 13 of 40 traces | sampling cuts volume, and with small n the kept share varies |
+
+## Limitations
+
+- **Small numbers.** 12 dataset questions (one judge verdict moves a score by 0.08) and 18 synthetic requests (p99 over 18 requests is close to the maximum).
+- **A 3B judge grading a 3B app.** The `correctness` judge is `qwen2.5:3b`, the same model that answers, so self-preference is possible, and notebook 10 showed that a 3B judge can invent effects that a 7B judge does not see. We kept the 3B judge here because re-running the notebook with a stronger judge needs a new round of LangSmith traces, and the free plan's monthly trace quota ran out. Read the judge numbers as illustrative and its comments as the useful part.
+- **Cost is illustrative.** LangSmith reports no cost for local Ollama models; the dollar figure uses a made-up price.
+- **One hosted platform.** Everything here depends on a LangSmith account and its quotas. Notebook 29 runs the same ideas self-hosted and open source: evaluation with Inspect AI and tracing with Phoenix, with no trace quota.
+
+## In production
+
+**The stack (late 2026).**
+- OpenTelemetry with the GenAI semantic conventions is the common format, so instrumentation (OpenLLMetry, OpenInference, the framework's own callbacks) can feed any backend.
+- Backends: LangSmith, Langfuse (open source, self-hostable), Arize Phoenix, Braintrust, W&B Weave, and the LLM views of general tools such as Datadog and Grafana.
+- Evaluation: the platform's own experiments, or Inspect AI, DeepEval, promptfoo and RAGAS run in CI (notebook 29).
+
+**Practice.**
+- Trace everything in development; in production sample, but keep all errors and slow requests (tail-based sampling).
+- Redact PII before export, and set retention limits.
+- SLOs on latency, error rate and cost per request, with alerts on sliding windows.
+- Online evaluators on a sample of traces; bad traces go into the offline dataset, and the offline experiment gates every release.
+
+**Failure modes.**
+- Trace quotas and storage cost, as happened in this course: plan the sampling before you hit the limit.
+- Personal data leaking into traces.
+- Judges that drift when their model or prompt changes; version them like code.
+- Alerts on means that hide the tail.
+- An offline dataset that does not cover a route (the order tool here).
 
 **Next:** `16_mcp_model_context_protocol.ipynb`.
 ''')
