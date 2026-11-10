@@ -731,8 +731,187 @@ nb.md(r'''
 
 - **Conformance**: all 14 checks pass. The server behaves as a client expects, including the two error channels and the resource template.
 - **Retrieval**: BM25 puts the right document first for all 6 questions (6/6 top-1). The sample docs are small and each answer sits in one sentence that shares words with the question, so this is an easy set. A real knowledge base needs the evaluation of notebook 10.
-- **Agent**: qwen2.5:3b called `docs_search_docs` for every question, and all 6 answers contain the key fact. It cited the right file in 5 of 6: the express-shipping answer has no citation. Citations are the first thing a small model drops, so check them separately from correctness. The time per question (printed above) is almost all model inference: it ranges from under a second to over ten seconds depending on how busy the GPU is, while the MCP calls themselves add only milliseconds (8.4).
-- **Latency**: a `tools/call` costs about 1.4 ms in memory and about 2.7 ms over stdio pipes (p50). The LangChain tool layer adds about another millisecond. All of this is negligible next to an LLM call. The expensive case is the default stateless adapter tool: **2 to 3 seconds per call**, because each call starts a Python subprocess, imports the server and repeats the handshake (the start-up time from section 5). For an agent that makes many calls, keep the session open. A remote Streamable HTTP server adds network latency and needs authentication (OAuth 2.1 in the spec).
+- **Agent**: qwen2.5:3b called `docs_search_docs` for every question, and all 6 answers contain the key fact. It cited the right file in 4 of 6: the refund and the express-shipping answers have no citation. Citations are the first thing a small model drops, so check them separately from correctness. The time per question (printed above) is almost all model inference: it ranges from under a second to over ten seconds depending on how busy the GPU is, while the MCP calls themselves add only milliseconds (8.4).
+- **Latency**: a `tools/call` costs about 1.6 ms in memory and about 3.0 ms over stdio pipes (p50). The LangChain tool layer adds about another millisecond. All of this is negligible next to an LLM call. The expensive case is the default stateless adapter tool: **about 2.4 seconds per call**, because each call starts a Python subprocess, imports the server and repeats the handshake (the start-up time from section 5). For an agent that makes many calls, keep the session open. A remote Streamable HTTP server adds network latency and needs authentication (OAuth 2.1 in the spec).
+''')
+nb.md(r'''
+## 9. Beyond tools: what the client offers back, and remote servers
+
+So far the client only *used* the server. MCP is symmetric: a server can also send requests to the client, and the host decides what to allow. Three client features complete the protocol, and a remote deployment adds a fourth topic, authentication.
+
+| feature | who asks whom | what for | where the host keeps control |
+|---|---|---|---|
+| **sampling** (`sampling/createMessage`) | server → client's model | the server needs text generated (summarize, classify, plan) without holding its own model or API key | the host can show the request, change the model, cap tokens, or refuse |
+| **elicitation** (`elicitation/create`, spec 2025-06-18) | server → the user | ask the *person* for structured input or a confirmation, with a JSON schema | the user can accept, decline or cancel; servers must not ask for passwords or secrets this way |
+| **roots** (`roots/list`) | server → client | which folders or repositories the server may work in | the client chooses the roots; a well-behaved server stays inside them |
+| **authorization** (Streamable HTTP) | client → remote server | prove who is calling, with an OAuth 2.1 access token | tokens are short-lived, scoped and issued by an authorization server |
+
+Each one moves a decision to the place that should make it. Sampling keeps model choice and cost with the user. Elicitation puts an irreversible action in front of a human rather than the model (the protocol-level twin of the approval gate of notebook 14). Roots scope what a filesystem or git server can touch. All three are capabilities: a client that does not declare them never receives the requests.
+
+**Authorization for remote servers.** A local stdio server inherits the user's permissions, but a remote server is an HTTP endpoint anyone can reach. Since spec 2025-03-26 (refined in 2025-06-18), MCP's answer is standard OAuth 2.1, with the server as a **resource server**:
+1. a request without a valid token gets `401` with a `WWW-Authenticate` header;
+2. that header points to the server's **protected-resource metadata** (RFC 9728), which names the authorization server and the scopes;
+3. the client obtains a token there, with PKCE and, if needed, dynamic client registration;
+4. the client sends the token as `Authorization: Bearer ...` on every request.
+
+The server validates tokens: signature and expiry for a JWT, or an introspection call, plus the *audience*, so that a token issued for another service is rejected. We run the knowledge-base server with `--require-token` and a shared token in place of a real authorization server, which is enough to see every step on the wire.
+''')
+nb.code(r'''
+import os, time
+from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
+from pydantic import BaseModel, Field
+from mcp import types
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.shared.memory import create_connected_server_and_client_session
+
+DOCS_DIR = os.path.join(ROOT, "data", "sample_docs")
+ws = FastMCP("workspace")
+
+# Sampling: the server needs text generated, and borrows the host's model instead of holding its own API key.
+@ws.tool()
+async def summarize_doc(name: str, ctx: Context) -> str:
+    """Summarize one of the company documents in one sentence."""
+    text = Path(DOCS_DIR, name).read_text(encoding="utf-8")
+    result = await ctx.session.create_message(
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text=f"Summarize in one sentence:\n\n{text}"))],
+        system_prompt="You write accurate one-sentence summaries.", max_tokens=120, temperature=0.0)
+    return result.content.text
+
+# Elicitation: the server asks the *user* (not the model) for a structured answer before doing something irreversible.
+NOTES = {"draft-1": "old pricing idea", "draft-2": "meeting notes"}
+class Confirm(BaseModel):
+    confirm: bool = Field(description="Really delete the note?")
+
+@ws.tool()
+async def delete_note(name: str, ctx: Context) -> str:
+    """Delete one of the user's notes."""
+    answer = await ctx.elicit(f"Delete the note '{name}'? This cannot be undone.", schema=Confirm)
+    if answer.action == "accept" and answer.data.confirm:
+        NOTES.pop(name, None)
+        return f"deleted {name}"
+    return f"kept {name} (user answer: {answer.action})"
+
+# Roots: the client tells the server which folders it may work in; a well-behaved server stays inside them.
+def uri_to_path(uri) -> Path:
+    return Path(url2pathname(urlparse(str(uri)).path)).resolve()
+
+@ws.tool()
+async def list_files(folder: str, ctx: Context) -> list[str]:
+    """List the files in a folder the user has shared with this server."""
+    roots = [uri_to_path(r.uri) for r in (await ctx.session.list_roots()).roots]
+    target = Path(folder).resolve()
+    if not any(target == r or r in target.parents for r in roots):
+        raise ValueError(f"{folder} is outside the folders this client shared: {[str(r) for r in roots]}")
+    return sorted(p.name for p in target.iterdir())
+
+# The client (host) side: one callback per feature. This is where the host keeps control.
+SAMPLING_LOG, ELICIT_ANSWERS = [], []
+async def sampling_callback(context, params: types.CreateMessageRequestParams):
+    SAMPLING_LOG.append(params)                                    # a real host can show this request to the user first
+    if params.maxTokens > 500:                                     # host policy: refuse expensive requests
+        return types.ErrorData(code=types.INVALID_REQUEST, message="sampling request refused by host policy")
+    t0 = time.perf_counter()
+    msgs = [("system", params.systemPrompt or "")] + [(m.role, m.content.text) for m in params.messages]
+    reply = await llm.ainvoke(msgs)
+    SAMPLING_LOG[-1] = (params, time.perf_counter() - t0)
+    return types.CreateMessageResult(role="assistant", content=types.TextContent(type="text", text=reply.content),
+                                     model=llm.model, stopReason="endTurn")
+
+async def elicitation_callback(context, params: types.ElicitRequestParams):
+    choice = ELICIT_ANSWERS.pop(0)                                 # here a scripted user; a real host shows a form
+    print(f"   host shows the user: {params.message!r} -> user chooses {choice}")
+    if choice == "accept":
+        return types.ElicitResult(action="accept", content={"confirm": True})
+    return types.ElicitResult(action=choice)                       # "decline" or "cancel"
+
+async def list_roots_callback(context):
+    return types.ListRootsResult(roots=[types.Root(uri=Path(DOCS_DIR).as_uri(), name="company docs")])
+
+def text_of(result):
+    return " ".join(c.text for c in result.content if hasattr(c, "text"))
+
+async with create_connected_server_and_client_session(ws, sampling_callback=sampling_callback, elicitation_callback=elicitation_callback,
+                                                      list_roots_callback=list_roots_callback) as session:
+    print("sampling:")
+    for name in ["refund_policy.md", "shipping.md"]:
+        t0 = time.perf_counter()
+        r = await session.call_tool("summarize_doc", {"name": name})
+        print(f"   {name:18s} {1000 * (time.perf_counter() - t0):6.0f} ms (host model: {1000 * SAMPLING_LOG[-1][1]:.0f} ms) -> {text_of(r)[:150]}")
+    print("elicitation:")
+    for name, choice in [("draft-1", "decline"), ("draft-1", "accept"), ("draft-2", "cancel")]:
+        ELICIT_ANSWERS.append(choice)
+        r = await session.call_tool("delete_note", {"name": name})
+        print(f"   delete_note({name}) -> {text_of(r)}")
+    print(f"   notes left: {sorted(NOTES)}")
+    print("roots:")
+    for folder in [DOCS_DIR, ROOT]:
+        r = await session.call_tool("list_files", {"folder": folder})
+        print(f"   list_files({os.path.relpath(folder, ROOT) or '.'}) -> isError={r.isError}: {text_of(r)[:120]}")
+''')
+nb.md(r'''
+**What the numbers say.**
+
+- **Sampling.** The server produced accurate one-sentence summaries of two documents without having a model of its own: each `summarize_doc` call took 0.5–1.2 s, of which all but a few milliseconds were the host's model (`qwen2.5:3b`) answering the sampling request. The host saw every request (`SAMPLING_LOG`) and applied a policy (refuse anything above 500 tokens). That is the point of sampling: the user's host decides which model runs, what it costs and whether it runs at all.
+- **Elicitation.** The three possible user answers took three different paths, and the server respected each one. *Decline* and *cancel* kept the note, *accept* deleted it, and only `draft-2` is left. The confirmation came from the person, through the host's UI, not from the model. A model can be talked into calling `delete_note`, but it cannot answer the elicitation for the user.
+- **Roots.** The server listed the shared folder and refused the repository root with a tool error (`isError=True`), which goes back to the model as a normal failure. Note that roots are *advisory*: this server checks them because we wrote it to. A malicious server can ignore them, so filesystem isolation for untrusted servers still has to come from the operating system (a container or a sandbox, notebook 14).
+
+### A remote server with a bearer token
+''')
+nb.code(r'''
+import secrets, socket, subprocess, httpx
+from mcp.client.streamable_http import streamablehttp_client
+
+with socket.socket() as s_:
+    s_.bind(("127.0.0.1", 0)); PORT = s_.getsockname()[1]            # a free port
+TOKEN = secrets.token_urlsafe(24)          # in production the authorization server issues short-lived tokens
+URL = f"http://127.0.0.1:{PORT}/mcp"
+# The token travels in an environment variable, never on the command line (other users can read process arguments).
+proc = subprocess.Popen([sys.executable, SERVER_PY, "--http", "--port", str(PORT), "--require-token"],
+                        env={**os.environ, "MCP_AUTH_TOKEN": TOKEN}, stdout=subprocess.DEVNULL, stderr=SERVER_LOG)
+try:
+    META_URL = f"http://127.0.0.1:{PORT}/.well-known/oauth-protected-resource/mcp"
+    for _ in range(150):                                             # wait until the server listens
+        try:
+            meta = httpx.get(META_URL, timeout=0.5).json(); break
+        except httpx.HTTPError:
+            time.sleep(0.1)
+    init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "raw-http", "version": "0"}}}
+    hdrs = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+    for label, extra in [("no token", {}), ("wrong token", {"Authorization": "Bearer not-the-token"})]:
+        r = httpx.post(URL, json=init, headers={**hdrs, **extra}, timeout=5)
+        print(f"{label:12s} -> HTTP {r.status_code} | WWW-Authenticate: {r.headers.get('www-authenticate', '')[:120]}")
+    print("protected-resource metadata (RFC 9728):", {k: meta[k] for k in ("resource", "authorization_servers", "scopes_supported") if k in meta})
+
+    async with streamablehttp_client(URL, headers={"Authorization": f"Bearer {TOKEN}"}) as (read, write, _):
+        async with ClientSession(read, write) as s:
+            await s.initialize()
+            tools = [t.name for t in (await s.list_tools()).tools]
+            answer = (await s.call_tool("search_docs", {"query": "express shipping cost", "k": 1})).content[0].text
+            print(f"valid token  -> tools {tools}\n               search_docs: {answer[:110]}")
+            lat["Streamable HTTP + auth, one session"] = await bench(lambda: s.call_tool("calculate", ARGS), 100)
+finally:
+    proc.terminate(); proc.wait(timeout=10)
+
+for k in ["in-memory", "stdio, one session", "Streamable HTTP + auth, one session"]:
+    print(f"{k:38s} p50 {np.percentile(lat[k], 50):6.2f} ms | p95 {np.percentile(lat[k], 95):6.2f} ms")
+''')
+nb.md(r'''
+**What the numbers say.**
+
+- **Unauthenticated and wrong-token requests were rejected with HTTP 401.** Each carried the `WWW-Authenticate: Bearer` header pointing to the protected-resource metadata, which names the authorization server and the required scope (`docs:read`). That is what a compliant client uses to discover where to get a token.
+- **With the token, the same knowledge-base server works unchanged over the network.** Same tools, same answers.
+- **The cost of going remote is small on localhost.** A call over Streamable HTTP with token validation took 5.2 ms at p50, against 3.0 ms over stdio and 1.6 ms in memory, all far below a model call. Over a real network add the round-trip time (tens of ms), plus a TLS handshake once per connection.
+
+What we skipped, and production needs:
+- TLS (HTTPS);
+- a real authorization server issuing short-lived JWTs, with audience validation so a token for another service is rejected (RFC 8707 resource indicators);
+- per-user scopes checked inside each tool;
+- rate limits;
+- `Origin` header validation against DNS rebinding for servers bound to localhost;
+- never passing a client's token through to other APIs (the *token passthrough* anti-pattern the spec forbids).
 ''')
 nb.md(r'''
 ## Takeaways
@@ -742,11 +921,63 @@ nb.md(r'''
 - **Two error channels**: `isError` results go back to the model so it can recover; JSON-RPC errors are client bugs. Implementations differ in details (FastMCP 1.x reports an unknown tool as `isError`), so test the server you actually run.
 - **`langchain-mcp-adapters` makes any MCP server an agent toolbox**: `MultiServerMCPClient` + `create_agent`. Namespace with `tool_name_prefix`, and keep one session open (`client.session` + `load_mcp_tools`) when you make many calls.
 - **Treat servers as untrusted**: allowlist tools, namespace them, require human confirmation (`HumanInTheLoopMiddleware`) for anything not read-only, vet descriptions, and mark results as data. Annotations are hints from the server, not guarantees.
+- **The client has powers too**: sampling lends the host's model to a server, elicitation asks the user (not the model) for confirmation, and roots scope what a server may touch. All three keep decisions with the user, and roots are advisory: isolation for untrusted servers comes from the OS.
+- **Remote servers are OAuth 2.1 resource servers**: 401 with `WWW-Authenticate`, protected-resource metadata, bearer tokens validated on every request. `scripts/mcp_server.py --http --require-token` shows the whole flow with a shared token.
 - Write the server once: `scripts/mcp_server.py` works unchanged with Claude Code, Claude Desktop, the MCP Inspector and our LangChain agent.
 
 This closes the suite: from a tokenizer (01) to a model (02–06), post-training and quantization (07–09), applications (10–13), and agentic systems that are observable (15) and connected through a standard protocol (14, 16).
 
-**Next:** add the knowledge-base server to Claude Code (`claude mcp add llm-edu-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py`), or run it with `--http` and connect the agent through `{"transport": "http", "url": "http://127.0.0.1:8000/mcp"}`.
+''')
+nb.md(r'''
+## Results
+
+| experiment | measured | lesson |
+|---|---|---|
+| conformance (8.1) | 14 of 14 checks pass: tools, two error channels, resources and template, prompts | test the server you actually run |
+| retrieval of `search_docs` (8.2) | 6/6 top-1 on the sample questions (an easy set) | the tool behind MCP still needs its own evaluation |
+| agent over MCP (8.3) | 6/6 answers with the key fact; 4/6 cite the right file | citations are the first thing a small model drops |
+| transport cost (8.4) | p50 1.6 ms in memory, 3.0 ms stdio, 3.4 ms through the LangChain adapter, about 2.4 s with a new session per call | keep sessions open; the protocol is not the bottleneck |
+| security (7) | allowlist + namespacing, human confirmation for destructive tools, injected text in tool results handled as data | servers are untrusted code and untrusted text |
+| sampling (9) | two summaries from the host's model, 0.5–1.2 s each, every request visible to the host | model choice and cost stay with the user |
+| elicitation (9) | decline / accept / cancel all respected; only the accepted deletion happened | irreversible actions are confirmed by the person |
+| roots (9) | shared folder listed, repository root refused | roots scope a cooperative server; they are not isolation |
+| remote server + OAuth (9) | 401 without or with a wrong token; works with the token; 5.2 ms p50 per call | a remote server is a resource server |
+
+## In production
+
+**Choosing a transport.**
+- Use stdio for local, per-user tools (filesystem, git, a local database): it runs with the user's permissions and needs no auth.
+- Use Streamable HTTP for shared, remote services, behind TLS and OAuth 2.1.
+- Keep sessions open in agents that make many calls.
+
+**Securing servers you run.**
+- Validate tokens (issuer, audience, expiry, scope) on every request, and check per-user permissions inside each tool.
+- Annotate tools truthfully (`readOnlyHint`, `destructiveHint`), and require elicitation or host confirmation for destructive ones.
+- Log every call with the user, tool, arguments and result size.
+- Rate-limit, and validate `Origin` on localhost servers.
+
+**Using servers you did not write.**
+- Pin versions, and review tool descriptions for poisoning on every update.
+- Allowlist and namespace tools, run untrusted servers in a sandbox with only the roots they need, and treat every tool result as untrusted data (notebook 13).
+- Prefer hosts that show sampling and elicitation requests to the user.
+
+**What to monitor.**
+- Tool error rates (`isError` vs JSON-RPC errors).
+- Latency per tool and transport.
+- Authentication failures (401 and 403).
+- Sampling requests and their token cost.
+- Elicitation accept rates, and calls refused by policy.
+
+**Failure modes.**
+- Leaked or long-lived tokens.
+- Token passthrough to downstream APIs.
+- A server that ignores roots.
+- Tool poisoning through descriptions.
+- Prompt injection in results.
+- A new subprocess per call.
+- Spec-version mismatches between client and server.
+
+**Next:** add the knowledge-base server to Claude Code (`claude mcp add llm-edu-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py`), or run it remotely with `MCP_AUTH_TOKEN=... python scripts/mcp_server.py --http --require-token` and connect with the header `Authorization: Bearer <token>`.
 ''')
 nb.save(notebook_path("16_mcp_model_context_protocol.ipynb"))
 print("16_mcp_model_context_protocol.ipynb written")

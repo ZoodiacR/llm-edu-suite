@@ -577,6 +577,7 @@ An **MCP server** built with the official MCP Python SDK (`mcp.server.fastmcp.Fa
 | `--host` | str | `127.0.0.1` | HTTP host (only with `--http`). |
 | `--port` | int | `8000` | HTTP port (only with `--http`). The endpoint is `http://<host>:<port>/mcp`. |
 | `--log-level` | str | `WARNING` | Log level on stderr. `INFO` logs every request. |
+| `--require-token` | flag | off | With `--http`: every request needs `Authorization: Bearer <token>`, with the token read from the `MCP_AUTH_TOKEN` environment variable (never from the command line, where other users can read it). Without the variable the server refuses to start. See [Requiring a bearer token](#requiring-a-bearer-token). |
 
 ### What it exposes
 
@@ -685,6 +686,23 @@ tools = await client.get_tools()            # search_docs, calculate, create_tic
 
 Notebook 16 walks through both, and builds an agent on top of the tools with LangChain's `create_agent`.
 
+### Requiring a bearer token
+
+With `--http --require-token` the server acts as an OAuth 2.1 **resource server**, the role MCP gives remote servers. A request without the token, or with a wrong one, gets `401` with a `WWW-Authenticate: Bearer ... resource_metadata="..."` header; that URL (`/.well-known/oauth-protected-resource/mcp`) serves the protected-resource metadata of RFC 9728, which names the authorization server and the required scope (`docs:read`). With the right token, everything works as over stdio.
+
+```powershell
+$env:MCP_AUTH_TOKEN = "pick-a-long-random-token"
+.venv\Scripts\python scripts\mcp_server.py --http --port 8000 --require-token
+```
+```bash
+MCP_AUTH_TOKEN=pick-a-long-random-token .venv/bin/python scripts/mcp_server.py --http --port 8000 --require-token
+claude mcp add --transport http llm-edu-docs http://127.0.0.1:8000/mcp --header "Authorization: Bearer pick-a-long-random-token"
+```
+
+From Python, pass the header to the SDK's HTTP client: `streamablehttp_client("http://127.0.0.1:8000/mcp", headers={"Authorization": f"Bearer {token}"})`. To reuse the server elsewhere, `build_server(docs_dir, log_level, token=..., host=..., port=...)` builds it with authentication; the check itself is the `StaticTokenVerifier` class, which compares one shared token in constant time.
+
+A shared token is a teaching stand-in. A real deployment puts an authorization server in front (Auth0, Entra ID, Keycloak, Okta...) and validates short-lived JWTs or calls its introspection endpoint, checking the audience, and adds TLS, per-user scopes inside each tool, rate limits and `Origin` validation. Notebook 16, section 9, shows the whole flow on the wire. `tests/test_mcp_sdk.py` checks that requests without the token or with a wrong one get 401, that the right token works, and that `--require-token` refuses to start without `MCP_AUTH_TOKEN`.
+
 ### Notes and pitfalls
 
 - **Never print to stdout.** In an stdio server, stdout carries the protocol; a single stray `print()` corrupts the stream and the client fails to parse the next message. Everything the server logs (the HTTP address, created tickets) goes to `sys.stderr`.
@@ -774,7 +792,7 @@ It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the
 | Target | Command | What it does |
 |---|---|---|
 | `make setup` | `bash setup_env.sh` | Creates `.venv` and installs everything (on Windows, run `setup_env.ps1`). |
-| `make test` | `pytest -q` | All tests. The 4 `ollama` tests skip themselves if Ollama is not running. Use `pytest -q -m "not ollama"` for the fast set only (85 tests, ~35 s). |
+| `make test` | `pytest -q` | All tests. The 4 `ollama` tests skip themselves if Ollama is not running. Use `pytest -q -m "not ollama"` for the fast set only (90 tests, ~42 s). |
 | `make notebooks` | `python tools/build_notebooks.py` | Rebuilds every `.ipynb` (and `scripts/mini_llm.py`) from the generators. **Clears outputs.** |
 | `make run-notebooks` | `python tools/run_notebooks.py` | Executes every notebook in place. |
 | `make smoke` | `train.py --steps 100 --d-model 64 --n-layers 2 ...` | A short pre-training smoke test. |
@@ -796,6 +814,6 @@ It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the
 | `rag_demo.py --docs data/sample_docs --eval data/sample_eval.json --ragas` | RTX 3060 Laptop GPU + Ollama | faithfulness **1.00**, answer relevancy **0.75**, context precision **1.00**, context recall **1.00**; ~55 s |
 | `rag_demo.py --ask "..."` | RTX 3060 Laptop GPU + Ollama | ~10–16 s including indexing |
 | `mcp_server.py` via an SDK stdio client | CPU | full session (start, initialize, list everything, 4 tool calls, 1 resource read) ≈ 2 s |
-| `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 85 passed in ~35 s / 4 passed in ~40 s |
+| `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 90 passed in ~42 s / 4 passed in ~40 s |
 
 For the teaching context of each stage, see the [notebooks guide](notebooks_guide.md). For an end-to-end walkthrough with interpretation of the results, see the [case study](case_study.md).

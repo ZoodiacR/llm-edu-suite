@@ -15,9 +15,9 @@
 3. [Post-training](#3-post-training)
    - [3.1 SFT](#31-supervised-fine-tuning) · [3.2 LoRA](#32-lora-and-parameter-efficient-fine-tuning) · [3.3 Distillation](#33-distillation) · [3.3b Model merging](#33b-model-merging) · [3.4 RLHF, DPO and GRPO](#34-from-rlhf-to-dpo-and-grpo) · [3.5 Reasoning and test-time compute](#35-reasoning-and-test-time-compute)
 4. [Applications](#4-applications)
-   - [4.1 RAG](#41-retrieval-augmented-generation) · [4.2 Retrieval metrics](#42-retrieval-metrics) · [4.3 RAGAS and LLM-as-judge](#43-ragas-and-llm-as-judge) · [4.4 Application patterns](#44-application-patterns) · [4.5 Recommendation](#45-recommender-systems)
+   - [4.0 Embeddings and rerankers](#40-embeddings-and-rerankers) · [4.1 RAG](#41-retrieval-augmented-generation) · [4.2 Retrieval metrics](#42-retrieval-metrics) · [4.3 RAGAS and LLM-as-judge](#43-ragas-and-llm-as-judge) · [4.4 Application patterns](#44-application-patterns) · [4.5 Recommendation](#45-recommender-systems)
 5. [Agents and MCP](#5-agents-and-mcp)
-   - [5.1 Tool calling](#51-tool-calling) · [5.2 Constrained decoding](#52-constrained-decoding-and-structured-output) · [5.3 ReAct, plan-and-execute and reflection](#53-react-plan-and-execute-and-reflection) · [5.4 State graphs](#54-langgraph-agents-as-state-machines) · [5.5 Memory](#55-memory) · [5.6 Limits and human-in-the-loop](#56-limits-and-human-in-the-loop) · [5.7 MCP](#57-model-context-protocol)
+   - [5.1 Tool calling](#51-tool-calling) · [5.2 Constrained decoding](#52-constrained-decoding-and-structured-output) · [5.3 ReAct, plan-and-execute and reflection](#53-react-plan-and-execute-and-reflection) · [5.4 State graphs](#54-langgraph-agents-as-state-machines) · [5.5 Memory](#55-memory) · [5.6 Limits and human-in-the-loop](#56-limits-and-human-in-the-loop) · [5.7 Multi-agent teams](#57-multi-agent-teams-supervisor-and-handoffs) · [5.8 Code execution and sandboxes](#58-code-execution-and-sandboxes) · [5.9 MCP](#59-model-context-protocol)
 6. [LLMOps](#6-llmops)
    - [6.1 Traces and spans](#61-traces-spans-and-opentelemetry-genai) · [6.2 Offline and online evaluation](#62-offline-and-online-evaluation) · [6.3 Percentiles and SLOs](#63-percentiles-and-slos) · [6.4 PII and sampling](#64-pii-and-trace-sampling) · [6.5 Statistics of small eval sets](#65-statistics-of-small-evaluation-sets)
 
@@ -771,7 +771,52 @@ with the $\beta$ fitted by maximum likelihood (Chatbot Arena does it with millio
 
 ## 4. Applications
 
-Terms for this part: [glossary, Applications: LangChain and RAG](glossary.md#applications-langchain-and-rag).
+Terms for this part: [glossary, Embeddings and rerankers](glossary.md#embeddings-and-rerankers) and [Applications: LangChain and RAG](glossary.md#applications-langchain-and-rag).
+
+### 4.0 Embeddings and rerankers
+
+**Problem.** RAG, semantic search, recommendation and agent memory all start by finding the few documents, out of thousands or millions, that are relevant to a query. Reading every document with a large model is out of the question, so retrieval is a trade between how carefully a model reads and how much of the corpus it can afford to read.
+
+**Three ways to score a query against a document.**
+
+| Architecture | How it scores | Cost at query time | Quality |
+|---|---|---|---|
+| **bi-encoder** (embedding model) | query and document encoded *separately* into one vector each; score = cosine similarity | one forward pass for the query, then a vector search over precomputed document vectors | good |
+| **cross-encoder** (reranker) | query and document fed *together* through one transformer; a head outputs a relevance score | one forward pass **per candidate** | best |
+| **late interaction** (ColBERT) | one vector per token; score = sum over query tokens of the best-matching document token (MaxSim) | vector search over token vectors | in between |
+
+The bi-encoder is fast because the expensive part, encoding the corpus, happens once, offline. The price is that query and document never see each other: everything the model knows about a document has to fit into one vector before it knows the question. A cross-encoder (Nogueira and Cho, 2019) lets every query token attend to every document token, the full attention of [section 1.3](#13-attention-rope-and-normalization), which makes it more accurate and too slow for a whole corpus. ColBERT (Khattab and Zaharia, 2020) keeps the token vectors and defers the interaction to a cheap MaxSim. Production search uses the **retrieve-then-rerank** funnel, as in recommendation ([section 4.5](#45-recommender-systems)): a cheap first stage (BM25, embeddings or both) returns 50–100 candidates and a cross-encoder reorders them. A reranker can only promote what the first stage found.
+
+**How embedding models are trained: contrastive learning.** An embedding model is an encoder ([section 1.6](#16-encoders-and-encoder-decoders)) with a pooling step (the mean of the token vectors, or the `[CLS]` vector), as in Sentence-BERT (Reimers and Gurevych, 2019). It is trained so that a query lands near its relevant documents and far from the rest, with **InfoNCE** (van den Oord et al., 2018) and **in-batch negatives**: in a batch of $B$ (query, positive document) pairs, every other document in the batch is a negative for each query.
+
+$$\mathcal{L} = -\frac{1}{B}\sum_{i=1}^{B} \log \frac{\exp(\mathrm{sim}(q_i, d_i)/\tau)}{\sum_{j=1}^{B} \exp(\mathrm{sim}(q_i, d_j)/\tau)}$$
+
+It is a cross-entropy over the batch in which the "class" of query $i$ is its own document. Three details decide how well it works:
+
+- **Temperature.** Cosine similarities live in $[-1, 1]$; dividing by a small $\tau$ (often 0.01–0.05) makes the softmax sharp enough to learn from. `sentence-transformers` calls this loss `MultipleNegativesRankingLoss` and writes it as a `scale` of $1/\tau = 20$.
+- **Batch size.** More in-batch negatives make the task harder and the embeddings better, which is why embedding models are trained with batches of thousands (CLIP used 32,768) and why tricks such as GradCache exist.
+- **Hard negatives.** Random negatives are easy. Documents that BM25 or an earlier model ranks high but that are *not* relevant are the cases that actually confuse the model; mining them is the main ingredient of DPR (Karpukhin et al., 2020) and of every modern recipe. The risk is mining unlabelled positives (false negatives), usually filtered with a reranker score.
+
+Modern models (E5, Wang et al., 2022; BGE, GTE, nomic-embed, Nussbaum et al., 2024) are trained in two stages: weakly supervised contrastive pre-training on hundreds of millions of naturally paired texts (title–body, question–answer, query–click), then fine-tuning on smaller labelled sets with hard negatives. Many are **asymmetric** and expect a **task prefix**, such as `search_query:` / `search_document:` (nomic) or `query:` / `passage:` (E5), because a short question and a long passage are different kinds of text. Forgetting the prefix fails silently: nothing breaks, quality just drops.
+
+**Making vectors cheaper: Matryoshka and quantization.** 100 million documents with 768 float32 dimensions take about 300 GB of RAM. Two independent ideas shrink that:
+
+- **Matryoshka Representation Learning** (Kusupati et al., 2022) sums the contrastive loss over several prefix lengths (768, 512, 256, 128, 64), so the *first* $m$ dimensions of every vector are a good embedding on their own and vectors can be truncated after the fact. OpenAI's `text-embedding-3` (`dimensions=`) and nomic-embed v1.5 are trained this way. A model trained without it has no reason to put the important information first, and truncation hurts it much more.
+- **Quantization** stores each dimension in int8 (4× smaller) or as a single sign bit (**binary**, 32× smaller, compared with the Hamming distance, which CPUs compute in one instruction). The standard recipe is to retrieve with the cheap codes and **rescore** the top candidates with more precise vectors, which recovers most of the lost quality. It combines with Matryoshka truncation, and it is what vector databases implement (binary or product quantization plus rescoring).
+
+**How retrieval quality is measured.** The BEIR benchmark (Thakur et al., 2021), on which the retrieval part of MTEB (Muennighoff et al., 2023) is built, reports **nDCG@10**: a relevant document at rank $r$ earns $1/\log_2(r+1)$, and the sum is divided by the best possible score for that query ([section 4.2](#42-retrieval-metrics)). It rewards putting relevant documents first. **Recall@100**, the share of relevant documents in the top 100, is what a reranker has to work with. Leaderboards are a starting point, not an answer: MTEB averages dozens of tasks, scores on public sets can be inflated by training on them, and the number that decides is the one measured on *your* queries and documents, with paired intervals ([section 6.5](#65-statistics-of-small-evaluation-sets)).
+
+| Lever | What it buys | What it costs | Typical failure |
+|---|---|---|---|
+| a modern embedding model | semantic matching, high recall | an encoder pass per query; the corpus re-encoded when the model changes | out-of-domain drops; missing prefixes |
+| contrastive fine-tuning with hard negatives | large in-domain gains from a few hundred labels | labelling; a forgetting check | false negatives among the mined ones; overfitting |
+| Matryoshka truncation | smaller vectors, as a dial | a little quality at full size | truncating a model not trained for it |
+| binary / int8 + rescoring | 32× / 4× less memory | a second, small scoring step | skipping the rescoring |
+| cross-encoder reranker | a careful read of the top candidates | one forward pass per candidate | the wrong domain; too deep a list |
+
+**Key papers.** Reimers and Gurevych (2019), *Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks*; van den Oord, Li and Vinyals (2018), *Representation Learning with Contrastive Predictive Coding* (InfoNCE); Karpukhin et al. (2020), *Dense Passage Retrieval for Open-Domain Question Answering* (DPR); Khattab and Zaharia (2020), *ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT*; Nogueira and Cho (2019), *Passage Re-ranking with BERT*; Thakur et al. (2021), *BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models*; Muennighoff et al. (2023), *MTEB: Massive Text Embedding Benchmark*; Wang et al. (2022), *Text Embeddings by Weakly-Supervised Contrastive Pre-training* (E5); Kusupati et al. (2022), *Matryoshka Representation Learning*; Nussbaum et al. (2024), *Nomic Embed: Training a Reproducible Long Context Text Embedder*.
+
+> **Notebook:** [21 · Embeddings and rerankers](../../notebooks/04_applications/21_embeddings_and_rerankers.ipynb) (read before 10) · **In the course:** on SciFact (5,183 abstracts, 300 test claims), BM25 reaches nDCG@10 0.652 and the classic all-MiniLM-L6-v2 0.648, while bge-small (0.706) and nomic-embed-text (0.708) beat it clearly, and forgetting nomic's prefixes costs only 0.006, within the noise; InfoNCE by hand equals `MultipleNegativesRankingLoss` (0.18594); fine-tuning MiniLM on 919 pairs lifts it to 0.723 with in-batch negatives and to 0.762 with one BM25 hard negative per pair, in 22 s, with no measurable forgetting on NFCorpus (within ±0.005); at 64 dimensions the Matryoshka model keeps 0.646 against 0.589 without the loss; binary codes with int8 rescoring score 0.760 against 0.762 for float32, at 48 bytes per document instead of 1,536; and on this task hybrid retrieval (0.735) and both general rerankers (ms-marco-MiniLM 0.692, bge-reranker-base 0.731 at best, 0.3–1.7 s per query) lose to the fine-tuned bi-encoder alone.
 
 ### 4.1 Retrieval-augmented generation
 
@@ -800,7 +845,7 @@ It is exact on identifiers and needs no training, and it suffers from *vocabular
 
 $$\mathcal{L} = -\log\frac{\exp(\mathrm{sim}(q, d^+)/\tau)}{\exp(\mathrm{sim}(q, d^+)/\tau) + \sum_j \exp(\mathrm{sim}(q, d^-_j)/\tau)}$$
 
-which brings paraphrases together but blurs exact strings, names and numbers, and degrades out of domain (in BEIR, BM25 was a hard baseline). Only the bi-encoder lets documents be embedded ahead of time; the **cross-encoder** reads query and document together and is used to rerank the top 20 to 100; ColBERT (late interaction) sits in between.
+which brings paraphrases together but blurs exact strings, names and numbers, and degrades out of domain (in BEIR, BM25 was a hard baseline). Only the bi-encoder lets documents be embedded ahead of time; the **cross-encoder** reads query and document together and is used to rerank the top 20 to 100; ColBERT (late interaction) sits in between; [section 4.0](#40-embeddings-and-rerankers) covers all three, and how they are trained, in detail.
 
 **Hybrid with RRF, the industry default.** Because they fail on different queries, both are run and their rankings fused (not their scores, which live on incomparable scales):
 
@@ -1050,7 +1095,7 @@ Neither is better in general.
 
 **Compounding errors.** If each step succeeds with probability $p$, a $k$-step task succeeds with $p^k$; $0.95^{10} \approx 0.60$. Long runs need very reliable steps or checkpoints where errors are caught.
 
-**Multi-agent.** Smaller prompts, fewer tools per decision, parallel work; but more calls, and hand-offs where context is lost. Practitioners disagree publicly (Anthropic described a 2025 multi-agent research system that beat a single agent at a much higher token cost; Cognition argued the same year for single-threaded agents). The disagreement is mostly about task type. The least controversial form is a **router in front of specialists**, and a router is a **classifier**: labelled set, accuracy, confusion matrix; a router wrong 1 time in 10 caps the system near 90 % even with perfect specialists.
+**Multi-agent.** Smaller prompts, fewer tools per decision, parallel work; but more calls, and hand-offs where context is lost. Practitioners disagree publicly (Anthropic described a 2025 multi-agent research system that beat a single agent at a much higher token cost; Cognition argued the same year for single-threaded agents). The disagreement is mostly about task type. The least controversial form is a **router in front of specialists**, and a router is a **classifier**: labelled set, accuracy, confusion matrix; a router wrong 1 time in 10 caps the system near 90 % even with perfect specialists. Teams that split one request across several agents are in [5.7](#57-multi-agent-teams-supervisor-and-handoffs).
 
 > **Notebook:** [14 · Agentic AI with LangGraph](../../notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) · **In the course:** with `qwen2.5:3b`, the ReAct agent beats plan-and-execute with about a third of the model calls (plan-and-execute has higher tool recall and lower precision); reflection with unit tests repaired nothing in one run (4/8 before and after) and one task in others; the router scores 67-75 % depending on the run.
 
@@ -1062,7 +1107,7 @@ Neither is better in general.
 
 **The properties it buys.** Explicit transitions testable with fake models; visible loops where limits go; **checkpoints** (state only changes between nodes, so it is saved after each step: resume, pause for a human as long as needed, "time travel"); and mixed autonomy (a scripted branch next to a free ReAct loop). `create_agent` is a two-node graph (`model`, `tools`) with one conditional edge that encodes ReAct's entire stopping rule: if the last message has tool calls, go to `tools`; otherwise, end.
 
-> **Notebook:** [14 · Agentic AI with LangGraph](../../notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) · **In the course:** a triage graph with plain functions to show the machinery, then the ReAct agent, plan-and-execute, reflection and a router with subgraphs, all tested with fake models in `tests/test_agents_langgraph.py`.
+> **Notebook:** [14 · Agentic AI with LangGraph](../../notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) · **In the course:** a triage graph with plain functions to show the machinery, then the ReAct agent, plan-and-execute, reflection and a router with subgraphs, all tested with fake models in `tests/test_agents_langgraph.py`, which also runs real attack code against the sandbox of section 11.
 
 ### 5.5 Memory
 
@@ -1085,7 +1130,54 @@ Short-term memory is the conversation thread saved by a checkpointer under a `th
 
 > **Notebook:** [14 · Agentic AI with LangGraph](../../notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) · **In the course:** a fake model that requests the same tool forever stops only at the recursion limit (with an exception) without middleware, and with middleware ends with a message and a reason; the installed version's default recursion limit is 10,007, which is why every run passes its own; refund approval is decided by a policy (up to 40 dollars) outside the model.
 
-### 5.7 Model Context Protocol
+### 5.7 Multi-agent teams: supervisor and handoffs
+
+**Problem.** A router (5.3) sends each request to *one* specialist. Many requests need two or more ("what is the total of my order with express shipping?" needs billing and the shipping policy), and a single agent with every tool and every instruction gets a long prompt and more wrong tool choices.
+
+**Two designs.** In a **supervisor** design (also called *agents as tools*, or *orchestrator-workers* in Anthropic's *Building effective agents*, 2024) a supervisor agent calls specialist agents as if they were tools: it writes a request, gets back the worker's final answer, may call again, and writes the reply itself. Control always returns to it. In a **handoff** design (the *swarm* style: OpenAI's Swarm and Agents SDK, `langgraph-swarm`) the active agent *transfers the conversation* to another agent, which takes over and may transfer again; whoever finishes answers. In LangGraph a worker-as-tool is a function that runs an agent and returns its last message, and a handoff is a tool that returns `Command(goto="billing", graph=Command.PARENT)`: the tool runs inside the agent's own graph, so the jump has to happen one level up, in the parent graph that holds all the agents.
+
+| | supervisor | handoffs |
+|---|---|---|
+| Who holds control | the supervisor, always | whichever agent is active |
+| What a specialist sees | only the request the supervisor wrote | the conversation it is handed |
+| Who writes the answer | the supervisor | the last agent |
+| Typical failure | the request or the reply loses a detail | an agent transfers too early, or the next one misreads its turn |
+| Cost | supervisor calls + every worker's calls | one agent at a time, plus the transfers |
+
+**Where the industry disagrees.** Anthropic's multi-agent research system (2025) uses a lead agent that plans and launches subagents in parallel, each with its own context window, and reported a large gain over a single agent on broad research questions, at about 15 times the tokens of a chat; much of the gain came from being able to spend more tokens in parallel. Cognition's *Don't Build Multi-Agents* (2025) argues the opposite for tightly coupled work such as coding: every action carries implicit decisions, subagents that do not see each other's full context make conflicting ones, and a single agent with a continuous context (compressed when it gets long) is more reliable. Both positions fit together once the task type is named: split work that is **parallel and loosely coupled**, keep **sequential, tightly coupled** work in one agent.
+
+**Context engineering at the boundary.** Every hand-over is a lossy compression of context: a worker knows only what it is told, and the supervisor knows only what the worker returns. What goes across the boundary is part of the design: a self-contained request (ids, numbers and constraints spelled out), the earlier answers the next agent needs, and nothing of the transfer machinery that it could misread as "the job is done". A team adds model calls and failure points, so it has to earn its place on the same evaluation set as the single-agent baseline.
+
+> **Notebook:** [14 · Agentic AI with LangGraph](../../notebooks/05_agents_and_mcp/14_agentic_ai.ipynb), section 10 · **In the course:** on the ten tasks of the ReAct evaluation, with `qwen2.5:3b`, the supervisor solved 80 % (5.3 model calls per task) against 70 % for the single agent (2.2 calls), a tie in quality at more than twice the cost, and handoffs solved 30 % (3.4 calls). The first handoff version failed because the specialist read "Transferred to the billing specialist" as the end of the job and answered with nothing; hiding the transfer messages and adding a "your turn" note helped, but agents still transferred before doing their part.
+
+### 5.8 Code execution and sandboxes
+
+**Why let the model write code.** Language models are poor calculators and good programmers. Program-Aided Language models (PAL, Gao et al., 2022) and Program of Thoughts (Chen et al., 2022) have the model write a short program for the reasoning and let an interpreter do the arithmetic, and both beat chain of thought on math word problems. CodeAct (Wang et al., 2024) turns this into an agent design: the agent's *actions* are Python snippets instead of JSON tool calls, so one action can loop, branch, combine several tools and reuse variables, and in their experiments code actions solved more tasks in fewer turns. Code interpreters (ChatGPT's data analysis, Claude's code execution tool, data-analysis agents) are this idea as a product.
+
+**Execution feedback.** Running the code gives the model a signal it cannot get from its own text: a traceback, an empty output, a printed number. A loop that returns that signal and lets the model try again fixes crashes and wrong API calls. It does not fix code that runs and computes the wrong thing, because nothing signals the error; that needs a verifier (intermediate outputs, invariants, tests, a review step), as with reflection in 5.3.
+
+**The agent-computer interface.** SWE-agent (Yang et al., 2024) showed that the same model solves many more software-engineering tasks when its tools are designed for a model rather than for a human: a file viewer that shows a window of lines, an editor that rejects edits that do not parse, short and explicit feedback, and a clear message when a command succeeds without output instead of an empty string. The authors call this the **agent-computer interface** (ACI), by analogy with human-computer interfaces. A model that gets an empty result tends to invent one, so the wording of a tool's error and empty-output messages is part of the agent's design.
+
+**Model-written code is untrusted code.** The model can be manipulated by anything it reads (indirect prompt injection, [4.4](#44-application-patterns)), so its code has to be treated like code from a stranger. The threat model and the layer that contains each risk:
+
+| Risk | Example | Containment |
+|---|---|---|
+| reading secrets | `open(".env")`, `os.environ` | no secrets in the sandbox: a scrubbed environment, nothing mounted |
+| damaging files | `os.remove`, writes outside the work directory | an ephemeral work directory, a read-only root filesystem |
+| exfiltration, attacks | HTTP requests, raw sockets | no network, or an egress allowlist |
+| escaping the process | `subprocess`, `os.system`, native calls | kernel isolation: a user-space kernel or a microVM |
+| running forever, exhausting memory | `while True`, a huge allocation | wall-clock timeout, CPU and memory quotas (cgroups) |
+| flooding the context | printing a 1 GB file | truncated output |
+
+**Audit hooks are not a security boundary.** PEP 578 (Python 3.8) added runtime audit hooks: the interpreter raises an event on `open`, socket calls, process creation, `ctypes` loads and more, and a hook installed with `sys.addaudithook` can veto it by raising an exception. They were designed for logging and detection, and the PEP and CPython's documentation say they are not a sandbox: code that reaches native code (`ctypes`, a C extension, a memory-corruption bug) bypasses them, because the hooks only see what the interpreter reports. Inside a separate process with a timeout and a scrubbed environment they make a good teaching tool and a tripwire, not an isolation layer.
+
+**What production uses.** Isolation has to come from below Python, from the operating system or a hypervisor, in rising order of strength: a **container** with no network, a read-only filesystem and no secrets (`docker run --network none --read-only`), which still shares the host kernel, so a kernel bug can be an escape; **gVisor**, a user-space kernel that intercepts the container's system calls, so code never talks to the host kernel directly (Modal's sandboxes run on it); a **microVM** such as **Firecracker**, the KVM-based virtual machine monitor behind AWS Lambda, which boots a minimal VM in a fraction of a second and gives each run its own kernel (E2B's sandboxes are Firecracker microVMs); and **WebAssembly** (Pyodide runs CPython compiled to Wasm), where the code can only reach the capabilities the host explicitly grants. Managed code-execution tools from model providers run the code in this kind of isolation on their side. On top of any of them: quotas on CPU, memory, time and output, and logs of every execution.
+
+**Bound the damage.** Prompts and filters lower the rate of successful injections; they do not bring it to zero. The design rule is to assume the model will eventually be talked into running the wrong code and to make sure that code has nothing to reach. In particular, never give one agent all three of access to private data, exposure to untrusted content and a way to send data out (what Simon Willison calls the *lethal trifecta*, 2025).
+
+> **Notebook:** [14 · Agentic AI with LangGraph](../../notebooks/05_agents_and_mcp/14_agentic_ai.ipynb), section 11 · **In the course:** a subprocess sandbox (`python -I`, a fresh work directory, a scrubbed environment, a timeout, output truncated to 2,000 characters and an audit hook) contains 8 of 9 attack probes; the ninth, a native call through `ctypes`, gets through on purpose, because numpy needs `ctypes` on Windows. A pandas agent answers 0/10 exact questions about a 600-order table with `qwen2.5:3b`, 5/10 with `qwen2.5:7b` and one execution, and 6/10 with up to four executions and their feedback; the four misses ran without errors and printed wrong numbers. With an injected instruction in a data file, 0 of the 2 secret values in the notebook's process were reachable from the sandbox. The sandbox is tested in `tests/test_agents_langgraph.py`.
+
+### 5.9 Model Context Protocol
 
 **Problem.** Several AI applications (assistant, IDE plugin, support bot, internal agent) and many systems to reach (wiki, tickets, CRM, databases). If each application writes its own connector for each system, the work grows as $N \times M$, each connector is maintained separately and behaves slightly differently.
 
@@ -1120,7 +1212,18 @@ HOST (Claude Desktop, an IDE, your LangGraph agent)   <- trust boundary: policy 
 
 Annotations (`readOnlyHint`, `destructiveHint`) are *hints*: a malicious server can lie. The defences have to sit outside the model: least privilege, confirmation in code for anything not read-only, and a design in which a successful injection cannot do much harm.
 
-> **Notebook:** [16 · MCP with the official SDK](../../notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb) · **In the course:** all 14 conformance checks pass; `search_docs` gets 6/6 top-1 on an easy set; the agent's answer contains the key fact in 6 of 6 and cites the right file in 5 of 6; a `tools/call` costs ~1.4 ms in memory and ~2.7 ms over stdio, against 2-3 s per call with the adapter that opens a new session every time.
+**Client features in practice.** The three server-to-client requests only reach a client that declared the capability, and each one moves a decision to where it belongs. **Sampling** (`sampling/createMessage`) lets a server ask for a completion from the host's model: the server never holds a model or an API key, and the host can show the request to the user, change the model, cap the tokens or refuse (the spec recommends keeping a human able to review both the request and the result). **Elicitation** (`elicitation/create`, added in spec 2025-06-18) lets a server ask the *user* for structured input described by a small JSON schema, with three answers, *accept*, *decline* and *cancel*; it is the protocol-level version of an approval gate, because the model can be talked into calling a destructive tool but cannot answer the form for the person. Servers must not use it to ask for passwords or other secrets. **Roots** (`roots/list`) tell a server which folders or repositories it may work in. They are advisory: a cooperative server stays inside them, a malicious one can ignore them, so they scope well-behaved servers and do not replace operating-system isolation ([5.8](#58-code-execution-and-sandboxes)).
+
+**Authorization for remote servers.** A stdio server runs as the user and needs no authentication (credentials come from its environment). A Streamable HTTP server is an endpoint anyone can reach, and since spec 2025-03-26 (reworked in 2025-06-18) MCP uses standard OAuth 2.1 with the MCP server as a **resource server** and a separate authorization server issuing the tokens:
+
+1. A request without a valid token gets `401 Unauthorized` with a `WWW-Authenticate: Bearer ... resource_metadata="..."` header.
+2. That URL serves the server's **protected-resource metadata** (RFC 9728, under `/.well-known/oauth-protected-resource`): which authorization servers it trusts and which scopes it supports.
+3. The client discovers the authorization server's own metadata (RFC 8414), registers if needed (dynamic client registration, RFC 7591), and gets a token with the authorization-code flow and PKCE. It names the MCP server as the intended audience with a **resource indicator** (RFC 8707).
+4. Every request carries `Authorization: Bearer <token>`, and the server validates it every time: signature and expiry for a JWT (or an introspection call), the scopes, and the **audience**, so a token issued for another service is rejected.
+
+Two rules prevent the classic confused-deputy failures. **No token passthrough**: a server must not accept tokens that were not issued for it, and must not forward the client's token to the APIs it calls downstream; it gets its own credentials for those. **Validate `Origin`**: a Streamable HTTP server must check the `Origin` header of incoming requests, and a local one should bind to `127.0.0.1`, otherwise a web page in the user's browser can reach it through DNS rebinding.
+
+> **Notebook:** [16 · MCP with the official SDK](../../notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb) · **In the course:** all 14 conformance checks pass; `search_docs` gets 6/6 top-1 on an easy set; the agent's answer contains the key fact in 6 of 6 and cites the right file in 4 of 6; a `tools/call` costs ~1.6 ms in memory, ~3.0 ms over stdio and ~5.2 ms over Streamable HTTP with token validation, against ~2.4 s per call with the adapter that opens a new session every time. Section 9 shows sampling (two summaries from the host's model, every request visible to the host), elicitation (decline, accept and cancel all respected) and roots (the repository root refused), and runs `scripts/mcp_server.py --http --require-token`: 401 with `WWW-Authenticate` without a token or with a wrong one, protected-resource metadata naming the authorization server and the `docs:read` scope, and the same tools with the token.
 
 ---
 

@@ -270,6 +270,38 @@ def test_router_sends_to_specialist_subgraph(ns14):
     assert out["route"] == "billing" and out["messages"][-1].content == "billing here"
 
 
+def test_code_sandbox_runs_code_and_contains_attacks(tmp_path):
+    """The sandbox of notebook 14, section 11: normal code runs; secrets, files outside the work dir,
+    the network, subprocesses and endless loops are contained."""
+    ns = {}
+    exec(nb14.SANDBOX_CELL, ns)
+    run, wd = ns["run_python"], str(tmp_path / "work")
+    os.makedirs(wd)
+    secret = tmp_path / "secret.env"
+    secret.write_text("API_KEY=do-not-leak")
+    outside = tmp_path / "pwned.txt"
+
+    ok = run("import json\nx = sum(range(10))\nx", wd)                      # the last bare expression is printed
+    assert ok["status"] == "ok" and ok["stdout"].strip() == "45"
+    assert run("open('inside.txt', 'w').write('fine'); print(open('inside.txt').read())", wd)["stdout"].strip() == "fine"
+
+    env = run("import os; print(sorted(os.environ))", wd)["stdout"]
+    assert "KEY" not in env and "TOKEN" not in env
+
+    for code in [f"print(open({str(secret)!r}).read())",
+                 f"open({str(outside)!r}, 'w').write('x')",
+                 "import socket; socket.create_connection(('example.com', 80), timeout=2)",
+                 "import subprocess; subprocess.run(['python', '--version'])",
+                 f"import os; os.remove({str(secret)!r})"]:
+        r = run(code, wd, timeout=10)
+        assert r["status"] == "error" and "sandbox:" in r["stderr"], code
+        assert "do-not-leak" not in r["stdout"]
+    assert secret.exists() and not outside.exists()
+
+    loop = run("while True: pass", wd, timeout=2)
+    assert loop["status"] == "timeout"
+
+
 # Real model (skipped without Ollama)
 
 def _ollama():

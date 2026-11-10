@@ -114,6 +114,58 @@ def test_stdio_subprocess_roundtrip():
     assert r.content[0].text == "42"
 
 
+def test_streamable_http_requires_the_bearer_token():
+    """--http --require-token: 401 without the token or with a wrong one, a working session with it."""
+    import secrets
+    import socket
+    import subprocess
+    import time
+
+    httpx = pytest.importorskip("httpx")
+    from mcp.client.streamable_http import streamablehttp_client
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    token = secrets.token_urlsafe(16)
+    url = f"http://127.0.0.1:{port}/mcp"
+    proc = subprocess.Popen([sys.executable, SERVER_PY, "--http", "--port", str(port), "--require-token"],
+                            env={**os.environ, "MCP_AUTH_TOKEN": token}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        meta_url = f"http://127.0.0.1:{port}/.well-known/oauth-protected-resource/mcp"
+        for _ in range(150):
+            try:
+                meta = httpx.get(meta_url, timeout=0.5).json()
+                break
+            except httpx.HTTPError:
+                time.sleep(0.1)
+        else:
+            pytest.fail("server did not start")
+        assert meta["resource"] == url and meta["scopes_supported"] == ["docs:read"]
+        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}}
+        hdrs = {"Accept": "application/json, text/event-stream"}
+        assert httpx.post(url, json=init, headers=hdrs, timeout=5).status_code == 401
+        assert httpx.post(url, json=init, headers={**hdrs, "Authorization": "Bearer wrong"}, timeout=5).status_code == 401
+
+        async def main():
+            async with streamablehttp_client(url, headers={"Authorization": f"Bearer {token}"}) as (read, write, _):
+                async with ClientSession(read, write) as s:
+                    await s.initialize()
+                    return await s.call_tool("calculate", {"expression": "6*7"})
+        assert asyncio.run(main()).content[0].text == "42"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+def test_require_token_refuses_to_start_without_the_env_var():
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if k != "MCP_AUTH_TOKEN"}
+    r = subprocess.run([sys.executable, SERVER_PY, "--http", "--require-token"], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0 and "MCP_AUTH_TOKEN" in r.stderr
+
+
 @pytest.mark.skipif(not ollama_available(), reason="needs a running Ollama server with qwen2.5:3b")
 def test_agent_answers_with_mcp_tools():
     from langchain.agents import create_agent

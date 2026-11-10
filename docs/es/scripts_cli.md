@@ -577,6 +577,7 @@ Un **servidor MCP** construido con el SDK oficial de MCP para Python (`mcp.serve
 | `--host` | str | `127.0.0.1` | Host HTTP (solo con `--http`). |
 | `--port` | int | `8000` | Puerto HTTP (solo con `--http`). El endpoint es `http://<host>:<port>/mcp`. |
 | `--log-level` | str | `WARNING` | Nivel de log en stderr. `INFO` registra cada petición. |
+| `--require-token` | flag | off | Con `--http`: cada petición necesita `Authorization: Bearer <token>`, con el token leído de la variable de entorno `MCP_AUTH_TOKEN` (nunca de la línea de comandos, donde otros usuarios pueden leerlo). Sin la variable, el servidor se niega a arrancar. Ver [Exigir un bearer token](#exigir-un-bearer-token). |
 
 ### Qué expone
 
@@ -685,6 +686,23 @@ tools = await client.get_tools()            # search_docs, calculate, create_tic
 
 El notebook 16 recorre las dos formas y construye un agente encima de las herramientas con `create_agent` de LangChain.
 
+### Exigir un bearer token
+
+Con `--http --require-token` el servidor hace de **servidor de recursos** de OAuth 2.1, el papel que MCP da a los servidores remotos. Una petición sin el token, o con uno equivocado, recibe `401` con una cabecera `WWW-Authenticate: Bearer ... resource_metadata="..."`; esa URL (`/.well-known/oauth-protected-resource/mcp`) sirve los metadatos del recurso protegido de la RFC 9728, que indican el servidor de autorización y el scope necesario (`docs:read`). Con el token correcto, todo funciona igual que por stdio.
+
+```powershell
+$env:MCP_AUTH_TOKEN = "elige-un-token-largo-y-aleatorio"
+.venv\Scripts\python scripts\mcp_server.py --http --port 8000 --require-token
+```
+```bash
+MCP_AUTH_TOKEN=elige-un-token-largo-y-aleatorio .venv/bin/python scripts/mcp_server.py --http --port 8000 --require-token
+claude mcp add --transport http llm-edu-docs http://127.0.0.1:8000/mcp --header "Authorization: Bearer elige-un-token-largo-y-aleatorio"
+```
+
+Desde Python, pásale la cabecera al cliente HTTP del SDK: `streamablehttp_client("http://127.0.0.1:8000/mcp", headers={"Authorization": f"Bearer {token}"})`. Para reutilizar el servidor en otro sitio, `build_server(docs_dir, log_level, token=..., host=..., port=...)` lo construye con autenticación; la comprobación en sí es la clase `StaticTokenVerifier`, que compara un único token compartido en tiempo constante.
+
+Un token compartido es un sustituto para aprender. Un despliegue real pone delante un servidor de autorización (Auth0, Entra ID, Keycloak, Okta...) y valida JWT de vida corta o llama a su endpoint de introspección, comprobando la audiencia, y añade TLS, scopes por usuario dentro de cada herramienta, límites de tasa y validación de `Origin`. El notebook 16, en su sección 9, enseña el flujo completo en el cable. `tests/test_mcp_sdk.py` comprueba que las peticiones sin token o con uno equivocado reciben 401, que el token correcto funciona y que `--require-token` se niega a arrancar sin `MCP_AUTH_TOKEN`.
+
 ### Notas y trampas
 
 - **Nunca imprimas en stdout.** En un servidor stdio, stdout transporta el protocolo; un solo `print()` perdido corrompe el flujo y el cliente no consigue parsear el siguiente mensaje. Todo lo que registra el servidor (la dirección HTTP, los tickets creados) va a `sys.stderr`.
@@ -774,7 +792,7 @@ Imprime `[segundos] nombre: OK | FAIL` por notebook y `N/M notebooks OK` al fina
 | Objetivo | Comando | Qué hace |
 |---|---|---|
 | `make setup` | `bash setup_env.sh` | Crea `.venv` e instala todo (en Windows, ejecuta `setup_env.ps1`). |
-| `make test` | `pytest -q` | Todos los tests. Los 4 tests `ollama` se saltan solos si Ollama no está en marcha. Usa `pytest -q -m "not ollama"` para solo los rápidos (85 tests, ~35 s). |
+| `make test` | `pytest -q` | Todos los tests. Los 4 tests `ollama` se saltan solos si Ollama no está en marcha. Usa `pytest -q -m "not ollama"` para solo los rápidos (90 tests, ~42 s). |
 | `make notebooks` | `python tools/build_notebooks.py` | Regenera todos los `.ipynb` (y `scripts/mini_llm.py`) desde los generadores. **Borra las salidas.** |
 | `make run-notebooks` | `python tools/run_notebooks.py` | Ejecuta todos los notebooks en el sitio. |
 | `make smoke` | `train.py --steps 100 --d-model 64 --n-layers 2 ...` | Prueba de humo corta de preentrenamiento. |
@@ -796,6 +814,6 @@ Imprime `[segundos] nombre: OK | FAIL` por notebook y `N/M notebooks OK` al fina
 | `rag_demo.py --docs data/sample_docs --eval data/sample_eval.json --ragas` | RTX 3060 Laptop GPU + Ollama | faithfulness **1.00**, answer relevancy **0.75**, context precision **1.00**, context recall **1.00**; ~55 s |
 | `rag_demo.py --ask "..."` | RTX 3060 Laptop GPU + Ollama | ~10–16 s incluido el indexado |
 | `mcp_server.py` con un cliente stdio del SDK | CPU | sesión completa (arranque, `initialize`, listar todo, 4 llamadas a herramientas, 1 lectura de recurso) ≈ 2 s |
-| `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 85 pasan en ~35 s / 4 pasan en ~40 s |
+| `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 90 pasan en ~42 s / 4 pasan en ~40 s |
 
 Para el contexto pedagógico de cada etapa, consulta la [guía de notebooks](guia_notebooks.md). Para un recorrido de principio a fin con interpretación de resultados, el [caso de estudio](caso_de_estudio.md).

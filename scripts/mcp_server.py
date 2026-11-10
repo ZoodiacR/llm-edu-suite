@@ -14,6 +14,8 @@ Run it:
     python scripts/mcp_server.py                         # stdio (the default): waits for JSON-RPC on stdin, Ctrl+C to stop
     python scripts/mcp_server.py --docs path/to/docs     # serve another folder of .md / .txt files
     python scripts/mcp_server.py --http --port 8000      # Streamable HTTP on http://127.0.0.1:8000/mcp
+    MCP_AUTH_TOKEN=... python scripts/mcp_server.py --http --require-token
+                                                         # the same, but every request needs "Authorization: Bearer <token>"
 
 Use it from Claude Code:
     claude mcp add llm-edu-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py
@@ -34,6 +36,7 @@ from __future__ import annotations
 import argparse
 import ast
 import glob
+import hmac
 import json
 import operator
 import os
@@ -42,6 +45,8 @@ import sys
 import time
 from typing import Literal
 
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from rank_bm25 import BM25Okapi
@@ -71,9 +76,28 @@ def _safe_eval(node: ast.AST) -> float:
     raise ValueError("only numbers and + - * / ** % ( ) are allowed")
 
 
-def build_server(docs_dir: str = DEFAULT_DOCS, log_level: str = "WARNING") -> FastMCP:
+class StaticTokenVerifier(TokenVerifier):
+    """Accepts one shared bearer token. It stands in for what a real resource server does: validate a JWT
+    or call the authorization server's introspection endpoint (Auth0, Entra ID, Keycloak, Okta...)."""
+    def __init__(self, token: str, scopes: list[str]):
+        self.token, self.scopes = token, scopes
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if hmac.compare_digest(token.encode(), self.token.encode()):          # constant-time comparison
+            return AccessToken(token=token, client_id="shared-token-client", scopes=self.scopes)
+        return None
+
+
+def build_server(docs_dir: str = DEFAULT_DOCS, log_level: str = "WARNING", token: str | None = None,
+                 host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
     """Create the FastMCP server for a folder of documents. Tests and notebooks import this function.
-    FastMCP logs every request at INFO to stderr; WARNING keeps the output readable."""
+    FastMCP logs every request at INFO to stderr; WARNING keeps the output readable.
+    With `token`, the Streamable HTTP transport requires `Authorization: Bearer <token>` (OAuth 2.1 resource server)."""
+    auth = {}
+    if token:
+        auth = {"token_verifier": StaticTokenVerifier(token, ["docs:read"]),
+                "auth": AuthSettings(issuer_url="https://auth.example.com", required_scopes=["docs:read"],
+                                     resource_server_url=f"http://{host}:{port}/mcp")}
     files = sorted(glob.glob(os.path.join(docs_dir, "*.md")) + glob.glob(os.path.join(docs_dir, "*.txt")))
     docs = {os.path.basename(f): open(f, encoding="utf-8").read() for f in files}
 
@@ -86,7 +110,7 @@ def build_server(docs_dir: str = DEFAULT_DOCS, log_level: str = "WARNING") -> Fa
     server = FastMCP(SERVER_NAME,
                      instructions="Company knowledge base (refunds, shipping, security, support). "
                                   "Use search_docs before answering policy questions and cite the file names.",
-                     log_level=log_level)
+                     log_level=log_level, host=host, port=port, **auth)
 
     @server.tool(annotations=ToolAnnotations(title="Search docs", readOnlyHint=True, openWorldHint=False))
     def search_docs(query: str, k: int = 3) -> str:
@@ -142,10 +166,16 @@ if __name__ == "__main__":
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--log-level", default="WARNING", help="stderr log level (INFO shows every request)")
+    p.add_argument("--require-token", action="store_true",
+                   help="with --http: require the bearer token in the MCP_AUTH_TOKEN environment variable")
     args = p.parse_args()
-    server = build_server(args.docs, args.log_level)
+    token = None
+    if args.require_token:
+        token = os.environ.get("MCP_AUTH_TOKEN")
+        if not token:
+            sys.exit("--require-token needs the token in the MCP_AUTH_TOKEN environment variable (never on the command line)")
+    server = build_server(args.docs, args.log_level, token=token, host=args.host, port=args.port)
     if args.http:
-        server.settings.host, server.settings.port = args.host, args.port
         print(f"[{SERVER_NAME}] Streamable HTTP on http://{args.host}:{args.port}{server.settings.streamable_http_path}", file=sys.stderr)
         server.run(transport="streamable-http")
     else:

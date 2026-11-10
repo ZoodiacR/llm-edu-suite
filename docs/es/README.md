@@ -15,6 +15,8 @@ El notebook 19 (sistemas) se lee justo después del 05: mide en la GPU adónde v
 
 El notebook 20 (razonamiento y cómputo en inferencia) se lee justo después del 08: allí GRPO es cómo se entrena el razonamiento; aquí, cómo se usa y cómo se mide. Sobre GSM8K con `qwen2.5:3b` compara la respuesta directa con la cadena de pensamiento, la self-consistency (maj@k frente a pass@k), best-of-N con un juez de 7B como verificador y el modelo de razonamiento destilado DeepSeek-R1-Distill 1.5B; los pone todos en una misma curva de coste y acierto, los ordena con Bradley-Terry y mide cuánto se contradice un juez LLM por pares cuando se cambia el orden de las respuestas.
 
+El notebook 21 (embeddings y rerankers) se lee justo antes del 10: abre por dentro la capa de recuperación sobre la que se construye el RAG. Sobre SciFact compara BM25 con tres modelos de embeddings (con y sin prefijos de tarea), escribe InfoNCE a mano y ajusta un bi-encoder pequeño con negativos del batch y negativos difíciles, encoge los vectores con truncado Matryoshka y cuantización int8 / binaria con rescoring, y prueba la recuperación híbrida con dos rerankers cross-encoder, midiendo tanto la calidad como la latencia.
+
 Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-embed-text`) y los modelos de entrenamiento son SmolLM2 de Hugging Face. Con una GPU NVIDIA va rápido (los resultados publicados se midieron en una RTX 3060 de 6 GB); en CPU también funciona, salvo el notebook 19, que necesita una GPU CUDA. LangSmith es opcional.
 
 ## Páginas
@@ -22,7 +24,7 @@ Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-emb
 | Página | Para qué sirve |
 |---|---|
 | [Instalación y entorno](instalacion.md) | `.venv`, PyTorch con CUDA, Ollama y sus modelos, el `.env`, la clave de LangSmith, problemas frecuentes |
-| [Guía de notebooks](guia_notebooks.md) | los 21 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
+| [Guía de notebooks](guia_notebooks.md) | los 22 notebooks uno a uno: qué construyes, con qué herramientas, qué conceptos y qué resultados |
 | [Fundamentos teóricos](fundamentos.md) | la teoría detrás de cada técnica y patrón: el problema que resuelve, la idea, por qué se usa hoy, cómo falla |
 | [Referencia de módulos](referencia_modulos.md) | el paquete `llm_edu_suite/` (el modelo desde cero y `config.py`) y dónde se enseña cada tema con frameworks |
 | [Scripts de línea de comandos](scripts_cli.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP) |
@@ -37,7 +39,7 @@ Todo funciona en local: los LLMs los sirve **Ollama** (`qwen2.5:3b` y `nomic-emb
 | Arquitectura | `notebooks/01_architecture/` | 01 tokenización · 02 atención, RoPE y normalización · 03 atención eficiente · 04 FFN y MoE · 17 encoders y encoder-decoders | PyTorch desde cero · `transformers` y `scikit-learn` (17) |
 | Pre-entrenamiento e inferencia | `notebooks/02_pretraining_and_inference/` | 18 ingeniería de datos (deduplicación, filtros, descontaminación) · 05 pre-entrenamiento · 19 sistemas (memoria, precisión, kernels, paralelismo) · 06 inferencia · 09 cuantización | PyTorch · `datasets` y `transformers` (18) · `torch.profiler` y `torch.distributed` (19) · `optimum-quanto` |
 | Post-training | `notebooks/03_post_training/` | 07 SFT, LoRA, destilación y fusión de modelos · 08 DPO y GRPO · 20 razonamiento y cómputo en inferencia | `transformers` · `peft` · `trl` · LangChain (Ollama) (20) |
-| Aplicaciones | `notebooks/04_applications/` | 10 RAG · 12 recomendación · 13 patrones de aplicación | LangChain · RAGAS · PyTorch |
+| Aplicaciones | `notebooks/04_applications/` | 21 embeddings y rerankers · 10 RAG · 12 recomendación · 13 patrones de aplicación | LangChain · RAGAS · PyTorch · `sentence-transformers` (21) |
 | Agentes y MCP | `notebooks/05_agents_and_mcp/` | 11 tools y salida estructurada · 14 IA agéntica · 16 MCP | LangChain · LangGraph · SDK `mcp` |
 | LLMOps | `notebooks/06_llmops/` | 15 observabilidad y evaluación | LangSmith |
 
@@ -54,7 +56,8 @@ flowchart LR
     F --> G["09 Cuantización<br/>optimum-quanto"]
     F --> R["20 Razonamiento<br/>CoT · self-consistency · verificadores"]
     E --> H[Aplicaciones con LangChain]
-    H --> I["10 RAG + RAGAS"]
+    H --> T["21 Embeddings y rerankers<br/>bi-encoder · InfoNCE · Matryoshka"]
+    T --> I["10 RAG + RAGAS"]
     H --> K[12 Recomendación]
     H --> L[13 Patrones]
     H --> J[11 Tools]
@@ -69,7 +72,7 @@ flowchart LR
 1. **Arquitectura:** 01 → 02 → 03 → 04 → 17. Al terminar deberías poder escribir un transformer de memoria y saber cuándo conviene un encoder o un encoder-decoder en lugar de un decoder-only.
 2. **Datos, entrenamiento e inferencia:** 18 → 05 → 19 → 06. Primero qué texto entra en el modelo y por qué, después cómo se entrena con él y cuánto cuesta ese entrenamiento en memoria y tiempo, en una GPU y en muchas.
 3. **Post-training con Hugging Face:** 07 → 08 → 20, después 09 (cuantización). Después del 20 deberías saber qué compran los tokens de razonamiento, cuándo compensa votar o usar un verificador y cómo saber si te puedes fiar de un juez.
-4. **Aplicaciones con LangChain:** 10 → 13 → 12. Regla de oro: **construye tu set de evaluación antes que el sistema**.
+4. **Aplicaciones con LangChain:** 21 → 10 → 13 → 12. Después del 21 deberías saber elegir, ajustar, comprimir y evaluar un recuperador antes de meterlo en un RAG. Regla de oro: **construye tu set de evaluación antes que el sistema**.
 5. **Agentes:** 11 → 14 → 16 y, al final, 15 para ver cómo se observa y evalúa todo en producción.
 
 ## Principios del proyecto
