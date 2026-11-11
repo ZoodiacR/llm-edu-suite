@@ -2,7 +2,7 @@
 
 # Scripts de línea de comandos
 
-> Guía de los ocho scripts de `scripts/` y de la tarea de Inspect AI de `scripts/inspect_tasks/` (más `tools/build_notebooks.py`, `tools/run_notebooks.py` y los objetivos del `Makefile`): todos sus argumentos reales (extraídos de `argparse`), qué hace cada script internamente, ejemplos de uso y resultados medidos.
+> Guía de los ocho scripts de `scripts/` (más `harness_modern.py`, un módulo que importa `harness_run.py`) y de la tarea de Inspect AI de `scripts/inspect_tasks/` (más `tools/build_notebooks.py`, `tools/run_notebooks.py` y los objetivos del `Makefile`): todos sus argumentos reales (extraídos de `argparse`), qué hace cada script internamente, ejemplos de uso y resultados medidos.
 >
 > Documentos relacionados: [README](README.md) · [Instalación](instalacion.md) · [Referencia de módulos](referencia_modulos.md) · [Guía de notebooks](guia_notebooks.md) · [Caso de estudio](caso_de_estudio.md) · [Glosario](glosario.md)
 
@@ -15,7 +15,7 @@
 | [`rag_demo.py`](#rag_demopy) | RAG híbrido con citas sobre una carpeta de documentos, con métricas de recuperación y evaluación RAGAS opcional | LangChain (FAISS + BM25 + `EnsembleRetriever`), RAGAS | Ollama (`qwen2.5:3b`, `nomic-embed-text`) |
 | [`mcp_server.py`](#mcp_serverpy) | Un servidor MCP (`llm-edu-docs`) que expone `data/sample_docs` a Claude Code, Claude Desktop o cualquier cliente MCP | SDK oficial de MCP para Python (`FastMCP`) + `rank_bm25` | Nada más (ni PyTorch ni Ollama) |
 | [`generate_item_keywords.py`](#generate_item_keywordspy) | Palabras clave escritas por un LLM para cada película de MovieLens-1M (las usa el notebook 12); reanudable | `llm_edu_suite` (`config`, `recsys`) + LangChain | Ollama con `qwen2.5:7b`; descarga MovieLens-1M (6 MB) la primera vez |
-| [`harness_run.py`](#harness_runpy) | Ejecutar el harness de agentes de programación mini-swe-agent sobre una carpeta de tarea con un modelo local, en un entorno bash aislado con una política de permisos; escribe la trayectoria en JSON (lo usa el notebook 27) | mini-swe-agent 2.4.6 + litellm | Su propio `.venv-harness`, bash (Git Bash en Windows), Ollama con el modelo que se quiera ejecutar |
+| [`harness_run.py`](#harness_runpy) | Ejecutar el harness de agentes de programación mini-swe-agent sobre una carpeta de tarea con un modelo por API (Claude por defecto en el notebook 27) o uno local, en un entorno bash aislado con una política de permisos; `--profile modern` añade las técnicas de `harness_modern.py`; escribe la trayectoria en JSON (lo usa el notebook 27) | mini-swe-agent 2.4.6 + litellm | Su propio `.venv-harness`, bash (Git Bash en Windows), y una clave de API del proveedor u Ollama con el modelo que se quiera ejecutar |
 | [`inspect_tasks/gsm8k_cot.py`](#inspect_tasksgsm8k_cotpy) | La evaluación de GSM8K con cadena de pensamiento del notebook 20 (80 problemas, dos scorers sobre las mismas generaciones) como una tarea de Inspect AI, que se ejecuta con `inspect eval` (la usa el notebook 29) | Inspect AI 0.3.289 | Su propio `.venv-eco`, Ollama con `qwen2.5:3b` (o cualquier modelo al que llegue Inspect) |
 
 ---
@@ -761,37 +761,74 @@ Con `qwen2.5:7b` tarda alrededor de **una hora** en una GPU de portátil de 6 GB
 
 ## `harness_run.py`
 
-Ejecuta el harness de agentes de programación [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) sobre una carpeta de tarea, con un modelo local a través de Ollama y un entorno bash aislado, y escribe la trayectoria completa en un fichero JSON. El notebook 27 lo llama una vez por tarea; también puedes ejecutarlo a mano sobre tus propias carpetas de tareas.
+Ejecuta el harness de agentes de programación [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) sobre una carpeta de tarea, con un modelo por API (Claude, OpenAI, Gemini... a través de litellm) o un modelo local a través de Ollama, dentro de un entorno bash aislado, y escribe la trayectoria completa en un fichero JSON. El notebook 27 lo llama una vez por ejecución; también puedes ejecutarlo a mano sobre tus propias carpetas de tareas.
 
-A diferencia de los demás scripts, se ejecuta con el Python del **entorno del harness**, `.venv-harness`, no con el `.venv` del curso, porque la interfaz de terminal de mini-swe-agent necesita un `rich` más nuevo del que admite el entorno del curso. Ver [instalación](instalacion.md#el-entorno-del-harness-de-agentes-notebook-27) para crearlo, para Git Bash en Windows y para los tres modelos.
+A diferencia de los demás scripts, se ejecuta con el Python del **entorno del harness**, `.venv-harness`, no con el `.venv` del curso, porque la interfaz de terminal de mini-swe-agent necesita un `rich` más nuevo del que admite el entorno del curso. Ver [instalación](instalacion.md#el-entorno-del-harness-de-agentes-notebook-27) para crearlo, para Git Bash en Windows y para los modelos.
+
+Importa **`scripts/harness_modern.py`**, que no es un script para ejecutar: contiene las técnicas de `--profile modern` (herramientas nativas, puerta de lint, detección de bucles, puerta de verificación, enmascarado de observaciones), descritas [más abajo](#el-perfil-moderno-harness_modernpy).
 
 ### Argumentos
 
 | Argumento | Tipo | Por defecto | Descripción |
 |---|---|---|---|
 | `task_dir` | ruta (posicional) | — | Carpeta de la tarea. Tiene que contener `TASK.md`, las instrucciones que recibe el agente; todos los comandos se ejecutan dentro de esta carpeta. |
-| `model` | str (posicional) | — | Nombre del modelo de Ollama, p. ej. `qwen2.5:3b` (el script añade el prefijo `ollama_chat/` para litellm). |
+| `model` | str (posicional) | — | Un id de litellm para un modelo por API (`anthropic/claude-haiku-5-5`, `openai/...`, `gemini/...`), o el nombre de un modelo de Ollama (`qwen2.5:7b`; el script añade el prefijo `ollama_chat/`). Un modelo cuenta como modelo por API cuando su prefijo es `gemini`, `anthropic`, `openai`, `openrouter`, `groq`, `mistral`, `deepseek` o `xai`; todo lo demás va a Ollama. |
 | `out_json` | ruta (posicional) | — | Dónde escribir la trayectoria y sus estadísticas. |
-| `--steps` | int | `20` | Límite de pasos: llamadas al modelo antes de que la ejecución termine con `LimitsExceeded`. El notebook 27 usa 15. |
+| `--steps` | int | `20` | Límite de pasos: llamadas al modelo antes de que la ejecución termine con `LimitsExceeded`. El notebook 27 usa 15 en la línea base y 30 con el presupuesto mayor. |
 | `--agents-md` | flag | desactivado | Añade el `AGENTS.md` de la carpeta a la tarea, como hacen los harnesses con los ficheros de memoria del proyecto. Se ignora si no hay `AGENTS.md`. |
-| `--temperature` | float | `0.0` | Temperatura de muestreo. El notebook 27 usa 0,3 en las ejecuciones muestreadas con `AGENTS.md`. |
-| `--seed` | int | `0` | Semilla de muestreo que se pasa a Ollama. |
+| `--temperature` | float | `0.0` | Temperatura de muestreo. |
+| `--seed` | int | `0` | Semilla de muestreo (se descarta con los proveedores que no la aceptan). |
+| `--profile` | `baseline` \| `modern` | `baseline` | `baseline` es mini-swe-agent tal cual (protocolo de texto, un bloque bash por respuesta); `modern` añade las técnicas de `harness_modern.py`. |
+| `--features` | lista separada por comas | `tools,lint,loop,verify,mask` | Con `--profile modern`, el subconjunto de funciones que se conservan (para una ablación). Se ignora con `baseline`. |
+| `--max-tokens` | int | `4096` | Tokens de salida permitidos por respuesta. Los modelos de razonamiento gastan parte en pensar, así que mantenlo en unos pocos miles (con 1.024, la tarea 16 del notebook 27 falló). |
+| `--wall` | int | `300` | Tope de tiempo por ejecución, en segundos (`TimeExceeded` al alcanzarlo). El notebook 27 usa 600 con el presupuesto mayor. |
 
-Dos variables de entorno cambian dónde busca: `OLLAMA_BASE_URL` (por defecto `http://localhost:11434`) y `HARNESS_BASH`, la ruta completa del ejecutable de bash (por defecto `C:\Program Files\Git\bin\bash.exe` en Windows y el `bash` del `PATH` en los demás sistemas).
+Variables de entorno:
+
+| Variable | Efecto |
+|---|---|
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`... | La clave del proveedor para un modelo por API; litellm la lee del entorno del propio script. La clave nunca llega a la shell del agente, cuyo entorno está limpio. |
+| `OLLAMA_BASE_URL` | La dirección de Ollama para los modelos locales (por defecto `http://localhost:11434`). |
+| `HARNESS_BASH` | Ruta completa del ejecutable de bash (por defecto `C:\Program Files\Git\bin\bash.exe` en Windows y el `bash` del `PATH` en los demás sistemas). |
+| `HARNESS_MIN_INTERVAL` | Segundos de espera entre llamadas al modelo, para niveles gratuitos de API con límite de peticiones por minuto (el notebook 27 pone 7 con Gemini). |
+
+Las variables propias del notebook (`HARNESS_MODEL`, `HARNESS_REPS`, `HARNESS_WORKERS`) las lee el notebook 27, no este script; ver [instalación](instalacion.md#claves-de-api-opcionales-notebook-27).
 
 ### Qué hace por dentro
 
-1. **Configuración.** Carga el `mini_textbased.yaml` del propio mini-swe-agent (las plantillas del sistema y de la tarea, y el formato de acción en texto: un bloque `mswea_bash_command` por respuesta) y cambia los límites: `--steps` pasos, sin límite de coste, 300 s de tiempo total.
-2. **Modelo.** `LitellmTextbasedModel` con `ollama_chat/<modelo>`, la temperatura y la semilla indicadas, un contexto de 16k (`num_ctx=16384`), como mucho 1.024 tokens de salida por respuesta (los modelos pequeños pueden enrollarse sin fin) y un timeout de 120 s por llamada. El cálculo de coste ignora los errores, porque los modelos locales no tienen precio.
-3. **Tarea.** Lee `TASK.md`; con `--agents-md`, le añade `Project instructions (from AGENTS.md):` y el fichero.
+1. **Configuración.** Carga el `mini_textbased.yaml` del propio mini-swe-agent (el formato de acción en texto: un bloque `mswea_bash_command` por respuesta), o `mini.yaml` con las plantillas de sistema y de tarea del perfil moderno cuando la función `tools` está activa. Cambia los límites: `--steps` pasos, sin límite de coste, `--wall` segundos.
+2. **Modelo.** Un modelo por API se llama por su id de litellm; uno local, como `ollama_chat/<modelo>` con un contexto de 16k (`num_ctx=16384`). Los dos reciben la temperatura y la semilla indicadas, como mucho `--max-tokens` tokens de salida por respuesta y un timeout de 120 s por llamada. El cálculo de coste ignora los errores, porque los modelos locales no tienen precio.
+3. **Tarea.** Lee `TASK.md`; con `--agents-md`, le añade `Project instructions (from AGENTS.md):` y el fichero. Después añade un bloque de **contexto del espacio de trabajo**, como el bloque de entorno de Claude Code o el contexto del workspace de Codex: la shell ya arranca en la raíz del repositorio, hay que trabajar solo dentro con rutas relativas, Python se ejecuta como `python` y los tests como `python -m pytest -q`, y la lista de ficheros con su número de líneas (hasta 200). Sin él, un modelo capaz empezaba algunas tareas buscando por el disco (`find / -name ...`).
 4. **Entorno.** `SandboxedBashEnvironment`, la clase propia del script, con los tres métodos que mini-swe-agent espera de un entorno (`execute`, `get_template_vars`, `serialize`):
    - cada comando se ejecuta como `bash -c` **dentro de la carpeta de la tarea**, con un timeout de 60 s;
-   - el entorno está **limpio**: solo se conservan `SYSTEMROOT`, `PATH`, `TEMP`, `TMP`, `HOME`, `USERPROFILE` y `LANG` (más `PYTHONIOENCODING=utf-8` y `cat` como paginador), así que ninguna clave de API llega al agente;
+   - el entorno está **limpio**: solo se conservan `SYSTEMROOT`, `PATH`, `TEMP`, `TMP`, `HOME`, `USERPROFILE` y `LANG`, más `PYTHONIOENCODING=utf-8`, `cat` como paginador, `TERM=dumb` y `EDITOR=false` / `VISUAL=false`, así que ninguna clave de API llega al agente;
+   - la shell **no tiene stdin**, así que un `vim` o un `less` interactivo falla al momento en lugar de esperar para siempre;
+   - en Windows, `python3` se redirige a `python` (los modelos lo escriben por costumbre, y Windows solo tiene un acceso directo de la Store con ese nombre);
+   - con un timeout se mata **el árbol de procesos entero** (`taskkill /T` en Windows, el grupo de procesos en los demás sistemas): matar solo bash dejaba vivo un hijo `find /` o `vim` que mantenía abierta la tubería de salida;
    - la salida se recorta a sus últimos 8.000 caracteres;
-   - una **lista de denegación** de expresiones regulares rechaza el acceso a la red (`curl`, `wget`, `ssh`, `scp`, `nc`, `Invoke-WebRequest`), `git push`, los borrados recursivos de `/`, `~` o `..`, la lectura de secretos (`.env`, `id_rsa`, `.ssh/`, `printenv`, un `env` a secas, `/proc/self/environ`) y `sudo` / `su`. Un comando rechazado no se ejecuta: el modelo recibe `Permission denied by the harness policy (<motivo>)` con código de salida 126, y el motivo queda registrado;
+   - una **lista de denegación** de expresiones regulares rechaza el acceso a la red (`curl`, `wget`, `ssh`, `scp`, `nc`, `Invoke-WebRequest`), `git push`, los borrados recursivos de `/`, `~` o `..`, **salir de la carpeta de la tarea** (`cd /`, `cd ~`, `cd ..`, `cd` a una unidad), **buscar por todo el disco** (`find /`, `grep -r /`, `ls -R /`, también sobre `~` o la raíz de una unidad), la lectura de secretos (`.env`, `id_rsa`, `.ssh/`, `printenv`, un `env` a secas, `/proc/self/environ`) y `sudo` / `su`. Un comando rechazado no se ejecuta: el modelo recibe `Permission denied by the harness policy (<motivo>)` con código de salida 126, y el motivo queda registrado;
    - cuando la salida de un comando empieza por `COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` y el comando fue bien, la ejecución termina como `Submitted`.
-5. **Ejecución.** `DefaultAgent.run(tarea)`. Cualquier excepción se registra como una ejecución fallida (`error: <tipo>: <mensaje>`) en lugar de tumbar a quien lo llama.
-6. **Salida.** `out_json` recibe `exit_status` (`Submitted`, `LimitsExceeded`, `TimeExceeded`, `RepeatedFormatError` o `error: ...`), `steps`, `seconds`, `format_errors`, `denied` (los motivos de cada comando rechazado), `prompt_tokens`, `completion_tokens` y `messages` (rol y contenido de cada mensaje, recortado a 4.000 caracteres). Las mismas estadísticas, sin los mensajes, se imprimen por la salida estándar en una línea de JSON.
+
+   Con `--profile modern` el entorno es `ModernEnvironment`: el mismo sandbox más las herramientas y puertas de `harness_modern.py`.
+5. **Enmascarado y Claude.** Los modelos actuales de Claude comprueban que el historial anterior a cada uno de sus bloques de pensamiento no se ha editado (*preserved thinking*), y enmascarar salidas antiguas lo edita: la API responde HTTP 400 `Invalid signature in thinking block`. Por eso con los modelos `anthropic/` se omite el enmascarado en el cliente, aunque `mask` esté entre las funciones, y las estadísticas registran `mask_skipped: true`.
+6. **Ejecución.** `DefaultAgent.run(tarea)`. Cualquier excepción se registra como una ejecución fallida (`error: <tipo>: <mensaje>`) en lugar de tumbar a quien lo llama.
+7. **Salida.** `out_json` recibe `exit_status` (`Submitted`, `LimitsExceeded`, `TimeExceeded`, `RepeatedFormatError` o `error: ...`), `steps`, `seconds`, `format_errors`, `denied` (los motivos de cada comando rechazado), `profile`, `features`, `mask_skipped`, `gate_rejections`, `loop_warnings`, `prompt_tokens`, `completion_tokens` y `messages` (rol, contenido recortado a 4.000 caracteres y las acciones de cada mensaje). Las mismas estadísticas, sin los mensajes, se imprimen por la salida estándar en una línea de JSON.
+
+### El perfil moderno (`harness_modern.py`)
+
+Las técnicas que los harnesses actuales (Claude Code, Codex CLI, SWE-agent, OpenHands) añaden alrededor del mismo bucle. Cada una se puede desactivar con `--features`:
+
+| Función | Qué hace |
+|---|---|
+| `tools` | Llamadas a funciones nativas con cuatro herramientas, `bash`, `view_file` (líneas numeradas), `edit_file` (sustitución exacta de texto, o creación del fichero con un `old_str` vacío) y `submit`, en lugar de extraer un bloque bash del texto. Sin ella vuelve el protocolo de texto (y se van el editor y su puerta de lint). |
+| `lint` | `edit_file` rechaza una edición que dejaría un fichero de Python con un error de sintaxis; el fichero no cambia. |
+| `loop` | La misma llamada con el mismo resultado tres veces seguidas recibe un aviso para que cambie de enfoque. |
+| `verify` | Una puerta de finalización (*stop hook*): `submit` se rechaza mientras fallen los tests visibles o, en una carpeta sin tests, si no se ejecutó ninguna comprobación desde la última edición. Una comprobación cuenta cuando Python se ejecutó sin traceback y sin tests fallidos; como mucho dos rechazos, y después la entrega se acepta. |
+| `mask` | Las salidas de herramientas más antiguas que las 6 últimas (si pasan de 300 caracteres) se sustituyen en el prompt por un marcador de una línea; la trayectoria lo guarda todo. Se omite con los modelos `anthropic/`. |
+
+En el perfil moderno las salidas de herramientas se recortan a sus primeros y últimos 3.000 caracteres. `litellm.drop_params` está activado, así que un parámetro que un proveedor no acepta (una semilla, por ejemplo) se descarta en lugar de hacer fallar la llamada.
+
+La puerta de verificación exigía al principio código de salida 0 a todo el comando, y eso rechazaba trabajo correcto: `python -c ...; python -m pytest -q` sale con 5 en una carpeta sin tests ("no tests ran"), y un `grep` final que no encuentra nada sale con 1. En dos ejecuciones anteriores del notebook 27 rechazó 7 entregas, y las 5 que se revisaron eran todas correctas. Comprobar en cambio que no hay traceback ni tests fallidos eliminó los falsos rechazos (0 en la ejecución final).
 
 ### Ejemplos
 
@@ -804,26 +841,33 @@ mi_tarea/
 └── test_stats.py
 ```
 
+Con un modelo por API, la clave tiene que estar en el entorno del proceso que ejecuta el script (el notebook 27 la carga de `.env`):
+
 ```powershell
-.venv-harness\Scripts\python scripts\harness_run.py mi_tarea qwen2.5:3b mi_tarea_run.json --steps 15
-.venv-harness\Scripts\python scripts\harness_run.py mi_tarea qwen2.5:7b run_memoria.json --agents-md --temperature 0.3 --seed 1
+$env:ANTHROPIC_API_KEY = "..."      # o cárgala de .env
+.venv-harness\Scripts\python scripts\harness_run.py mi_tarea anthropic/claude-haiku-5-5 run.json --steps 15
+.venv-harness\Scripts\python scripts\harness_run.py mi_tarea anthropic/claude-haiku-5-5 run_moderno.json --profile modern --steps 30 --max-tokens 8192 --wall 600
+.venv-harness\Scripts\python scripts\harness_run.py mi_tarea qwen2.5:7b run_local.json --steps 15 --agents-md
 ```
 
 ```bash
-.venv-harness/bin/python scripts/harness_run.py mi_tarea qwen2.5:3b mi_tarea_run.json --steps 15
-.venv-harness/bin/python scripts/harness_run.py mi_tarea qwen2.5:7b run_memoria.json --agents-md --temperature 0.3 --seed 1
+export ANTHROPIC_API_KEY=...
+.venv-harness/bin/python scripts/harness_run.py mi_tarea anthropic/claude-haiku-5-5 run.json --steps 15
+.venv-harness/bin/python scripts/harness_run.py mi_tarea anthropic/claude-haiku-5-5 run_ablacion.json --profile modern --features tools,lint,loop
+.venv-harness/bin/python scripts/harness_run.py mi_tarea qwen2.5:7b run_local.json --steps 15 --agents-md
 ```
 
-En el notebook 27 (10 tareas, límite de 15 pasos, temperatura 0) una ejecución tardó de media 64 s con `qwen2.5:3b`, 82 s con `qwen2.5:7b` y 216 s con `freehuntx/qwen3-coder:8b`, que con un contexto de 16k va cerca de un 46 % en la CPU de una tarjeta de 6 GB.
+En el notebook 27 (16 tareas × 3 ejecuciones, Claude Haiku 5.5) una ejecución de la línea base (15 pasos, 4.096 tokens por respuesta) tardó de media 3,5 pasos, 7,0 s y 6.701 tokens, US$ 0,0010; el perfil moderno, 7,2 s y 8.571 tokens (+28 %), US$ 0,0013. Dos hallazgos del piloto fijaron los valores por defecto: sin el contexto del espacio de trabajo algunas tareas empezaban con `find /` (7 pasos, ~75 s, frente a 4 pasos, ~7 s con él), y con 1.024 tokens por respuesta la tarea 16 fallaba (la respuesta se cortó tres veces, `RepeatedFormatError`). Con modelos locales (v2.8, tareas 01–10) una ejecución tardaba 64 s con `qwen2.5:3b`, 82 s con `qwen2.5:7b` y 216 s con `freehuntx/qwen3-coder:8b`, que con un contexto de 16k va cerca de un 46 % en la CPU de una tarjeta de 6 GB.
 
 ### Notas y trampas
 
 - **El agente edita la carpeta de la tarea tal cual.** Ejecútalo sobre una copia, nunca sobre un repositorio que te importe: el sandbox es una capa didáctica, como la del notebook 14, no una frontera de seguridad. Los harnesses de producción añaden aislamiento del sistema operativo (contenedores, Seatbelt, Landlock, tokens restringidos de Windows).
-- **`Submitted` no quiere decir resuelto.** Solo quiere decir que el modelo se dio por terminado; en el notebook 27, 11 de 30 ejecuciones entregadas fallaron los tests ocultos. Comprueba el resultado con tus propios tests después.
+- **`Submitted` no quiere decir resuelto.** Solo quiere decir que el modelo se dio por terminado. Claude Haiku 5.5 tuvo 0 falsos "terminado" en el notebook 27, pero con modelos locales (v2.8) 11 de 30 ejecuciones se entregaron con los tests ocultos fallando. Comprueba el resultado con tus propios tests después.
 - **`python` dentro de la shell del agente** es el primero que haya en el `PATH`. El notebook 27 pone primero la carpeta `Scripts` (o `bin`) del entorno del harness para que funcione `python -m pytest`; haz lo mismo, o activa `.venv-harness`, cuando una tarea pida al agente ejecutar tests.
 - La lista de denegación compara el texto del comando con expresiones regulares: es fácil de esquivar (un fichero de script, un alias, `python -c`) y también rechaza comandos inofensivos que coincidan por casualidad. Enseña dónde se engancha una política de permisos en el bucle, no lo fuerte que debería ser.
+- **No reescribas el historial de un modelo de Claude.** Enmascarar, resumir o recortar turnos anteriores en el cliente rompe el *preserved thinking* (HTTP 400); por eso `mask` se omite con los modelos `anthropic/`.
 - Al arrancar, mini-swe-agent imprime su versión y `Loading global config from ...` (su propio `.env` en la carpeta de datos de aplicación del usuario). Ese fichero es de mini-swe-agent, no del curso; el script no necesita nada en él.
-- Una ejecución cada vez: el script hace una llamada a Ollama por paso, y dos trabajos de GPU a la vez en una tarjeta de 6 GB pueden dejar Ollama colgado (ver [instalación](instalacion.md#notas-sobre-la-gpu)).
+- Con un modelo local, una ejecución cada vez: el script hace una llamada a Ollama por paso, y dos trabajos de GPU a la vez en una tarjeta de 6 GB pueden dejar Ollama colgado (ver [instalación](instalacion.md#notas-sobre-la-gpu)). Las ejecuciones por API pueden ir en paralelo (el notebook 27 lanza 4 a la vez).
 
 ---
 
@@ -958,7 +1002,8 @@ Imprime `[segundos] nombre: OK | FAIL` por notebook y `N/M notebooks OK` al fina
 | `rag_demo.py --ask "..."` | RTX 3060 Laptop GPU + Ollama | ~10–16 s incluido el indexado |
 | `mcp_server.py` con un cliente stdio del SDK | CPU | sesión completa (arranque, `initialize`, listar todo, 4 llamadas a herramientas, 1 lectura de recurso) ≈ 2 s |
 | `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 90 pasan en ~42 s / 4 pasan en ~40 s |
-| `harness_run.py TAREA MODELO SALIDA --steps 15` (desde el notebook 27, 10 tareas por modelo) | RTX 3060 Laptop GPU + Ollama | tests ocultos superados: `qwen2.5:3b` **30 %**, `qwen2.5:7b` 20 %, `freehuntx/qwen3-coder:8b` 20 %; 64 / 82 / 216 s por tarea; 11 de 30 ejecuciones entregadas como terminadas con los tests ocultos fallando |
+| `harness_run.py TAREA anthropic/claude-haiku-5-5 SALIDA --steps 15` (desde el notebook 27, 16 tareas × 3 ejecuciones) | API de Anthropic, 4 ejecuciones en paralelo | tests ocultos superados: **100 %** (48/48), 0 falsos "terminado"; 3,5 pasos, 7,0 s, 6.701 tokens, US$ 0,0010 por ejecución; `--profile modern`: 100 %, 7,2 s, 8.571 tokens; el notebook entero, 366 ejecuciones, US$ 0,42 |
+| `harness_run.py TAREA MODELO SALIDA --steps 15` (v2.8, tareas 01–10, modelos locales) | RTX 3060 Laptop GPU + Ollama | tests ocultos superados: `qwen2.5:3b` **30 %**, `qwen2.5:7b` 20 %, `freehuntx/qwen3-coder:8b` 20 %; 64 / 82 / 216 s por tarea; 11 de 30 ejecuciones entregadas como terminadas con los tests ocultos fallando |
 | `inspect eval scripts/inspect_tasks/gsm8k_cot.py --model ollama/qwen2.5:3b --temperature 0 ...` (desde el notebook 29) | RTX 3060 Laptop GPU + Ollama | 80 problemas en 307 s; `last_number` **85,0 %** (lo mismo que el bucle del notebook 20), `match` de serie 80,0 %; con `--temperature 0.7 --epochs 3`, 81,2 % en 918 s |
 
 Para el contexto pedagógico de cada etapa, consulta la [guía de notebooks](guia_notebooks.md). Para un recorrido de principio a fin con interpretación de resultados, el [caso de estudio](caso_de_estudio.md).

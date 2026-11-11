@@ -7,7 +7,7 @@
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
 - **31 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
-- **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free).
+- **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free; an optional Anthropic key runs notebook 27's agent on Claude Haiku 5.5, about US$ 0.42 per full run, instead of a much slower local model).
 - **Honest results**: when a technique does not help in our setup, the notebook shows it and explains why
 - **Tested**: fast tests with fake LLMs in CI on every push, integration tests against the local models
 
@@ -48,7 +48,7 @@ The number is the suggested study order; the folder is the topic.
 | **Agents & MCP** | [11 · tools & structured output](notebooks/05_agents_and_mcp/11_agents_tools_structured_output.ipynb) | how tool calling works, `bind_tools`, the loop by hand, `create_agent`, Pydantic outputs | LangChain |
 | | [14 · agentic AI](notebooks/05_agents_and_mcp/14_agentic_ai.ipynb) | StateGraph, guardrails, human-in-the-loop, memory, plan-and-execute, reflection, routing, supervisor vs handoffs, sandboxed code execution | LangGraph |
 | | [16 · Model Context Protocol](notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb) | MCP from the wire up, a FastMCP server, an agent using MCP tools, security, sampling / elicitation / roots, a remote server with OAuth 2.1 bearer tokens | `mcp` SDK, `langchain-mcp-adapters` |
-| | [27 · agent harnesses](notebooks/05_agents_and_mcp/27_agent_harness.ipynb) | what turns a model into a coding agent (Claude Code, Codex CLI, opencode): mini-swe-agent read function by function, a sandboxed environment with a permission policy, 10 coding tasks scored by hidden tests with three local models, `AGENTS.md` project memory, a prompt injection planted in the repository | mini-swe-agent, Ollama |
+| | [27 · agent harnesses](notebooks/05_agents_and_mcp/27_agent_harness.ipynb) | what turns a model into a coding agent (Claude Code, Codex CLI, opencode): mini-swe-agent read function by function, a sandboxed environment with a permission policy and workspace context, 16 coding tasks scored by hidden tests (3 runs each) on Claude Haiku 5.5 or any litellm model, `AGENTS.md` project memory, a prompt injection planted in the repository, a modern harness profile (native tools, lint and verification gates, loop detection, masking) with an ablation | mini-swe-agent, litellm, Anthropic API or Ollama |
 | **LLMOps** | [15 · observability & evaluation](notebooks/06_llmops/15_observability_llmops.ipynb) | tracing, latency percentiles, SLOs, feedback, PII anonymization, datasets + `evaluate()` | LangSmith |
 | | [29 · evaluation & tracing frameworks](notebooks/06_llmops/29_eval_and_tracing_frameworks.ipynb) | notebook 20's GSM8K evaluation as an Inspect AI task (solvers, scorers, epochs, logs); OpenTelemetry tracing to a self-hosted Phoenix server: latency and tokens per step, annotations on traces, tracing overhead | Inspect AI, Arize Phoenix, OpenInference |
 | | [22 · safety & guardrails](notebooks/06_llmops/22_safety_guardrails.ipynb) | refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, safety prompts, layered defences, validated judges | Ollama, Llama Guard 3 |
@@ -90,7 +90,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 29 · Inspect AI + Phoenix | Inspect reproduces notebook 20's GSM8K result exactly (**85.0%**); its built-in `match` scorer on the same generations gives 80.0% (−5 points, all four disagreements `\boxed{}` answers); three sampled epochs land at 80.0–82.5%; Phoenix traces show the LLM call is the whole latency (p50 3.6 s, every other step < 1 ms), and tracing costs **2.5 ms per request** (0.07% of an LLM call) |
 | 22 · safety (JailbreakBench, XSTest) | `qwen2.5:3b` refuses 89% of harmful requests but over-refuses 17% of safe ones (7B: 5%); **prefix injection lifts attack success from 4% to 64%**; Llama Guard 3 1B catches 95–100% of harmful requests, disguised or not, but blocks 8–22% of safe ones; a 7B LLM judge agreed with humans only 70% vs 90% for a keyword judge |
 | 16 · MCP | the FastMCP server passes **14/14 conformance checks**; the agent answers 6/6 questions through MCP tools (4/6 cited); a tool call costs 3.0 ms over stdio and 5.2 ms over authenticated Streamable HTTP; requests without a valid token get 401 with RFC 9728 metadata |
-| 27 · agent harness (mini-swe-agent, 10 coding tasks) | scored by hidden tests: `qwen2.5:3b` 30%, `qwen2.5:7b` 20%, `qwen3-coder:8b` 20%, a one-task spread that an earlier run reshuffled; **11 of 30 runs declared the task done while the hidden tests failed**; an `AGENTS.md` file took the 3B from 0% to 33% on convention-only tasks; a prompt injection in a code comment reached two models and neither followed it |
+| 27 · agent harness (mini-swe-agent, 16 coding tasks × 3 runs, Claude Haiku 5.5) | scored by hidden tests: **48/48 solved, 0 false "done"**, 3.5 steps, 7.0 s and US$ 0.0010 per run; a modern harness profile solves the same 100% for **28% more tokens** (8,571 vs 6,701), and its verification gate first rejected correct work until it checked for tracebacks instead of exit codes; the model opened `AGENTS.md` by itself in 9 of 9 runs; a planted prompt injection was seen in 12/12 runs and followed in 0; 366 runs cost **US$ 0.42**. In v2.8, three local 3–8B models solved 20–30% of tasks 01–10, and 11 of 30 runs claimed a false "done" |
 
 ## Quick start
 
@@ -134,7 +134,7 @@ llm-edu-suite/
 ├── llm_edu_suite/             the from-scratch model (tokenizer, layers, model, training, inference, recsys,
 │                              evaluation) + config.py, the one place where models and services are chosen
 ├── scripts/                   mini_llm, train, sample, finetune (TRL), rag_demo (LangChain), mcp_server (FastMCP),
-│                              harness_run (mini-swe-agent, run from its own .venv-harness),
+│                              harness_run + harness_modern (mini-swe-agent, run from its own .venv-harness),
 │                              inspect_tasks/gsm8k_cot (an Inspect AI task, run from its own .venv-eco)
 ├── tests/                     fast tests with fake LLMs + Ollama-marked integration tests
 ├── tools/notebooks/           one generator per notebook (the source of truth) + CONVENTIONS.md
@@ -167,6 +167,7 @@ llm-edu-suite/
 | [v2.7](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.7) | Beyond text and beyond a single snapshot: multimodal models (CLIP zero-shot and probes, a vision-language model, document extraction, typographic attacks), clustering and topic modeling of user messages with emerging-intent detection, and online learning and drift (models aging on a stream, PSI, embedding drift tests). |
 | [v2.8](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.8) | Agent harness notebook: mini-swe-agent anatomy, 10 coding tasks × 3 local models, `AGENTS.md` memory, repo prompt injection. |
 | [v2.9](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.9) | Ecosystem and foundations: transformers big picture (30), DSPy prompt optimization (28), Inspect AI + Phoenix (29); *Results* / *In production* closings on notebooks 00–15. |
+| [v2.10](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.10) | Agent harness on Claude Haiku 5.5: 16 tasks × 3 runs, workspace context, process-tree kill, verify-gate fix, preserved-thinking note; 366 runs for US$ 0.42. |
 
 ## Roadmap
 

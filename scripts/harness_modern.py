@@ -20,6 +20,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import subprocess
 import time
 
@@ -217,8 +218,14 @@ class ModernEnvironmentMixin:
         tool, args = action.get("tool", "bash"), action.get("args") or {"command": action.get("command", "")}
         if tool == "bash":
             out = self._bash(args.get("command", ""))
-            if ("python" in args.get("command", "") or "pytest" in args.get("command", "")) and out.get("returncode") == 0:
-                self.ran_since_edit = True                     # only a check that ran without error counts as verification
+            cmd, rc, text = args.get("command", ""), out.get("returncode"), out.get("output", "")
+            # A check counts as verification when Python ran and showed no error: no traceback, no failed tests.
+            # Requiring exit code 0 from the whole command gave false rejections, found by reading trajectories:
+            # `python -c ...; python -m pytest -q` exits 5 in a folder without tests ("no tests ran"), and a final
+            # `grep` that finds nothing (here, the old name after a rename: the good outcome) exits 1.
+            clean = "Traceback (most recent call last)" not in text and not re.search(r"\b\d+ (failed|errors?)\b", text)
+            if ("python" in cmd or "pytest" in cmd) and rc != -1 and clean:
+                self.ran_since_edit = True
         elif tool == "view_file":
             out = self._view(args)
         elif tool == "edit_file":

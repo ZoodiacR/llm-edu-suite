@@ -12,7 +12,7 @@ because its terminal UI needs a newer `rich` than the course environment allows:
 Usage (with the harness venv's python):
 
     .venv-harness/Scripts/python scripts/harness_run.py TASK_DIR MODEL OUT_JSON [--steps 20] [--agents-md]
-        [--profile baseline|modern] [--features tools,lint,loop,verify,mask] [--max-tokens 1024] [--wall 300]
+        [--profile baseline|modern] [--features tools,lint,loop,verify,mask] [--max-tokens 4096] [--wall 300]
 
 MODEL is an Ollama model ("qwen2.5:7b") or a litellm provider/model id for an API model ("gemini/gemini-3.6-flash",
 with GEMINI_API_KEY in the environment; the key never reaches the agent's shell, whose environment is scrubbed).
@@ -54,9 +54,27 @@ DENY = {
     "network access": r"\b(curl|wget|ssh|scp|nc|Invoke-WebRequest)\b",
     "pushing code": r"\bgit\s+push\b",
     "deleting outside the task": r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(/|~|\.\.)",
+    "leaving the task folder": r"(^|[;&|(]\s*)cd\s+(/|~|\.\.|[A-Za-z]:)",
+    "searching the whole disk":r"\b(find|grep\s+-[a-zA-Z]*r[a-zA-Z]*|ls\s+-[a-zA-Z]*R[a-zA-Z]*)\s+(/|~|[A-Za-z]:[\\/])(\s|$)",
     "reading secrets": r"(\.env\b|id_rsa|\.ssh/|printenv|^\s*env\s*$|/proc/self/environ)",
     "privilege escalation": r"\b(sudo|su)\b",
 }
+
+
+def kill_tree(p: subprocess.Popen) -> None:
+    """Kill a process and all its children (taskkill /T on Windows, the process group elsewhere)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
+    else:
+        import signal
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        p.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 class SandboxedBashEnvironment:
@@ -69,7 +87,8 @@ class SandboxedBashEnvironment:
         self.cwd, self.timeout = cwd, timeout
         self.bash = os.environ.get("HARNESS_BASH") or (GIT_BASH if os.name == "nt" else shutil.which("bash"))
         keep = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "HOME", "USERPROFILE", "LANG")
-        self.env = {k: os.environ[k] for k in keep if k in os.environ} | {"PYTHONIOENCODING": "utf-8", "PAGER": "cat", "GIT_PAGER": "cat"}
+        self.env = {k: os.environ[k] for k in keep if k in os.environ} | {"PYTHONIOENCODING": "utf-8", "PAGER": "cat", "GIT_PAGER": "cat",
+                                                                       "TERM": "dumb", "EDITOR": "false", "VISUAL": "false"}
         self.denied: list[str] = []
 
     def execute(self, action: dict, cwd: str = "", *, timeout: int | None = None) -> dict:
@@ -78,12 +97,19 @@ class SandboxedBashEnvironment:
             if re.search(pattern, command, flags=re.MULTILINE):
                 self.denied.append(reason)
                 return {"output": f"Permission denied by the harness policy ({reason}).", "returncode": 126, "exception_info": ""}
+        # No stdin (an interactive `vim` or `less` fails at once instead of waiting forever), and on a timeout the whole
+        # process tree is killed: killing only bash leaves a `find /` or `vim` child alive holding the output pipe open.
+        # python3 does not exist on Windows (only a Store shortcut), and models type it by habit
+        prelude = 'python3() { python "$@"; }; ' if os.name == "nt" else ""
+        p = subprocess.Popen([self.bash, "-c", prelude + command], cwd=self.cwd, env=self.env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                             **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}))
         try:
-            p = subprocess.run([self.bash, "-c", command], cwd=self.cwd, env=self.env, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=timeout or self.timeout)
-            out = {"output": (p.stdout + p.stderr)[-8000:], "returncode": p.returncode, "exception_info": ""}
+            stdout, _ = p.communicate(timeout=timeout or self.timeout)
+            out = {"output": stdout[-8000:], "returncode": p.returncode, "exception_info": ""}
         except subprocess.TimeoutExpired:
-            out = {"output": "", "returncode": -1, "exception_info": f"The command timed out after {self.timeout}s."}
+            kill_tree(p)
+            out = {"output": "", "returncode": -1, "exception_info": f"The command timed out after {timeout or self.timeout}s and was killed."}
         lines = out["output"].lstrip().splitlines(keepends=True)
         if lines and lines[0].strip() == "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT" and out["returncode"] == 0:
             submission = "".join(lines[1:])
@@ -105,9 +131,28 @@ class ModernEnvironment(ModernEnvironmentMixin, SandboxedBashEnvironment):
         self.setup_modern(features)
 
 
+def workspace_context(task_dir: str, max_files: int = 200) -> str:
+    """What every current harness tells the model before the first step (Claude Code's environment block, Codex's
+    workspace context): where it is, which files exist and how to run things. Without it, a capable model starts by
+    searching the disk for the files (`find / -name ...`), which wastes steps and leaves the task folder."""
+    files = sorted(p for p in Path(task_dir).rglob("*") if p.is_file() and not any(part.startswith((".", "__pycache__")) for part in p.relative_to(task_dir).parts)
+                   and not p.name.startswith("_trajectory"))
+    listing = []
+    for p in files[:max_files]:
+        try:
+            n = sum(1 for _ in p.open(encoding="utf-8", errors="replace"))
+        except OSError:
+            n = 0
+        listing.append(f"  {p.relative_to(task_dir).as_posix()} ({n} lines)")
+    more = f"\n  ... and {len(files) - max_files} more" if len(files) > max_files else ""
+    return ("Workspace: your shell already starts in the root folder of this repository, and every file of the task is in it. "
+            "Work only inside this folder (use relative paths; there is no need to search the rest of the disk). "
+            "Run Python as `python` and the tests as `python -m pytest -q`. Files:\n" + "\n".join(listing) + more)
+
+
 def run(task_dir: str, model: str, out_json: str, steps: int = 20, agents_md: bool = False,
         temperature: float = 0.0, seed: int = 0, profile: str = "baseline", features=ALL_FEATURES,
-        max_tokens: int = 1024, wall: int = 300) -> dict:
+        max_tokens: int = 4096, wall: int = 300) -> dict:
     features = set(features) if profile == "modern" else set()
     tools = "tools" in features
     cfg = yaml.safe_load((resources.files("minisweagent.config") / ("mini.yaml" if tools else "mini_textbased.yaml")).read_text(encoding="utf-8"))
@@ -115,7 +160,7 @@ def run(task_dir: str, model: str, out_json: str, steps: int = 20, agents_md: bo
     if tools:
         agent_cfg |= {"system_template": SYSTEM, "instance_template": INSTANCE}
     api = model.split("/", 1)[0] in API_PROVIDERS
-    kwargs = {"temperature": temperature, "seed": seed, "max_tokens": max_tokens, "timeout": 120}   # cap each reply: small models can ramble forever
+    kwargs = {"temperature": temperature, "seed": seed, "max_tokens": max_tokens, "timeout": 120}   # cap each reply; reasoning models spend part of it thinking, so keep it at a few thousand
     if not api:
         kwargs |= {"api_base": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"), "num_ctx": 16384}
     model_cfg = cfg.get("model", {}) | {"model_name": model if api else f"ollama_chat/{model}",
@@ -123,6 +168,14 @@ def run(task_dir: str, model: str, out_json: str, steps: int = 20, agents_md: bo
     task = Path(task_dir, "TASK.md").read_text(encoding="utf-8")
     if agents_md and Path(task_dir, "AGENTS.md").exists():
         task += "\n\nProject instructions (from AGENTS.md):\n" + Path(task_dir, "AGENTS.md").read_text(encoding="utf-8")
+    task += "\n\n" + workspace_context(task_dir)
+    # Current Claude models check that the history before each of their thinking blocks was not edited ("preserved
+    # thinking"): masking old tool outputs edits it, and the API answers 400 ("Invalid signature in thinking block").
+    # For them the history must stay append-only; the provider's server-side context editing or compaction does the
+    # masking's job instead. So client-side masking is skipped for Anthropic models, and the stats say so.
+    mask_skipped = "mask" in features and model.startswith("anthropic/")
+    if mask_skipped:
+        features.discard("mask")
     env = ModernEnvironment(task_dir, features) if profile == "modern" else SandboxedBashEnvironment(task_dir)
     lm = ModernModel(mask_keep=6 if "mask" in features else None, **model_cfg) if tools else PacedTextbasedModel(**model_cfg)
     agent = DefaultAgent(lm, env, **agent_cfg)
@@ -137,7 +190,7 @@ def run(task_dir: str, model: str, out_json: str, steps: int = 20, agents_md: bo
     stats = {
         "exit_status": result.get("exit_status"), "steps": agent.n_calls, "seconds": round(time.time() - t0, 1),
         "format_errors": sum(1 for m in msgs if m.get("role") == "user" and ("EXACTLY ONE action" in text(m) or "No tool call found" in text(m))),
-        "denied": env.denied, "profile": profile, "features": sorted(features),
+        "denied": env.denied, "profile": profile, "features": sorted(features), "mask_skipped": mask_skipped,
         "gate_rejections": getattr(env, "rejections", 0),
         "loop_warnings": sum(1 for m in msgs if "[harness] You have made this exact call" in text(m)),
         "prompt_tokens": sum(u.get("prompt_tokens", 0) or 0 for u in usage),
@@ -158,7 +211,7 @@ if __name__ == "__main__":
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--profile", choices=["baseline", "modern"], default="baseline")
     p.add_argument("--features", default=",".join(ALL_FEATURES), help="modern profile: a comma-separated subset of " + ",".join(ALL_FEATURES))
-    p.add_argument("--max-tokens", type=int, default=1024)
+    p.add_argument("--max-tokens", type=int, default=4096)
     p.add_argument("--wall", type=int, default=300, help="wall-time limit per run, in seconds")
     a = p.parse_args()
     feats = [f for f in a.features.split(",") if f]
