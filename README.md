@@ -6,7 +6,7 @@
 
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![pytorch](https://img.shields.io/badge/PyTorch-2.3%2B-ee4c2c) ![hf](https://img.shields.io/badge/HF-transformers%20·%20peft%20·%20trl-yellow) ![langchain](https://img.shields.io/badge/LangChain-LangGraph%20·%20LangSmith-1c3c3c) ![mcp](https://img.shields.io/badge/MCP-official%20SDK-6b4fbb) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-- **31 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
+- **32 notebooks** grouped by topic, all executed with their outputs, plots and an evaluation section
 - **Runs on your own laptop**: local models through [Ollama](https://ollama.com) (`qwen2.5:3b`, `nomic-embed-text`) and Hugging Face SmolLM2; an NVIDIA GPU makes it fast, CPU also works. No API keys required (LangSmith is optional and free; an optional Anthropic key runs notebook 27's agent on Claude Haiku 5.5, about US$ 0.42 per full run, instead of a much slower local model).
 - **Honest results**: when a technique does not help in our setup, the notebook shows it and explains why
 - **Tested**: fast tests with fake LLMs in CI on every push, integration tests against the local models
@@ -52,6 +52,7 @@ The number is the suggested study order; the folder is the topic.
 | **LLMOps** | [28 · observability & evaluation](notebooks/06_llmops/28_observability_llmops.ipynb) | tracing, latency percentiles, SLOs, feedback, PII anonymization, datasets + `evaluate()` | LangSmith |
 | | [29 · evaluation & tracing frameworks](notebooks/06_llmops/29_eval_and_tracing_frameworks.ipynb) | notebook 15's GSM8K evaluation as an Inspect AI task (solvers, scorers, epochs, logs); OpenTelemetry tracing to a self-hosted Phoenix server: latency and tokens per step, annotations on traces, tracing overhead | Inspect AI, Arize Phoenix, OpenInference |
 | | [30 · safety & guardrails](notebooks/06_llmops/30_safety_guardrails.ipynb) | refusals vs over-refusal, published jailbreaks, Llama Guard 3 as an input filter, safety prompts, layered defences, validated judges | Ollama, Llama Guard 3 |
+| **Capstone** | [31 · a reasoning model from scratch (mini-R1)](notebooks/07_capstone/31_mini_r1_capstone.ipynb) | the whole R1 recipe on the course's own 1.6M-parameter model: pretraining on a verifiable task, R1-Zero (GRPO written by hand, straight from the base), an SFT cold start, R1 (SFT then GRPO), a same-budget SFT control, accuracy by chain length | PyTorch (from scratch) |
 
 Detailed notebook-by-notebook guide: [English](docs/en/notebooks_guide.md) · [Español](docs/es/guia_notebooks.md).
 
@@ -75,7 +76,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 13 · distillation | a 360M teacher (87.5%) labels 600 extra prompts; the 135M student rises from 35% to **55%** |
 | 13 · model merging | two LoRA adapters with nearly orthogonal task vectors (cosine 0.01): task arithmetic keeps the booking task at 32.5% and converts times at **90%** (specialist 97.5%) with no training; `linear`, TIES and DARE do worse; multi-task training beats every merge (55% + 97.5%) |
 | 14 · DPO & GRPO | plain DPO wins its training metric but **drops exact match from 30% to 7.5%** (likelihood displacement); DPO + NLL holds 32.5%. **GRPO lifts arithmetic from 5% to 46% in 40 steps** with no labels, only a verifier |
-| 15 · reasoning (GSM8K, `qwen2.5:3b`) | chain of thought lifts accuracy **12.5% → 85%**; self-consistency with 5 votes **90%** at 5× the tokens; best-of-5 with a 7B judge (85%) does **worse than the vote**; DeepSeek-R1-Distill 1.5B 63.7% with 16/80 answers cut off; a pairwise judge agrees with itself only 43% when the order is swapped |
+| 15 · reasoning (GSM8K, `qwen2.5:3b`) | chain of thought lifts accuracy **12.5% → 85%**; self-consistency with 5 votes adds **nothing measurable** (85%) at 5× the tokens; best-of-5 with a 7B judge (80%) does **worse than the vote**; DeepSeek-R1-Distill 1.5B 63.7% with 16/80 answers cut off; a pairwise judge agrees with itself only 47% when the order is swapped; on Claude Haiku 5.5, `effort` low→max goes 92.5% → 98.8% for 4× the tokens, mostly a cost dial |
 | 16 · tool calling | 79% tool selection and 86% valid arguments on 14 labelled requests; `function_calling` / `json_mode` 98% field accuracy vs 85% for `json_schema` on Ollama |
 | 17 · embeddings & rerankers (SciFact) | fine-tuning MiniLM for **22 s** on 919 labelled pairs with BM25 hard negatives lifts nDCG@10 **0.648 → 0.762**, above bge-small (0.706) and nomic (0.708), with no loss on another domain; Matryoshka keeps 0.646 at 64 dims vs 0.589; binary codes + int8 rescoring match float32 (0.760 vs 0.762) in 32× less memory; general rerankers did not beat the fine-tuned bi-encoder |
 | 18 · RAG + RAGAS | hybrid BM25 + dense retrieval: **evidence MRR 0.84** vs 0.73 dense-only. RAGAS with a 7B judge and bootstrap intervals: the one clear gain is **context precision 0.79 → 0.92**; the faithfulness "gain" a 3B judge reported (0.38 → 0.54) was the judge's noise |
@@ -91,6 +92,7 @@ Measured in the executed notebooks on a laptop with an RTX 3060 (6 GB). Models a
 | 28 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback surfaced a real tool-prompt bug |
 | 29 · Inspect AI + Phoenix | Inspect reproduces notebook 15's GSM8K result exactly (**85.0%**); its built-in `match` scorer on the same generations gives 80.0% (−5 points, all four disagreements `\boxed{}` answers); three sampled epochs land at 80.0–82.5%; Phoenix traces show the LLM call is the whole latency (p50 3.6 s, every other step < 1 ms), and tracing costs **2.5 ms per request** (0.07% of an LLM call) |
 | 30 · safety (JailbreakBench, XSTest) | `qwen2.5:3b` refuses 89% of harmful requests but over-refuses 17% of safe ones (7B: 5%); **prefix injection lifts attack success from 4% to 64%**; Llama Guard 3 1B catches 95–100% of harmful requests, disguised or not, but blocks 8–22% of safe ones; a 7B LLM judge agreed with humans only 70% vs 90% for a keyword judge |
+| 31 · mini-R1 capstone (1.6M from-scratch model, mod-10 operation chains) | with only a verifier, GRPO from the base (R1-Zero) lifts accuracy **69.4% → 99.8%** (+30.4 points [+27.7, +33.1]) and the share of samples that reason from 11% to 67%; it learns to skip the steps on one-operation chains (0%) and reason on ~80% from four operations. The base, made to reason, already scored 99.9%: **RL elicited a skill pretraining put there**. A 300-example SFT cold start, R1 and a same-budget SFT control all reach 100.0%; with a weaker base (earlier run) R1 beat the control by +9.9 points. On 8–10 operations, longer than any in training, every model scores 14.8–22.6%, the base highest (no length generalization) |
 
 ## Quick start
 
@@ -128,9 +130,9 @@ Switching the whole course to a hosted model is a `.env` change (`LLM_PROVIDER=o
 
 ```
 llm-edu-suite/
-├── notebooks/                 31 notebooks, one folder per topic
+├── notebooks/                 32 notebooks, one folder per topic
 │   ├── 00_start_here/  01_architecture/  02_pretraining_and_inference/
-│   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/
+│   └── 03_post_training/  04_applications/  05_agents_and_mcp/  06_llmops/  07_capstone/
 ├── llm_edu_suite/             the from-scratch model (tokenizer, layers, model, training, inference, recsys,
 │                              evaluation) + config.py, the one place where models and services are chosen
 ├── scripts/                   mini_llm, train, sample, finetune (TRL), rag_demo (LangChain), mcp_server (FastMCP),
@@ -158,6 +160,7 @@ The notebooks are lessons: small data, one machine, measured results. The patter
 | **Applications** (16–24) | RAG over internal docs, structured extraction, search and recommendations, clustering user feedback, prompt optimization | your corpus, chunking and an evaluation set built from real questions; a reranker before a bigger LLM; schema-validated outputs; drift monitors (24) on inputs and outputs; e.g. point 18 at your wiki instead of the course docs in `data/knowledge_base/`, write 20–50 real questions, and keep the same retrieval and RAGAS metrics |
 | **Agents and MCP** (25–27) | internal assistants that act (tickets, queries), tools exposed over MCP, coding agents | least-privilege tools, human approval for anything that writes or leaves the machine, step/cost/time limits, a sandbox, and an `AGENTS.md`; evaluate with hidden tests and several runs per task (27) |
 | **LLMOps** (28–30) | tracing every request, evaluations in CI, guardrails | send traces to a backend you control (Phoenix, Langfuse, LangSmith); pin the scorer and report confidence intervals (29); measure over-refusal as well as refusals (30); alert on latency, error rate and score drift |
+| **Capstone** (31) | deciding whether RL with verifiable rewards is worth it for a task (math, code, structured output), and how to set it up | check pass@k on the base first (no successes, no signal); start with a small SFT cold start; compare RL against a same-budget SFT control; track the share of groups with no signal and filter problems by difficulty; evaluate by length and difficulty, beyond the training range; at scale use TRL's `GRPOTrainer`, verl or OpenRLHF |
 
 **Cross-cutting, for any of them.**
 - **Models.** The local defaults (`qwen2.5:3b`, SmolLM2) are chosen for a 6 GB GPU. In production pick by measured quality on *your* evaluation set, then by cost and latency. Switching provider is a `.env` change (`LLM_PROVIDER`, `LLM_MODEL`, `HARNESS_MODEL`).
@@ -206,15 +209,16 @@ Review what the agent changes, run the tests, and read the outputs before trusti
 | [v2.9](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.9) | Ecosystem and foundations: transformers big picture (00), DSPy prompt optimization (20), Inspect AI + Phoenix (29); *Results* / *In production* closings on notebooks 01–05, 08, 10, 11, 13, 14, 16, 18, 19, 23, 25 and 28. |
 | [v2.10](https://github.com/ZoodiacR/llm-edu-suite/tree/v2.10) | Agent harness on Claude Haiku 5.5: 16 tasks × 3 runs, workspace context, process-tree kill, verify-gate fix, preserved-thinking note; 366 runs for US$ 0.42. |
 | v2.11 | Notebooks renumbered in study order (00–30); a closing *From notebook to production* guide per topic; `AGENTS.md` and prompts for working on the repo with a coding agent. |
+| v2.12 | mini-R1 capstone (notebook 31): pretraining, R1-Zero, cold start, R1 and a same-budget SFT control on the from-scratch model; Claude `effort` section in notebook 15, and notebook 15 re-run. |
 
 ## Roadmap
 
 Everything the previous roadmap listed has shipped: reasoning at inference time (v2.4, notebook 15), fine-tuned embeddings and rerankers (v2.5, notebook 17) and a serving benchmark under load (v2.6, notebook 12). Since then the course has added safety, multimodal models, clustering, drift, the agent harness and the ecosystem notebooks (DSPy, Inspect AI and Phoenix, the transformer big picture); the [Versions](#versions) table has the details.
 
-What comes next:
+Both items it listed next have shipped in v2.12:
 
-- **A reasoning model end to end, from scratch.** The course covers each piece of how R1-style reasoning models are made (SFT and distillation in 13, RL with a verifier in 14, test-time compute and a distilled reasoning model in 15), but never the whole recipe on one model. The next step is a *mini-R1*: the from-scratch mini LLM of notebook 01 pretrained on a verifiable task, a short SFT on step-by-step solutions, then GRPO written from scratch with an exact-answer reward, measuring accuracy, reasoning length and generalization before and after RL.
-- **Reasoning effort on an API model.** Notebook 15 measured on GSM8K with local models; the same problems at several `effort` levels of Claude Haiku 5.5 would show the production side of the same trade-off (accuracy, thinking tokens, latency, cost).
+- **A reasoning model end to end, from scratch** (notebook 31, done). The mini-R1 capstone runs the whole recipe on the course's from-scratch model: pretraining on a verifiable task, R1-Zero, an SFT cold start, R1 and a same-budget SFT control, with GRPO written by hand, measuring accuracy, reasoning share, answer length and accuracy by chain length.
+- **Reasoning effort on an API model** (notebook 15, section 7, done). The same GSM8K problems at several `effort` levels of Claude Haiku 5.5: 92.5% → 98.8% from low to max for 4× the tokens, mostly a cost dial.
 
 ## Documentation
 

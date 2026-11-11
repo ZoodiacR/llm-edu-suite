@@ -4,7 +4,7 @@ Instructions for coding agents (Claude Code, Codex CLI, opencode, Cursor...) wor
 
 ## What this repo is
 
-An LLM engineering course: 31 notebooks numbered in study order (`notebooks/<topic>/NN_<slug>.ipynb`), the course package `llm_edu_suite/`, command-line scripts in `scripts/`, and bilingual docs (`docs/en`, `docs/es`). Every number in a notebook or a doc comes from an executed run.
+An LLM engineering course: 32 notebooks numbered in study order (`notebooks/<topic>/NN_<slug>.ipynb`), the course package `llm_edu_suite/`, command-line scripts in `scripts/`, and bilingual docs (`docs/en`, `docs/es`). Every number in a notebook or a doc comes from an executed run.
 
 ## Commands
 

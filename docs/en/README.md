@@ -31,7 +31,9 @@ Notebook 27 (agent harnesses) follows MCP (26): it opens up the layer that turns
 
 Notebook 29 (evaluation and tracing frameworks) follows LangSmith (28): it puts the same ideas on open-source infrastructure that runs on the laptop. It reproduces notebook 15's GSM8K result as an Inspect AI task, measures how much the scorer and sampling epochs change the number, and traces a LangChain pipeline over OpenTelemetry to a self-hosted Phoenix server, reading latency and tokens per step back from the trace store, writing evaluations onto the traces as annotations and measuring what tracing costs.
 
-Notebook 30 (safety and guardrails) closes the course after observability (28 and 29): observability tells you what the system did; this notebook is about what it should and should not do. With `qwen2.5:3b` and `qwen2.5:7b` on public benchmarks (JailbreakBench and XSTest) it measures both sides of safety, harmful requests refused and safe requests wrongly refused, then three published jailbreak templates, Llama Guard 3 (1B) as an input filter, a safety system prompt and the layers combined, after validating its refusal judge against human labels.
+Notebook 30 (safety and guardrails) closes the LLMOps topic after observability (28 and 29): observability tells you what the system did; this notebook is about what it should and should not do. With `qwen2.5:3b` and `qwen2.5:7b` on public benchmarks (JailbreakBench and XSTest) it measures both sides of safety, harmful requests refused and safe requests wrongly refused, then three published jailbreak templates, Llama Guard 3 (1B) as an input filter, a safety system prompt and the layers combined, after validating its refusal judge against human labels.
+
+Notebook 31 (the mini-R1 capstone) is read last, because it puts together 01 and 08 (the from-scratch model and its pretraining), 13 (SFT), 14 (GRPO) and 15 (reasoning) on one model. The course's own `TransformerLM`, with 1.6M parameters, is pretrained on chains of operations modulo 10 that a five-line verifier can check, and then goes through the R1 recipe: R1-Zero (GRPO written by hand, straight from the base), an SFT cold start on 300 worked solutions, R1 (SFT, then GRPO) and a control that spends the same steps on more SFT. It measures accuracy with 95% intervals, how often the model chooses to reason and how long its answers get during RL, and accuracy by chain length, including chains longer than any seen in training.
 
 Everything runs locally: **Ollama** serves the LLMs (`qwen2.5:3b` and `nomic-embed-text`) and the training models are Hugging Face SmolLM2. An NVIDIA GPU makes it fast (the published results were measured on an RTX 3060, 6 GB); CPU works too, except for notebook 09, which needs a CUDA GPU. LangSmith is optional.
 
@@ -40,7 +42,7 @@ Everything runs locally: **Ollama** serves the LLMs (`qwen2.5:3b` and `nomic-emb
 | Page | What it is for |
 |---|---|
 | [Installation and environment](installation.md) | `.venv`, CUDA PyTorch, Ollama and its models, the `.env`, the LangSmith key, troubleshooting |
-| [Notebook guide](notebooks_guide.md) | the 31 notebooks one by one: what you build, with which tools, which concepts and which results |
+| [Notebook guide](notebooks_guide.md) | the 32 notebooks one by one: what you build, with which tools, which concepts and which results |
 | [Theoretical foundations](foundations.md) | the theory behind each technique and pattern: the problem it solves, the idea, why it is used today, how it fails |
 | [Module reference](module_reference.md) | the `llm_edu_suite/` package (the from-scratch model and `config.py`) and where each topic is taught with frameworks |
 | [Command-line scripts](cli_scripts.md) | `mini_llm`, `train`, `sample`, `finetune` (TRL), `rag_demo` (LangChain), `mcp_server` (FastMCP), `harness_run` (mini-swe-agent), `inspect_tasks/gsm8k_cot` (Inspect AI) |
@@ -58,6 +60,7 @@ Everything runs locally: **Ollama** serves the LLMs (`qwen2.5:3b` and `nomic-emb
 | Applications | `notebooks/04_applications/` | 16 tools and structured output · 17 embeddings and rerankers · 18 RAG · 19 application patterns · 20 prompt optimization with DSPy (signatures, kNN few-shot, MIPROv2, GEPA) · 21 clustering and topic modeling (UMAP, HDBSCAN, c-TF-IDF) · 22 multimodal models (CLIP, VLMs, document extraction) · 23 recommendation · 24 online learning and drift | LangChain · RAGAS · PyTorch · `sentence-transformers` (17, 20, 21) · DSPy (20) · `umap-learn` and `scikit-learn` (21) · CLIP with `transformers` and `qwen2.5vl:3b` through Ollama (22) |
 | Agents and MCP | `notebooks/05_agents_and_mcp/` | 25 agentic AI · 26 MCP · 27 agent harnesses (mini-swe-agent, coding tasks, `AGENTS.md`) | LangGraph · `mcp` SDK · mini-swe-agent with Claude Haiku 5.5 or Ollama (27) |
 | LLMOps | `notebooks/06_llmops/` | 28 observability and evaluation · 29 evaluation and tracing frameworks (Inspect AI, Phoenix) · 30 safety: refusals, jailbreaks and guard models | LangSmith · Inspect AI and Arize Phoenix on OpenTelemetry (29) · Llama Guard 3 through Ollama (30) |
+| Capstone | `notebooks/07_capstone/` | 31 a reasoning model from scratch (mini-R1): pretraining, R1-Zero, cold start, R1 and a same-budget SFT control | PyTorch from scratch (GRPO written by hand) |
 
 ```mermaid
 flowchart LR
@@ -89,6 +92,7 @@ flowchart LR
     M --> O["28 LangSmith"]
     O --> PH["29 Inspect AI + Phoenix<br/>tasks · scorers · OpenTelemetry"]
     O --> U["30 Safety<br/>jailbreaks · over-refusal · Llama Guard"]
+    R --> CAP["31 Capstone: mini-R1<br/>pretraining · R1-Zero · cold start · GRPO"]
 ```
 
 ## Suggested learning path
@@ -99,6 +103,7 @@ flowchart LR
 3. **Post-training with Hugging Face:** 13 → 14 → 15. After 15 you should know what reasoning tokens buy, when voting or a verifier is worth its cost, and how to tell whether a judge can be trusted.
 4. **Applications with LangChain:** 16 → 17 → 18 → 19 → 20 → 21 → 22 → 23 → 24. After 17 you should know how to choose, fine-tune, compress and evaluate a retriever before putting it into RAG. After 20 you should know how to write an LLM step as a signature instead of a prompt, why the examples you put in a prompt matter more than its wording, what prompt optimizers search and when they cannot help, and why a non-LLM baseline and a cascade come before any of them. After 21 you should know how to find the topics in unlabeled logs, why the number of clusters is a choice rather than a discovery, and how to watch for new intents. After 22 you should know when to classify images with embeddings and when a VLM is worth its cost, what an image costs in tokens, and why text inside an image is untrusted input. After 24 you should know why a model that worked last month may not work now, how to evaluate it on a stream, and why watching input distributions alone can miss the drift that matters. Golden rule: **build your evaluation set before the system**.
 5. **Agents and LLMOps:** 25 → 26 → 27, then 28, to see how everything is observed and evaluated in production, then 29 and 30. After 27 you should know what a coding agent's harness does besides calling the model, why an agent's own "done" needs hidden tests behind it, and why the defence against instructions hidden in a repository belongs in the harness. After 29 you should know how to define an evaluation as code (dataset, solver, scorer, epochs), why a framework has to reproduce your trusted number before you adopt it, why the scorer is part of the metric, and how OpenTelemetry traces, spans and annotations give you per-step latency, tokens and searchable failures on your own machine. After 30 you should know how to measure a model's refusals and its over-refusals, why a model's own refusals are not enough of a defence, and what a guard model costs in false positives.
+6. **Capstone:** 31, after 13 → 14 → 15 (and 01 and 08, whose model and training loop it reuses). After 31 you should know how a reasoning model is made, end to end, why RL with only a verifier can make a model start reasoning on its own (and why that mostly brings out a skill pretraining put there), what a cold start buys, why an RL result needs a same-budget SFT control next to it, and why reasoning learned on short problems does not carry over to longer ones by itself.
 
 ## From notebook to production
 
@@ -112,6 +117,7 @@ The notebooks are lessons: small data, one machine, measured results. The patter
 | **Applications** (16–24) | RAG over internal docs, structured extraction, search and recommendations, clustering user feedback, prompt optimization | your corpus, chunking and an evaluation set built from real questions; a reranker before a bigger LLM; schema-validated outputs; drift monitors (24) on inputs and outputs; e.g. point 18 at your wiki instead of the course docs in `data/knowledge_base/`, write 20–50 real questions, and keep the same retrieval and RAGAS metrics |
 | **Agents and MCP** (25–27) | internal assistants that act (tickets, queries), tools exposed over MCP, coding agents | least-privilege tools, human approval for anything that writes or leaves the machine, step/cost/time limits, a sandbox, and an `AGENTS.md`; evaluate with hidden tests and several runs per task (27) |
 | **LLMOps** (28–30) | tracing every request, evaluations in CI, guardrails | send traces to a backend you control (Phoenix, Langfuse, LangSmith); pin the scorer and report confidence intervals (29); measure over-refusal as well as refusals (30); alert on latency, error rate and score drift |
+| **Capstone** (31) | deciding whether RL with verifiable rewards is worth it for a task (math, code, structured output), and how to set it up | check pass@k on the base first (no successes, no signal); start with a small SFT cold start; compare RL against a same-budget SFT control; track the share of groups with no signal and filter problems by difficulty; evaluate by length and difficulty, beyond the training range; at scale use TRL's `GRPOTrainer`, verl or OpenRLHF |
 
 **Cross-cutting, for any of them.**
 - **Models.** The local defaults (`qwen2.5:3b`, SmolLM2) are chosen for a 6 GB GPU. In production pick by measured quality on *your* evaluation set, then by cost and latency. Switching provider is a `.env` change (`LLM_PROVIDER`, `LLM_MODEL`, `HARNESS_MODEL`).

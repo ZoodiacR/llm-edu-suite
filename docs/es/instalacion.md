@@ -4,7 +4,7 @@
 
 [← Volver al índice](README.md)
 
-Esta guía deja el proyecto listo para ejecutar **todo**: la suite de tests, los scripts de línea de comandos y los 31 notebooks.
+Esta guía deja el proyecto listo para ejecutar **todo**: la suite de tests, los scripts de línea de comandos y los 32 notebooks.
 
 El curso tiene dos mitades con necesidades distintas:
 

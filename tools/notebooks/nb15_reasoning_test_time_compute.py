@@ -109,7 +109,7 @@ for name, llm, system in (("direct", direct_llm, DIRECT), ("chain of thought", c
 print("\nA chain of thought:\n" + cot_texts[0][:600])
 ''')
 nb.md(r'''
-**What the numbers say.** The same 3B model goes from **12.5 % to 85.0 %** when it is allowed to write its reasoning, with intervals that do not come close to overlapping. The price is 246 output tokens instead of 3, and 3.63 s instead of 0.13 s per problem. The example shows why it works: each step writes an intermediate result (125, 175) that the next step reads back, which is exactly the serial computation a single forward pass cannot do. Asked for the number alone, the model has to do all of it "in its head", in a fixed number of layers, and mostly fails.
+**What the numbers say.** The same 3B model goes from **12.5 % to 85.0 %** when it is allowed to write its reasoning, with intervals that do not come close to overlapping. The price is 246 output tokens instead of 3, and 3.79 s instead of 0.18 s per problem. The example shows why it works: each step writes an intermediate result (125, 175) that the next step reads back, which is exactly the serial computation a single forward pass cannot do. Asked for the number alone, the model has to do all of it "in its head", in a fixed number of layers, and mostly fails.
 
 ## 2. Self-consistency: sample several paths, vote
 
@@ -144,9 +144,9 @@ ax.set_xlabel("samples per problem"); ax.set_ylabel("accuracy"); ax.set_ylim(0, 
 ax.set_title("more samples, more accuracy, up to a point"); plt.tight_layout(); plt.show()
 ''')
 nb.md(r'''
-**What the numbers say.** One sample at temperature 0.7 is a little worse than greedy decoding (78.8 % vs 85.0 %): sampling adds variety, and some of it is error. Voting recovers that and more: maj@5 reaches **90.0 %**, 5.0 points above greedy chain of thought (95 % interval [+0.0, +11.2], so a real but modest gain). It costs five times the tokens, about 1,274 per problem.
+**What the numbers say.** One sample at temperature 0.7 is worse than greedy decoding (80.0 % vs 85.0 %): sampling adds variety, and some of it is error. Voting only wins that back: maj@5 reaches **85.0 %**, the same as greedy chain of thought (difference +0.0 points, 95 % interval [−6.2, +6.2]). It costs five times the tokens, about 1,241 per problem. The ceiling is higher: pass@5 is 92.5 %, so for 6 of the 80 problems a right answer was among the samples, but in the minority. An earlier run of this notebook measured maj@5 at 90.0 %; with 80 problems, a 5-point gain is inside the noise, and this run shows it.
 
-pass@k tells you what a perfect judge could get out of the same samples: 91.2 % with 3 samples or more, barely above maj@5. On this set, voting already extracts almost everything there is to extract; when pass@k is far above maj@k, a good verifier is worth building.
+pass@k tells you what a perfect judge could get out of the same samples: 92.5 % with 5 samples, 7.5 points above maj@5. That gap is what a good verifier could win back; when pass@k is far above maj@k, a verifier is worth building, and section 3 tests one.
 
 ## 3. Best-of-N with a verifier
 
@@ -179,7 +179,7 @@ print(f"mean judge score for correct samples {scores[right].mean():.2f} vs wrong
 RES["best-of-5 with a 7B judge (40 problems)"] = dict(ok=bon, tokens=K * tok_per_sample, secs=K * secs + vsecs)
 ''')
 nb.md(r'''
-**What the numbers say.** The verifier made things worse: on the first 40 problems, best-of-5 with the 7B judge scored **85.0 %**, majority voting 90.0 %, and the pass@5 ceiling is also 90.0 %. The diagnosis is in the last line: the judge gives correct solutions an average of 7.30 and wrong ones 6.15, so it barely tells them apart, and when it picks the top score it often picks a fluent wrong solution over a correct one. All 200 verdicts were valid JSON (the bounded reasoning fixed the cut-off verdicts of an earlier run), so the problem is discrimination, not formatting. It was also the most expensive strategy, at 14.3 s of judging per problem on top of the sampling.
+**What the numbers say.** The verifier made things worse: on the first 40 problems, best-of-5 with the 7B judge scored **80.0 %**, majority voting 85.0 %, and the pass@5 ceiling is 92.5 %. The diagnosis is in the last line: the judge gives correct solutions an average of 7.14 and wrong ones 6.32, so it barely tells them apart, and when it picks the top score it often picks a fluent wrong solution over a correct one. All 200 verdicts were valid JSON (the bounded reasoning fixed the cut-off verdicts of an earlier run), so the problem is discrimination, not formatting. It was also the most expensive strategy, at 12.3 s of judging per problem on top of the sampling.
 
 This is the general rule for verifiers: **a verifier helps only if it discriminates better than the vote.** That is why production systems use trained reward models or, better, programmatic checks (unit tests, a calculator, a symbolic solver) instead of a general-purpose LLM asked to grade.
 
@@ -222,11 +222,11 @@ nb.md(r'''
 **What the numbers say.** On a log axis of tokens, the picture is a curve of diminishing returns:
 
 - the first 243 tokens of reasoning bought **72.5 points** (12.5 % → 85.0 %);
-- the next ~1,000 tokens of self-consistency bought 5 more (90.0 %);
-- the verifier spent the same tokens plus 14 s of judging and bought nothing;
+- the next ~1,000 tokens of self-consistency bought nothing measurable this time (85.0 %);
+- the verifier spent the same tokens plus 12 s of judging and lost 5 points;
 - the reasoning model spent 870 tokens for less than plain chain of thought.
 
-Test-time compute is real, but each step must be measured: the cheapest strategy that meets the quality target wins, and here that is one chain of thought, with voting if the extra points are worth 5× the cost.
+Test-time compute is real, but each step must be measured: the cheapest strategy that meets the quality target wins, and here that is one chain of thought; voting is worth trying only where a few points justify 5× the cost, and only after measuring that it gives them.
 
 ## 6. Comparative evaluation: a ranking from pairwise outcomes, and a judge's position bias
 
@@ -285,31 +285,117 @@ print(f"when consistent and exactly one solution is right, the judge picked the 
 nb.md(r'''
 **What the numbers say.**
 
-- **The Bradley-Terry ranking** separates the strategies clearly: self-consistency (+3.09), chain of thought (+1.14), R1-Distill (−0.58) and direct (−3.65), with bootstrap intervals that do not overlap between neighbours. The scores read as probabilities: on a problem where they differ, chain of thought beats R1-Distill 85 % of the time. Ranking from pairwise outcomes is how Chatbot Arena turns millions of votes into a leaderboard, and it works the same with right/wrong outcomes.
-- **The pairwise LLM judge is the cautionary tale.** All 30 pairs were judged in both orders, and the judge gave the *same* answer only **43 %** of the time; flipping the order flipped its verdict most of the time. It did not prefer one position overall (52 % of verdicts for A), so this is not a simple position bias: on these pairs its choice is mostly noise. When it was consistent and exactly one solution was right, it chose the right one 89 % of the time, but that was only 9 cases.
+- **The Bradley-Terry ranking** orders the strategies as self-consistency (+2.06 [+1.50, +3.44]), chain of thought (+1.58 [+0.60, +3.26]), R1-Distill (−0.25) and direct (−3.38). The top two intervals overlap, which agrees with section 2 (they tie on accuracy); the rest are clearly separated. The scores read as probabilities: on a problem where they differ, chain of thought beats R1-Distill 86 % of the time. Ranking from pairwise outcomes is how Chatbot Arena turns millions of votes into a leaderboard, and it works the same with right/wrong outcomes.
+- **The pairwise LLM judge is the cautionary tale.** All 30 pairs were judged in both orders, and the judge gave the *same* answer only **47 %** of the time; flipping the order flipped its verdict most of the time. It did not prefer one position overall (53 % of verdicts for A), so this is not a simple position bias: on these pairs its choice is mostly noise. When it was consistent and exactly one solution was right, it chose the right one 89 % of the time, but that was only 9 cases.
 
 Judging every pair in both orders, and counting only consistent verdicts, is the minimum standard for pairwise LLM evaluation, and here it shows the judge should not be trusted on this task without a stronger model or ground-truth checks.
 ''')
 
 nb.md(r'''
+## 7. Reasoning effort on an API model
+
+Sections 1–5 controlled reasoning from the outside: the prompt, the number of samples, the token limit. Current reasoning models expose the same trade-off as a **parameter**.
+- **Anthropic's `effort`** (`low` … `max`) sets how hard Claude thinks before answering; at `medium` and above the model writes a hidden reasoning block first.
+- **OpenAI's `reasoning_effort`** and **Gemini's thinking budget** play the same role.
+
+The model decides how much to think within that setting (adaptive thinking), and the thinking tokens are billed as output tokens.
+
+The same 80 problems with **Claude Haiku 5.5**, Anthropic's small and fast model, in six settings:
+1. **direct**: "final number only", thinking off. The API version of section 1's direct answer.
+2. **no thinking**: the chain-of-thought prompt, thinking off.
+3. **`effort` low, medium, high and max**: the same prompt, adaptive thinking on.
+
+This section needs an `ANTHROPIC_API_KEY` in `.env` (the whole section costs a few cents) and is skipped without one.
+''')
+nb.code(r'''
+from concurrent.futures import ThreadPoolExecutor
+from dotenv import load_dotenv
+load_dotenv(os.path.join(ROOT, ".env"))
+EFFORT_RES = {}
+API_MODEL = "claude-haiku-5-5"
+PRICE_IN, PRICE_OUT = 0.10, 0.50          # US$ per million input / output tokens (Anthropic's list price, November 2026)
+if os.environ.get("ANTHROPIC_API_KEY"):
+    import anthropic
+    client = anthropic.Anthropic(max_retries=4)
+    SETTINGS = {
+        "direct, thinking off": dict(prompt=DIRECT, output_config={"effort": "low"}, thinking={"type": "disabled"}),
+        "chain of thought, thinking off": dict(prompt=COT, output_config={"effort": "low"}, thinking={"type": "disabled"}),
+        "effort low": dict(prompt=COT, output_config={"effort": "low"}),
+        "effort medium": dict(prompt=COT, output_config={"effort": "medium"}),
+        "effort high": dict(prompt=COT, output_config={"effort": "high"}),
+        "effort max": dict(prompt=COT, output_config={"effort": "max"}),
+    }
+    def ask_claude(q, s):
+        t0 = time.time()
+        kw = {k: v for k, v in s.items() if k != "prompt"}
+        r = client.messages.create(model=API_MODEL, max_tokens=16000, system=s["prompt"], messages=[{"role": "user", "content": q}], **kw)
+        text = "".join(b.text for b in r.content if b.type == "text")
+        thought = any(b.type == "thinking" for b in r.content)
+        return text, r.usage.input_tokens, r.usage.output_tokens, time.time() - t0, thought, r.stop_reason
+    for name, s in SETTINGS.items():
+        with ThreadPoolExecutor(8) as pool:
+            outs = list(pool.map(lambda q: ask_claude(q, s), QUESTIONS))
+        ok = np.array([correct(final_number(o[0]), g) for o, g in zip(outs, GOLD)], dtype=float)
+        tin, tout = np.array([o[1] for o in outs]), np.array([o[2] for o in outs])
+        EFFORT_RES[name] = dict(ok=ok, tokens=float(tout.mean()), p90=float(np.percentile(tout, 90)), secs=float(np.mean([o[3] for o in outs])),
+                                thought=float(np.mean([o[4] for o in outs])), cut=int(sum(o[5] == "max_tokens" for o in outs)),
+                                cost=float((tin.sum() * PRICE_IN + tout.sum() * PRICE_OUT) / 1e6 / len(outs)))
+        m, lo, hi = bootstrap_ci(ok); r = EFFORT_RES[name]
+        print(f"{name:32s} accuracy {m:6.1%} [{lo:.1%}, {hi:.1%}] | output tokens {r['tokens']:6.0f} (p90 {r['p90']:5.0f}) "
+              f"| thinking block in {r['thought']:4.0%} | {r['secs']:4.1f} s | US$ {r['cost']:.5f} per problem | cut off: {r['cut']}")
+else:
+    print("no ANTHROPIC_API_KEY in .env: section skipped")
+''')
+nb.code(r'''
+if EFFORT_RES:
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+    names = list(EFFORT_RES)
+    for i, n in enumerate(names):
+        r = EFFORT_RES[n]; m, lo, hi = bootstrap_ci(r["ok"])
+        ax[0].errorbar(r["tokens"], m, yerr=[[m - lo], [hi - m]], fmt="o", capsize=3, label=n)
+    q3 = RES["chain of thought"]
+    ax[0].scatter([q3["tokens"]], [q3["ok"].mean()], marker="x", color="k", label="qwen2.5:3b, chain of thought (section 1)")
+    ax[0].set_xscale("log"); ax[0].set_xlabel("output tokens per problem (thinking included, log scale)"); ax[0].set_ylabel("accuracy")
+    ax[0].set_ylim(0, 1.05); ax[0].grid(alpha=.3); ax[0].legend(fontsize=7, loc="lower right"); ax[0].set_title("Claude Haiku 5.5: what each setting buys")
+    ax[1].bar(range(len(names)), [EFFORT_RES[n]["cost"] * 1000 for n in names], color="tab:blue")
+    ax[1].set_xticks(range(len(names)), [n.replace(", ", ",\n") for n in names], fontsize=7)
+    ax[1].set_ylabel("US$ per 1,000 problems"); ax[1].set_title("cost")
+    plt.tight_layout(); plt.show()
+''')
+nb.md(r'''
+**What the numbers say.**
+
+- **The big model barely needs the help on GSM8K.** The 3B model went from 12.5 % to 85.0 % with a chain of thought; Haiku 5.5 already gets **78.8 %** when told to give the number only. It did not quite obey: it averaged 56 output tokens, not 3, so some working leaked into the answer anyway.
+- **Writing the steps is still the largest lever:** the chain-of-thought prompt with thinking off reaches **95.0 %** with 162 tokens, in 1.5 s.
+- **`effort` controls how often the model thinks, not only how long.** A hidden thinking block appeared in 4 % of answers at `low`, 54 % at `medium` (the default), 98 % at `high` and 100 % at `max`. That is adaptive thinking at work: at lower settings the model skips thinking on problems it judges easy.
+- **Accuracy moves within noise until `max`:** low 92.5 %, medium and high 96.2 %, max **98.8 %** (1 miss in 80). The intervals all overlap; on 80 problems, none of these settings is measurably better than chain of thought with thinking off.
+- **Cost and latency grow with the setting:** 174 output tokens at `low` and 674 at `max` (4×), 1.7 s against 3.4 s. Even `max` costs US$0.35 per 1,000 problems at Haiku's price, and no answer hit the 16,000-token limit.
+
+So on an easy benchmark for this model, `effort` is mainly a cost and latency dial: the default is already near the ceiling, and `max` buys the last couple of points at 2.4 times the tokens of `medium`. The setting pays off on harder tasks (long agentic work, hard proofs, difficult code), and the way to find out is the same as everywhere in this notebook: measure on your own task.
+''')
+nb.md(r'''
 ## Results
 
 | strategy (qwen2.5:3b unless noted, 80 GSM8K problems) | accuracy [95% CI] | output tokens per problem | seconds per problem |
 |---|---|---|---|
-| direct answer | 12.5 % [6.2, 20.0] | 3 | 0.13 |
-| chain of thought (greedy) | **85.0 %** [77.5, 92.5] | 246 | 3.63 |
-| self-consistency, 5 samples (maj@5) | **90.0 %** [83.8, 96.2] | 1,274 | 19.05 |
-| best-of-5 with a 7B judge (first 40) | 85.0 % (majority 90.0 %, pass@5 90.0 %) | 1,274 + judging | 33.40 |
-| DeepSeek-R1-Distill 1.5B | 63.7 % [53.8, 73.8]; 16 hit the token limit | 870 | 7.73 |
-| Bradley-Terry ranking | self-consistency > chain of thought > R1-Distill > direct, non-overlapping intervals | | |
-| pairwise LLM judge, both orders | consistent on only 43 % of 30 pairs | | |
+| direct answer | 12.5 % [6.2, 20.0] | 3 | 0.18 |
+| chain of thought (greedy) | **85.0 %** [77.5, 92.5] | 246 | 3.79 |
+| self-consistency, 5 samples (maj@5) | 85.0 % [77.5, 92.5]; pass@5 92.5 % | 1,241 | 18.42 |
+| best-of-5 with a 7B judge (first 40) | 80.0 % (majority 85.0 %, pass@5 92.5 %) | 1,241 + judging | 30.71 |
+| DeepSeek-R1-Distill 1.5B | 63.7 % [53.8, 73.8]; 16 hit the token limit | 870 | 6.93 |
+| Bradley-Terry ranking | self-consistency ≈ chain of thought > R1-Distill > direct | | |
+| pairwise LLM judge, both orders | consistent on only 47 % of 30 pairs | | |
+| **Claude Haiku 5.5**, chain of thought, thinking off | 95.0 % [90.0, 98.8] | 162 | 1.5 |
+| Claude Haiku 5.5, `effort` medium (default) | 96.2 % [91.2, 100] | 281 | 1.9 |
+| Claude Haiku 5.5, `effort` max | **98.8 %** [96.2, 100] | 674 | 3.4 |
 
-What this establishes: reasoning tokens are the single largest lever (+72.5 points), parallel sampling adds a few points at linear cost, an LLM verifier helps only if it discriminates better than a vote (this one did not), and a small distilled reasoning model can lose to good prompting of a larger instruct model.
+What this establishes: reasoning tokens are the single largest lever (+72.5 points), parallel sampling did not add measurable accuracy here at 5× the cost, an LLM verifier helps only if it discriminates better than a vote (this one did not), a small distilled reasoning model can lose to good prompting of a larger instruct model, and on a frontier API model `effort` is a cost dial: every setting from no thinking to `max` lands within a few points on GSM8K, for 1.5–3.4 s and US$0.09–0.35 per 1,000 problems.
 
 ## In production
 
 **Choosing a strategy.**
 - Start with chain of thought, or a reasoning model with a capped thinking budget, and measure accuracy *and* tokens on your own task.
+- On an API model with an effort setting, start at the default and move down while accuracy holds on your eval set; raise it only for the tasks that measurably need it. Here, `effort` high cost more than medium for the same 96.2 %.
 - Add self-consistency only where the extra accuracy is worth $k$× the cost, typically offline jobs or high-value queries, and use `k` between 3 and 8.
 - Use best-of-N only with a verifier that has been shown to discriminate: unit tests for code, a calculator or solver for math, a schema validator for extraction, or a trained reward model.
 

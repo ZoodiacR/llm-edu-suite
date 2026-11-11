@@ -150,7 +150,7 @@ Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, 
 
 ## 10. Próximos pasos
 
-El curso está completo en su alcance previsto. Lo siguiente, como paso nuevo: un *mini-R1*, la receta completa de un modelo de razonamiento tipo R1 sobre el mini LLM hecho desde cero del notebook 01 (preentrenamiento en una tarea verificable, un SFT corto con soluciones paso a paso, GRPO escrito desde cero con una recompensa de respuesta exacta), y los niveles de `effort` de un modelo de API medidos sobre el GSM8K del notebook 15. Consulta la [hoja de ruta del README](../../README.md#roadmap) y las secciones 11–13 para lo que añadió cada versión.
+El curso está completo en su alcance previsto, y los dos pasos que anunciaba la versión anterior salieron en la v2.12: el proyecto final *mini-R1* (notebook 31), la receta completa de un modelo de razonamiento tipo R1 sobre el `TransformerLM` del curso hecho desde cero (preentrenamiento en una tarea verificable, R1-Zero, un arranque en frío con SFT, R1 y un control de SFT del mismo presupuesto, con GRPO escrito a mano), y los niveles de `effort` de Claude Haiku 5.5 medidos sobre el GSM8K del notebook 15 (sección 7 del 15). Consulta la [hoja de ruta del README](../../README.md#roadmap) y las secciones 11–13 para lo que añadió cada versión.
 
 ## 11. v2: de construirlo todo a usar las herramientas reales
 
@@ -234,7 +234,7 @@ Los LLMs pequeños no superan a los modelos colaborativos ordenando, pero son ex
 3. **Usar el LLM donde aporta, y decir dónde no.** En recomendación, el mismo modelo empeoró el ranking y mejoró claramente la comprensión de peticiones. El resultado útil es la tabla, no un "los LLMs ayudan" o "no ayudan".
 4. **Un intervalo cambia la conversación.** "+1,4 puntos [+0,7, +2,1]" se defiende; "0,307 frente a 0,293" a secas, no.
 
-## 13. v2.2–v2.11: de un curso a un plan de estudios completo
+## 13. v2.2–v2.12: de un curso a un plan de estudios completo
 
 **Por qué.** Después de la v2.1, el curso enseñaba bien el modelo y las aplicaciones principales, pero le faltaba lo siguiente con lo que se encuentra un ingeniero de LLMs en el trabajo: pesos reales, datos y sistemas a escala, razonamiento, servicio bajo carga, seguridad, entradas multimodales, modelos que envejecen y agentes que escriben código. Cada versión añadió una de esas áreas con las mismas reglas: resultados medidos, *Results* e *In production* al final de cada notebook, y los resultados negativos se quedan.
 
@@ -250,6 +250,7 @@ Los LLMs pequeños no superan a los modelos colaborativos ordenando, pero son ex
 | v2.9 | la visión general del transformer; DSPy; Inspect AI y Phoenix | un router por recuperación superó a todos los optimizadores de DSPy (0,922 frente a ≤ 0,558) con el 3 % de las llamadas al LLM; el scorer de serie de un framework movió GSM8K 5 puntos |
 | v2.10 | el harness con Claude Haiku 5.5, 16 tareas × 3 ejecuciones | 100 % resueltas por 0,42 US$; cinco bugs del harness encontrados leyendo trayectorias |
 | v2.11 | notebooks renumerados en orden de estudio; una guía de cierre *Del notebook a producción*; `AGENTS.md` | el número de un notebook es ahora su lugar en el curso |
+| v2.12 | el proyecto final mini-R1 (31); `effort` de Claude en el 15 | GRPO solo con un verificador subió el modelo hecho desde cero del 69,4 % al 99,8 %, pero el base obligado a razonar ya sacaba un 99,9 %: el RL sacó a la luz una habilidad que había puesto el preentrenamiento |
 
 **Lo que enseñó el harness de agentes (v2.8 → v2.10).** La primera versión ejecutaba tres modelos locales y medía sobre todo sus límites. Pasar el mismo harness a un modelo de API hizo visible al propio harness, porque todos los fallos que quedaban eran suyos:
 - **Sin contexto de trabajo:** el agente buscaba por todo el disco (`find /`).
@@ -262,9 +263,14 @@ Los cinco se encontraron leyendo trayectorias, no mirando la tasa de resueltas. 
 
 **La renumeración (v2.11).** Los notebooks estaban numerados en el orden en que se escribieron, así que el orden de estudio vivía en un mapa aparte. Renumerar 31 notebooks tocó nombres de archivo, carpetas, enlaces, cada referencia cruzada, la documentación en dos idiomas, el CI y los tests. La parte mecánica fue un script con modo de prueba. Aplicaba la misma reescritura a los generadores y a los notebooks ejecutados, así que las celdas de código quedaron idénticas y `--keep-outputs` conservó todas las salidas: no hubo que reejecutar ningún notebook. La parte de sentido (los "Next:", los rangos como "notebooks 07–16" que ya no forman un bloque) fue una revisión aparte. Esa revisión encontró lo que el script hizo mal: un patrón de listas había reescrito conteos que venían detrás de un número de notebook ("NB 20, 16 de 80 respuestas" había pasado a 26).
 
-**Lecciones de v2.2–v2.11**
+**El proyecto final mini-R1 (v2.12).** Hicieron falta tres diseños para dar con una tarea que valiera la pena entrenar. El primero, la suma, era demasiado fácil: el modelo base ya respondía bien el 98,4 % directamente, así que el razonamiento y el RL no tenían nada que aportar. El primer diseño con cadenas de operaciones daba una exactitud errática según la longitud de la cadena, porque cada paso tiene que encontrar su operando en el prompt a una distancia que depende de la longitud del prompt, y el modelo de 1,6M aprendía esa búsqueda de forma desigual; las index hints (una etiqueta en cada operación que los pasos repiten) lo empeoraron con ese tamaño. El diseño final mantuvo las cadenas y cambió el preentrenamiento (6.000 pasos, 10 % de soluciones desarrolladas). Por el camino aparecieron dos bugs. La generación por lotes rellenaba los prompts por la izquierda, pero el modelo solo había visto prompts en la posición 0; agrupar los prompts por longitud, para que nunca haya relleno delante de un prompt, lo arregló. Y las diferencias pareadas salieron primero con el signo cambiado, porque `paired_bootstrap_diff(a, b)` devuelve `b − a`; se detectó leyendo las salidas impresas junto a las exactitudes, no con un test. El hallazgo es más estrecho que el del paper de R1, y por eso más útil: el RL con un verificador sacó a la luz una habilidad que el base ya tenía (obligado a razonar, sacaba un 99,9 %), un arranque en frío con 300 ejemplos llegó al mismo 100,0 % mucho más barato, después de él al RL no le quedaba nada que aprender (el 88 % de los grupos no daba señal) y nada generalizó a cadenas más largas que las de entrenamiento (del 14,8 % al 22,6 % con 8–10 operaciones). Solo una ejecución anterior con un base más flojo separó los caminos: R1 superó en +9,9 puntos a un control de SFT del mismo presupuesto.
+
+**Lecciones de v2.2–v2.12**
 1. **Un bug del harness parece un fallo del modelo.** Con un modelo débil se culpa al modelo; con uno fuerte aparecen los bugs del propio harness. Lee trayectorias antes de ajustar nada.
 2. **Un control con falsos positivos es peor que ninguno.** Cuesta pasos y tokens y no le enseña nada al agente.
 3. **Un benchmark saturado deja de discriminar.** Cuando todo da 100 %, compara el costo o escribe tareas más difíciles.
 4. **Respeta el contrato de la API del modelo al que llamas.** Técnicas de los papers (enmascarar observaciones antiguas) pueden chocar con cómo un proveedor protege el razonamiento de sus modelos.
 5. **Un refactor mecánico necesita una revisión de sentido.** Un regex puede renombrar archivos sin riesgo; no puede saber que el "16" tras una coma era un conteo.
+6. **Antes del RL, comprueba lo que ya sabe hacer el base.** Forzar el formato de razonamiento en el base (una comprobación del tipo pass@k) mostró que la habilidad ya estaba; el RL cambió el hábito, no el conocimiento.
+7. **Un resultado de RL necesita al lado un control de SFT del mismo presupuesto.** Sin él, lo que se gana por entrenar más parece ganado gracias al verificador.
+8. **Lee las salidas, no solo los números de resumen.** El bug del relleno y el signo de las diferencias pareadas se encontraron mirando lo que escribía el modelo y lo que imprimía el código.

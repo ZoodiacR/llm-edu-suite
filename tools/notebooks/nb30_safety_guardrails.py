@@ -417,7 +417,7 @@ What this establishes: safety has two error rates, and every defence moves both.
 - Prefix and role-play attacks against models without an external guard.
 - Treating a system prompt as a security control.
 
-**Next:** this is the last notebook of the course. To see the same models served under concurrent load, go back to `12_serving_and_load.ipynb`.
+**Next:** `31_mini_r1_capstone.ipynb`, the capstone: the whole R1 recipe (pretraining, RL with a verifier, cold start) on the from-scratch model. To see the same models served under concurrent load, go back to `12_serving_and_load.ipynb`.
 ''')
 nb.save(notebook_path("30_safety_guardrails.ipynb"))
 print("30_safety_guardrails.ipynb written")

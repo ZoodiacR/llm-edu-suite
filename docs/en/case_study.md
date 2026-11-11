@@ -150,7 +150,7 @@ The notebooks "worked", but several results taught nothing or, worse, taught som
 
 ## 10. Next steps
 
-The course is complete in its planned scope. Next, as a new step: a *mini-R1*, the whole recipe of an R1-style reasoning model on the from-scratch mini LLM of notebook 01 (pretraining on a verifiable task, a short SFT on step-by-step solutions, GRPO written from scratch with an exact-answer reward), and the `effort` levels of an API model measured on notebook 15's GSM8K. See the [README roadmap](../../README.md#roadmap) and sections 11–13 below for what each version added.
+The course is complete in its planned scope, and the two steps the previous version listed have shipped in v2.12: the *mini-R1* capstone (notebook 31), the whole recipe of an R1-style reasoning model on the course's from-scratch `TransformerLM` (pretraining on a verifiable task, R1-Zero, an SFT cold start, R1 and a same-budget SFT control, with GRPO written by hand), and the `effort` levels of Claude Haiku 5.5 measured on notebook 15's GSM8K (section 7 of 15). See the [README roadmap](../../README.md#roadmap) and sections 11–13 below for what each version added.
 
 ## 11. v2: from building everything to using the real tools
 
@@ -234,7 +234,7 @@ Small LLMs do not beat collaborative models at ranking, but they are excellent a
 3. **Use the LLM where it adds value, and say where it does not.** In recommendation, the same model made ranking worse and clearly improved request understanding. The useful result is the table, not "LLMs help" or "LLMs do not help".
 4. **An interval changes the conversation.** "+1.4 points [+0.7, +2.1]" can be defended; a bare "0.307 against 0.293" cannot.
 
-## 13. v2.2–v2.11: from a course to a full curriculum
+## 13. v2.2–v2.12: from a course to a full curriculum
 
 **Why.** After v2.1 the course taught the model and the main applications well, but it skipped what a working LLM engineer meets next: real weights, data and systems at scale, reasoning, serving under load, safety, multimodal inputs, models that age, and agents that write code. Each version added one of those areas, with the same rules: measured results, *Results* and *In production* at the end of every notebook, and negative results kept in.
 
@@ -250,6 +250,7 @@ Small LLMs do not beat collaborative models at ranking, but they are excellent a
 | v2.9 | the transformer big picture; DSPy; Inspect AI and Phoenix | a retrieval router beat every DSPy optimizer (0.922 vs ≤ 0.558) with 3% of the LLM calls; a framework's built-in scorer moved GSM8K by 5 points |
 | v2.10 | the harness on Claude Haiku 5.5, 16 tasks × 3 runs | 100% solved for US$ 0.42; five harness bugs found by reading trajectories |
 | v2.11 | notebooks renumbered in study order; a closing *From notebook to production* guide; `AGENTS.md` | the number of a notebook is now its place in the course |
+| v2.12 | the mini-R1 capstone (31); Claude `effort` in 15 | GRPO with only a verifier lifted the from-scratch model from 69.4% to 99.8%, but the base made to reason already scored 99.9%: RL brought out a skill pretraining had put there |
 
 **What the agent harness taught (v2.8 → v2.10).** The first version ran three local models and measured mostly their limits. Moving the same harness to an API model made the harness itself visible, because every remaining failure was the harness's:
 - **No workspace context:** the agent searched the whole disk (`find /`).
@@ -262,9 +263,14 @@ All five were found by reading trajectories, not by looking at the solve rate. O
 
 **The renumbering (v2.11).** The notebooks had been numbered in the order they were written, so the study order lived in a separate map. Renumbering 31 notebooks touched file names, folders, links, every cross-reference, the docs in two languages, the CI and the tests. The mechanical part was a script with a dry run. It applied the same rewrite to generators and executed notebooks, so the code cells stayed identical and `--keep-outputs` kept every output: no notebook had to be re-run. The semantic part ("Next:" pointers, ranges like "notebooks 07–16" that no longer form a block) was a separate review pass. That pass found what the script got wrong: a list pattern had rewritten counts that followed a notebook number ("NB 20, 16 of 80 answers" had become 26).
 
-**Lessons from v2.2–v2.11**
+**The mini-R1 capstone (v2.12).** It took three designs to get a task worth training on. The first, addition, was too easy: the base model already answered 98.4% directly, so there was nothing for reasoning or RL to add. The first chain-of-operations design gave erratic accuracy by chain length, because each step has to find its operand in the prompt at a distance that depends on the prompt's length, and the 1.6M model learned that lookup unevenly; index hints (a label on each operation that the steps repeat) made it worse at this size. The final design kept the chains and changed the pretraining (6,000 steps, 10% worked solutions). Two bugs were caught along the way. Batched generation left-padded the prompts, but the model had only ever seen prompts at position 0; grouping the prompts by length, so no padding comes before a prompt, fixed it. And the paired differences first came out with the wrong sign, because `paired_bootstrap_diff(a, b)` returns `b − a`; it was caught by reading the printed outputs against the accuracies, not by a test. The finding is narrower than the R1 paper's, and more useful for that: RL with a verifier elicited a skill the base already had (made to reason, it scored 99.9%), a 300-example cold start got to the same 100.0% far more cheaply, after it RL had nothing left to learn (88% of the groups gave no signal), and nothing generalized to chains longer than the training ones (14.8–22.6% on 8–10 operations). Only an earlier run with a weaker base separated the routes: R1 beat a same-budget SFT control by +9.9 points.
+
+**Lessons from v2.2–v2.12**
 1. **A harness bug looks like a model failure.** With a weak model you blame the model; with a strong one the harness's own bugs show. Read trajectories before tuning anything.
 2. **A guard with false positives is worse than none.** It costs steps and tokens, and it teaches the agent nothing.
 3. **Saturated benchmarks stop discriminating.** When everything scores 100%, compare cost, or write harder tasks.
 4. **Respect the API contract of the model you call.** Techniques from papers (masking old observations) can collide with how a provider protects its models' reasoning.
 5. **Mechanical refactors need a semantic review.** A regex can rename files safely; it cannot know that "16" after a comma was a count.
+6. **Before RL, check what the base can already do.** Forcing the reasoning format on the base (a pass@k-style check) showed that the skill was there; RL changed the habit, not the knowledge.
+7. **An RL result needs a same-budget SFT control next to it.** Without it, a gain from training longer looks like a gain from the verifier.
+8. **Read the outputs, not only the summary numbers.** The padding bug and the sign of the paired differences were both found by looking at what the model wrote and what the code printed.

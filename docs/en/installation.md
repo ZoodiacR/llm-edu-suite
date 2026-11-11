@@ -4,7 +4,7 @@
 
 [← Back to the index](README.md)
 
-This guide gets the project ready to run **everything**: the test suite, the command-line scripts and the 31 notebooks.
+This guide gets the project ready to run **everything**: the test suite, the command-line scripts and the 32 notebooks.
 
 The course has two halves with different needs:
 
