@@ -15,12 +15,12 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    # the from-scratch model (notebooks 00-06)
+    # the from-scratch model (notebooks 01-05, 08, 10)
     "torch>=2.3",
     "numpy>=1.24",
     "matplotlib>=3.7",
     "python-dotenv>=1.0",
-    # LLM applications (notebooks 10-16)
+    # LLM applications (notebooks 16, 18, 19, 23, 25, 26, 28)
     "langchain>=1.4",
     "langchain-core>=1.7",
     "langchain-community>=0.4",
@@ -36,21 +36,21 @@ dependencies = [
     # retrieval and ranking
     "faiss-cpu>=1.8",
     "rank-bm25>=0.2",
-    "lightgbm>=4.5",                   # learning-to-rank (LambdaMART) for the recommender in notebook 12
-    "scikit-learn>=1.5",               # linear classifiers and metrics (notebook 17)
-    "sentence-transformers>=5.0",      # bi-encoders, cross-encoder rerankers and contrastive training (notebook 21)
-    "umap-learn>=0.5",                 # dimensionality reduction for clustering and topic modeling (notebook 25)
-    "dspy>=3.5",                       # declarative prompt programs and prompt optimizers (notebook 28)
-    "optuna>=4",                       # Bayesian search used by DSPy's MIPROv2 (notebook 28)
+    "lightgbm>=4.5",                   # learning-to-rank (LambdaMART) for the recommender in notebook 23
+    "scikit-learn>=1.5",               # linear classifiers and metrics (notebook 06)
+    "sentence-transformers>=5.0",      # bi-encoders, cross-encoder rerankers and contrastive training (notebook 17)
+    "umap-learn>=0.5",                 # dimensionality reduction for clustering and topic modeling (notebook 21)
+    "dspy>=3.5",                       # declarative prompt programs and prompt optimizers (notebook 20)
+    "optuna>=4",                       # Bayesian search used by DSPy's MIPROv2 (notebook 20)
     "arize-phoenix-otel>=0.17",        # OpenTelemetry tracing to a local Phoenix server (notebook 29)
     "openinference-instrumentation-langchain>=0.1.82",  # LangChain spans in OpenInference format (notebook 29)
-    # fine-tuning and quantization (notebooks 07-09)
+    # fine-tuning and quantization (notebooks 11, 13, 14)
     "transformers>=5.0",
     "peft>=0.21",
     "trl>=1.17",
     "datasets>=4.0",
     "accelerate>=1.0",
-    "bitsandbytes>=0.45",              # 4-bit NF4 weights for QLoRA (notebook 07)
+    "bitsandbytes>=0.45",              # 4-bit NF4 weights for QLoRA (notebook 13)
     "optimum-quanto>=0.2",
 ]
 

@@ -12,7 +12,7 @@ ROOT = os.path.abspath(os.path.join(TOOLS_DIR, ".."))
 sys.path.insert(0, TOOLS_DIR)
 from nb_utils import NB, notebook_path  # noqa: E402
 
-# Setup cell for the PyTorch notebooks (00-06): repo-root finder, numpy/torch/matplotlib, seed and device.
+# Setup cell for the PyTorch notebooks (02-10): repo-root finder, numpy/torch/matplotlib, seed and device.
 SETUP = r'''
 import os, sys, math, time, tempfile
 ROOT = os.path.abspath(".")
@@ -28,7 +28,7 @@ device = get_device()
 print("torch", torch.__version__, "| device", device)
 '''
 
-# Setup cell for the fine-tuning notebooks (07-09, 12).
+# Setup cell for the recommender notebook (23).
 SETUP_FT = r'''
 import os, sys, math, time, random, copy
 ROOT = os.path.abspath(".")
@@ -57,7 +57,7 @@ random.seed(0); np.random.seed(0)
 
 
 
-# Lighter setup used by notebooks 14-16.
+# Lighter setup used by notebooks 00, 15 and 27.
 SETUP_LIGHT = r'''
 import os, sys, json, time, random
 ROOT = os.path.abspath(".")
@@ -69,7 +69,7 @@ import matplotlib.pyplot as plt
 random.seed(0); np.random.seed(0)
 '''
 
-# Setup cell for the application notebooks (07-16) built on Hugging Face, LangChain, LangGraph, LangSmith, RAGAS and MCP.
+# Setup cell for the application notebooks (12, 16-22, 24-26, 28-30) built on Hugging Face, LangChain, LangGraph, LangSmith, RAGAS and MCP.
 # NOTEBOOK_PROJECT is replaced per notebook with the LangSmith project name (see setup_apps()).
 SETUP_APPS = r'''
 import os, sys, json, time, random, warnings

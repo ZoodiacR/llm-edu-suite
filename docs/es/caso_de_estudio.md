@@ -50,8 +50,8 @@ flowchart TB
     end
     OLL["Ollama: qwen2.5:3b · nomic-embed-text"]
     GEN[tools/notebooks/nbXX_*.py] -->|genera| NB
-    NB -->|00-06, 12 importan| core
-    NB -->|07-16 usan| FW
+    NB -->|02-10, 23 importan| core
+    NB -->|11, 13, 14, 16, 18, 19, 23, 25, 26, 28 usan| FW
     FW --> cfg --> OLL
     SCR[scripts/ CLI] --> PKG
     SCR --> FW
@@ -62,7 +62,7 @@ flowchart TB
 
 Tres decisiones de diseño:
 
-- **Los notebooks se generan desde código** (`tools/notebooks/nbXX_*.py`). Los cambios se revisan como código, los diffs son legibles y los notebooks nunca se desincronizan. El notebook 00 exporta además sus celdas a `scripts/mini_llm.py`, de modo que el notebook y el script salen de una única fuente.
+- **Los notebooks se generan desde código** (`tools/notebooks/nbXX_*.py`). Los cambios se revisan como código, los diffs son legibles y los notebooks nunca se desincronizan. El notebook 01 exporta además sus celdas a `scripts/mini_llm.py`, de modo que el notebook y el script salen de una única fuente.
 - **Una sola clase de modelo configurable** (`ModelConfig`): todas las variantes de atención y de FFN se comparan en igualdad de condiciones.
 - **Un `MockLLM` determinista** en lugar de una API: los pipelines de RAG, agentes, observabilidad y MCP se ejecutan y se testean sin red. Basta una línea para cambiar a un modelo real (`OpenAICompatibleClient`).
 
@@ -93,7 +93,7 @@ La primera versión tenía tests y notebooks, pero los notebooks con PyTorch **n
 
 Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, enseñaban algo falso. Cada cambio se validó con experimentos previos antes de entrar en el notebook.
 
-### Fine-tuning (notebook 07)
+### Fine-tuning (notebook 13)
 
 | | Antes | Después | Qué cambió |
 |---|---|---|---|
@@ -102,7 +102,7 @@ Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, 
 | Ablación de rango | 0 / 0 / 0 / 0 / 0% | **1,3 / 1,3 / 48,0%** (r = 1 / 4 / 16, con 800 pasos) | la ablación ahora tiene señal: hace falta rango para aprender un comportamiento nuevo |
 | Destilación | el student destilado (68,7%) quedaba *peor* que sin destilar (98%) | **24,7% → 98,0%** | escenario realista: pocas etiquetas humanas y un teacher que etiqueta prompts sin etiquetar. La destilación por logits resultó frágil (98,7% en CPU, 44,7% en GPU), y el notebook lo explica |
 
-### Preferencias y RL (notebook 08)
+### Preferencias y RL (notebook 14)
 
 | | Antes | Después |
 |---|---|---|
@@ -113,20 +113,20 @@ Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, 
 
 ### Otros
 
-- **Atención eficiente (03)**: la comparación usaba la perplejidad global, dominada por 44 de cada 55 tokens aleatorios, así que todas las variantes salían igual (~243). Pasé a medir la **precisión de copia** solo en los tokens repetidos y a entrenar 1500 pasos. Resultado: denso 99,9%, block-sparse 88,7%, híbrido 48,4%, ventana deslizante 0,6% y lineal 0,3%. Además, a los 300 pasos incluso el denso está en 0,3%: es la transición de fase de las *induction heads*.
-- **Pre-entrenamiento (05)**: todas las ablaciones daban la misma perplejidad (2,78 frente a 2,78), porque el modelo ya estaba en el suelo de entropía del corpus. Ahora el notebook **calcula analíticamente la pérdida irreducible** (4·ln 10 nats por frase) y compara curvas de aprendizaje contra ese suelo: es el término *E* de Chinchilla hecho tangible.
-- **MoE (04)**: la demo de balanceo aux-free oscilaba (`bias_lr=0.1` es enorme para scores sigmoides). Con 0,01 converge de 4,0× a ~1,15× de desequilibrio, y el notebook grafica ambas configuraciones.
-- **Muestreo (06)**: con la misma semilla las estrategias daban salidas idénticas porque la distribución está muy concentrada. Ahora se mide la entropía y la diversidad (distinct-2) y se grafica la distribución filtrada.
-- **Cuantización (09)**: la perplejidad apenas cambiaba (3 bits salía "mejor" que fp, por ruido). Añadí la **KL frente al modelo fp** y el **acuerdo top-1**, las métricas que usa llama.cpp. Muestran una degradación monótona: 98,6% de acuerdo con NF4 a 4 bits y 88% a 2 bits.
+- **Atención eficiente (04)**: la comparación usaba la perplejidad global, dominada por 44 de cada 55 tokens aleatorios, así que todas las variantes salían igual (~243). Pasé a medir la **precisión de copia** solo en los tokens repetidos y a entrenar 1500 pasos. Resultado: denso 99,9%, block-sparse 88,7%, híbrido 48,4%, ventana deslizante 0,6% y lineal 0,3%. Además, a los 300 pasos incluso el denso está en 0,3%: es la transición de fase de las *induction heads*.
+- **Pre-entrenamiento (08)**: todas las ablaciones daban la misma perplejidad (2,78 frente a 2,78), porque el modelo ya estaba en el suelo de entropía del corpus. Ahora el notebook **calcula analíticamente la pérdida irreducible** (4·ln 10 nats por frase) y compara curvas de aprendizaje contra ese suelo: es el término *E* de Chinchilla hecho tangible.
+- **MoE (05)**: la demo de balanceo aux-free oscilaba (`bias_lr=0.1` es enorme para scores sigmoides). Con 0,01 converge de 4,0× a ~1,15× de desequilibrio, y el notebook grafica ambas configuraciones.
+- **Muestreo (10)**: con la misma semilla las estrategias daban salidas idénticas porque la distribución está muy concentrada. Ahora se mide la entropía y la diversidad (distinct-2) y se grafica la distribución filtrada.
+- **Cuantización (11)**: la perplejidad apenas cambiaba (3 bits salía "mejor" que fp, por ruido). Añadí la **KL frente al modelo fp** y el **acuerdo top-1**, las métricas que usa llama.cpp. Muestran una degradación monótona: 98,6% de acuerdo con NF4 a 4 bits y 88% a 2 bits.
 
 ## 7. Extensiones nuevas (v1)
 
 | Pieza | Por qué importa | Evidencia |
 |---|---|---|
-| **00 · mini LLM en un notebook** | ver cómo encajan todas las piezas sin saltar entre módulos | autocontenido (solo torch); también disponible como script |
-| **14 · IA agéntica** | los agentes en producción fallan por bucles, coste y falta de evaluación, no solo por respuestas incorrectas | plan-and-execute resuelve 6/6 tareas multi-paso frente a 2/6 de un solo bucle; cada ejecución tiene un motivo de parada |
-| **15 · observabilidad** | sin trazas no se puede depurar ni controlar el coste de un sistema LLM | árbol de spans, p50/p95/p99, SLOs, puntuaciones de calidad y drill-down a la peor traza |
-| **16 · MCP** | es el estándar actual para conectar herramientas a LLMs | servidor propio que pasa 7/7 checks de conformidad por stdio real y funciona con Claude Code |
+| **01 · mini LLM en un notebook** | ver cómo encajan todas las piezas sin saltar entre módulos | autocontenido (solo torch); también disponible como script |
+| **25 · IA agéntica** | los agentes en producción fallan por bucles, coste y falta de evaluación, no solo por respuestas incorrectas | plan-and-execute resuelve 6/6 tareas multi-paso frente a 2/6 de un solo bucle; cada ejecución tiene un motivo de parada |
+| **26 · MCP** | es el estándar actual para conectar herramientas a LLMs | servidor propio que pasa 7/7 checks de conformidad por stdio real y funciona con Claude Code |
+| **28 · observabilidad** | sin trazas no se puede depurar ni controlar el coste de un sistema LLM | árbol de spans, p50/p95/p99, SLOs, puntuaciones de calidad y drill-down a la peor traza |
 
 ## 8. Lecciones aprendidas
 
@@ -146,9 +146,11 @@ Los notebooks "funcionaban", pero varios resultados no enseñaban nada o, peor, 
 
 **v2.1:** además LightGBM (LambdaMART), `bitsandbytes` (QLoRA), un índice HNSW de FAISS y MovieLens-1M como dataset real; `qwen2.5:7b` como juez opcional.
 
+**v2.2–v2.11:** además `sentence-transformers`, scikit-learn, `umap-learn`, DSPy (con Optuna para MIPROv2), Arize Phoenix con OpenInference, Inspect AI (en su propio `.venv-eco`), mini-swe-agent con litellm (en su propio `.venv-harness`), y Claude Haiku 5.5 por la API de Anthropic para el harness de agentes.
+
 ## 10. Próximos pasos
 
-Ver el [roadmap del README](../../README.md#roadmap). Lo siguiente: cargar pesos preentrenados en el transformer hecho desde cero, razonamiento en inferencia (self-consistency, best-of-N), embeddings ajustados y rerankers para el RAG, y un benchmark de serving bajo carga.
+El curso está completo en su alcance previsto. Lo siguiente, como paso nuevo: un *mini-R1*, la receta completa de un modelo de razonamiento tipo R1 sobre el mini LLM hecho desde cero del notebook 01 (preentrenamiento en una tarea verificable, un SFT corto con soluciones paso a paso, GRPO escrito desde cero con una recompensa de respuesta exacta), y los niveles de `effort` de un modelo de API medidos sobre el GSM8K del notebook 15. Consulta la [hoja de ruta del README](../../README.md#roadmap) y las secciones 11–13 para lo que añadió cada versión.
 
 ## 11. v2: de construirlo todo a usar las herramientas reales
 
@@ -160,7 +162,7 @@ Ver el [roadmap del README](../../README.md#roadmap). Lo siguiente: cargar pesos
 |---|---|
 | Modelos locales con **Ollama** (`qwen2.5:3b`, `nomic-embed-text`) | gratis, offline y reproducible por cualquiera; cabe en una GPU de 6 GB |
 | Un único `llm_edu_suite/config.py` (`get_llm()`, `get_embeddings()`) leído de `.env` | cambiar todo el curso a OpenAI o Anthropic es una línea de configuración, no de código |
-| **LangSmith** opcional | el notebook 15 funciona sin clave; con clave, todas las llamadas del curso quedan trazadas |
+| **LangSmith** opcional | el notebook 28 funciona sin clave; con clave, todas las llamadas del curso quedan trazadas |
 | Un generador por notebook (`tools/notebooks/nbXX_*.py`) | permitió reescribir bloques **en paralelo** sin conflictos, y los cambios se revisan como código |
 | Tests con **modelos falsos de LangChain** + tests de integración marcados `ollama` | la CI de GitHub no tiene GPU ni Ollama, pero sí verifica la lógica en cada push |
 
@@ -170,15 +172,15 @@ Ver el [roadmap del README](../../README.md#roadmap). Lo siguiente: cargar pesos
 
 | Notebook | Resultado medido |
 |---|---|
-| 07 · SFT/LoRA (SmolLM2-135M) | few-shot 17,5% → **SFT completo 35%**, LoRA r=16 32,5% con el 3,5% de los parámetros. La trampa del token nuevo se reproduce en el modelo real: **0% → 100%** al entrenar los embeddings |
-| 07 · destilación | un teacher de 360M (87,5%) etiqueta 600 prompts; el estudiante de 135M pasa del 35% al **55%** |
-| 08 · DPO/GRPO | DPO puro: exact match **30% → 7,5%** (likelihood displacement); DPO+NLL 32,5%. **GRPO: 5% → 46%** en aritmética con solo un verificador |
-| 09 · cuantización (SmolLM2-360M) | int8/float8 ~96% de acuerdo top-1 a 0,41 GB; int4 73%; int2 rompe el modelo |
-| 10 · RAG + RAGAS | híbrido BM25 + denso: **MRR de evidencia 0,84** frente a 0,73 solo denso; RAGAS context precision 0,76 → 0,84 |
-| 13 · patrones de aplicación | map-reduce 11/13 temas frente a 9/13 de una llamada truncada en silencio (6/13 en otra ejecución); guardia anti-inyección **10/10 ataques, 0/10 falsos positivos** |
-| 14 · LangGraph | todos los guardrails paran con un motivo explícito; ReAct supera a plan-and-execute (80% frente a 60%) con un tercio de las llamadas |
-| 15 · LangSmith | con recuperación la corrección juzgada pasa de **0,17 a 0,83**; el feedback online destapó un bug real en el prompt de una tool |
-| 16 · MCP | servidor FastMCP con **14/14 checks de conformidad**; el agente responde 6/6 preguntas vía MCP |
+| 11 · cuantización (SmolLM2-360M) | int8/float8 ~96% de acuerdo top-1 a 0,41 GB; int4 73%; int2 rompe el modelo |
+| 13 · SFT/LoRA (SmolLM2-135M) | few-shot 17,5% → **SFT completo 35%**, LoRA r=16 32,5% con el 3,5% de los parámetros. La trampa del token nuevo se reproduce en el modelo real: **0% → 100%** al entrenar los embeddings |
+| 13 · destilación | un teacher de 360M (87,5%) etiqueta 600 prompts; el estudiante de 135M pasa del 35% al **55%** |
+| 14 · DPO/GRPO | DPO puro: exact match **30% → 7,5%** (likelihood displacement); DPO+NLL 32,5%. **GRPO: 5% → 46%** en aritmética con solo un verificador |
+| 18 · RAG + RAGAS | híbrido BM25 + denso: **MRR de evidencia 0,84** frente a 0,73 solo denso; RAGAS context precision 0,76 → 0,84 |
+| 19 · patrones de aplicación | map-reduce 11/13 temas frente a 9/13 de una llamada truncada en silencio (6/13 en otra ejecución); guardia anti-inyección **10/10 ataques, 0/10 falsos positivos** |
+| 25 · LangGraph | todos los guardrails paran con un motivo explícito; ReAct supera a plan-and-execute (80% frente a 60%) con un tercio de las llamadas |
+| 26 · MCP | servidor FastMCP con **14/14 checks de conformidad**; el agente responde 6/6 preguntas vía MCP |
+| 28 · LangSmith | con recuperación la corrección juzgada pasa de **0,17 a 0,83**; el feedback online destapó un bug real en el prompt de una tool |
 
 **Problemas reales de la migración (y cómo se resolvieron)**
 
@@ -198,11 +200,11 @@ Ver el [roadmap del README](../../README.md#roadmap). Lo siguiente: cargar pesos
 
 **Por qué.** v2 enseñaba con las herramientas reales, pero tenía tres huecos. La teoría estaba repartida y era desigual entre notebooks. El recomendador seguía siendo un juguete sintético (200 ítems, clusters de gusto inventados) con un re-ranker LLM que empeoraba la lista (hit@10 0,20 → 0,16). Y las comparaciones con 20 preguntas se leían sin intervalos, con un juez de 3B que se juzgaba a sí mismo. v2.1 ataca los tres.
 
-**Teoría en todos los notebooks.** Cada notebook tiene ahora apartados "Background: ..." antes del código que los usa (problema, idea con ecuaciones, por qué funciona, con qué compite, cómo falla), y hay una guía teórica completa en [fundamentos](fundamentos.md). Escribirla obligó a comprobar afirmaciones contra las versiones instaladas, y salió alguna corrección: en LangGraph 1.2 el `recursion_limit` por defecto es 10.007, no 25, así que un agente que entra en bucle no se detiene pronto por sí solo y cada ejecución del notebook 14 pasa su propio límite.
+**Teoría en todos los notebooks.** Cada notebook tiene ahora apartados "Background: ..." antes del código que los usa (problema, idea con ecuaciones, por qué funciona, con qué compite, cómo falla), y hay una guía teórica completa en [fundamentos](fundamentos.md). Escribirla obligó a comprobar afirmaciones contra las versiones instaladas, y salió alguna corrección: en LangGraph 1.2 el `recursion_limit` por defecto es 10.007, no 25, así que un agente que entra en bucle no se detiene pronto por sí solo y cada ejecución del notebook 25 pasa su propio límite.
 
-**El recomendador, reconstruido desde cero** (notebook 12). Ahora es el embudo de la industria sobre MovieLens-1M (1.000.209 valoraciones, 6.040 usuarios, 3.706 películas), con un protocolo que no se deja engañar: *leave-last-two* en orden temporal, ranking completo sobre todo el catálogo (Krichene y Rendle, 2020), un 10% de las películas reservadas como estrenos fríos y bootstrap pareado en cada comparación. Y una regla: una etapa solo entra si mejora a la anterior en validación.
+**El recomendador, reconstruido desde cero** (notebook 23). Ahora es el embudo de la industria sobre MovieLens-1M (1.000.209 valoraciones, 6.040 usuarios, 3.706 películas), con un protocolo que no se deja engañar: *leave-last-two* en orden temporal, ranking completo sobre todo el catálogo (Krichene y Rendle, 2020), un 10% de las películas reservadas como estrenos fríos y bootstrap pareado en cada comparación. Y una regla: una etapa solo entra si mejora a la anterior en validación.
 
-- SASRec, el `TransformerLM` del notebook 02 entrenado con softmax completa, llega a hit@10 0,293 (ItemKNN 0,125, popularidad 0,036), dentro del rango publicado para este dataset.
+- SASRec, el `TransformerLM` del notebook 03 entrenado con softmax completa, llega a hit@10 0,293 (ItemKNN 0,125, popularidad 0,036), dentro del rango publicado para este dataset.
 - **El primer ranker no pasó la puerta.** Entrenado con un único positivo por usuario (unos 4.000 grupos de consulta), LambdaMART no superaba a SASRec: la mejor feature era la propia puntuación de SASRec y los árboles la reaprendían con ruido. En lugar de ajustar hiperparámetros a ciegas, revisé cómo lo hacen los pipelines de dos etapas de RecTools y las mejores soluciones de Kaggle OTTO. Dos cambios lo arreglaron: ajustar los modelos de recuperación sobre el historial menos los 8 últimos eventos y convertir cada uno en una consulta del ranker (48.320 eventos → 35.762 consultas, 1,82 M filas), y darle features que SASRec no ve (valoraciones explícitas, demografía, co-visitas, tiempo desde el evento anterior, tendencias).
 - Con eso pasa la puerta (nDCG de validación +0,0059 [+0,0022, +0,0096]) y en test sube el hit@10 de 0,293 a **0,307** (+1,4 puntos [+0,7, +2,1]). Una ganancia modesta y real, del tamaño que suele aportar un ranker de segunda etapa sobre una primera etapa fuerte.
 - El re-ranking final mide lo que intercambia: una ranura de exploración lleva el hit@10 en estrenos de 0,009 a 0,044 por 0,7 puntos globales, y MMR con λ = 0,8 sube la diversidad de 0,659 a 0,719 por 0,4 puntos.
@@ -219,9 +221,9 @@ Ver el [roadmap del README](../../README.md#roadmap). Lo siguiente: cargar pesos
 
 Los LLMs pequeños no superan a los modelos colaborativos ordenando, pero son excelentes en el lenguaje que rodea al recomendador.
 
-**Evaluación con incertidumbre, y un juez más fuerte** (notebook 10). `evaluation` ganó `bootstrap_ci` y `paired_bootstrap_diff`, y `config` ganó `judge_model()`: `qwen2.5:7b` si está descargado (o `JUDGE_MODEL`), el modelo de chat si no. Con el juez de 7B y sus intervalos, de las cuatro métricas de RAGAS solo una muestra una diferencia clara entre recuperación densa e híbrida: context precision 0,79 → 0,92 (+0,13 [+0,03, +0,25]). Faithfulness (0,87 en ambas) y relevancy (0,78 → 0,75) no se mueven. El juez de 3B había informado de faithfulness 0,38 → 0,54 y relevancy 0,44 → 0,30: **un juez débil no solo mete ruido, inventa efectos**. El precio: 1038 s de puntuación frente a unos 7 minutos con el 3B. El notebook 15 sigue juzgado por el 3B (sus salidas no cambiaron; solo ganó teoría).
+**Evaluación con incertidumbre, y un juez más fuerte** (notebook 18). `evaluation` ganó `bootstrap_ci` y `paired_bootstrap_diff`, y `config` ganó `judge_model()`: `qwen2.5:7b` si está descargado (o `JUDGE_MODEL`), el modelo de chat si no. Con el juez de 7B y sus intervalos, de las cuatro métricas de RAGAS solo una muestra una diferencia clara entre recuperación densa e híbrida: context precision 0,79 → 0,92 (+0,13 [+0,03, +0,25]). Faithfulness (0,87 en ambas) y relevancy (0,78 → 0,75) no se mueven. El juez de 3B había informado de faithfulness 0,38 → 0,54 y relevancy 0,44 → 0,30: **un juez débil no solo mete ruido, inventa efectos**. El precio: 1038 s de puntuación frente a unos 7 minutos con el 3B. El notebook 28 sigue juzgado por el 3B (sus salidas no cambiaron; solo ganó teoría).
 
-**QLoRA** (notebook 07). La misma LoRA sobre el base en NF4 con doble cuantización y `paged_adamw_8bit`: 37,5% de exact match frente a 32,5% de LoRA, con el mismo 86,5% de campos (dos peticiones de 40, ruido: la lectura honesta es "sin pérdida"). Los pesos bajan de 269 MB a 110 MB, pero el pico de entrenamiento apenas se mueve (1,41 → 1,34 GB) porque a 135M dominan las activaciones; para un 7B serían 14 GB → 3,6 GB. El 07 sube su presupuesto de VRAM a 2 GB porque entrena once modelos y el de 4 bits deja ~0,1 GB ocupados.
+**QLoRA** (notebook 13). La misma LoRA sobre el base en NF4 con doble cuantización y `paged_adamw_8bit`: 37,5% de exact match frente a 32,5% de LoRA, con el mismo 86,5% de campos (dos peticiones de 40, ruido: la lectura honesta es "sin pérdida"). Los pesos bajan de 269 MB a 110 MB, pero el pico de entrenamiento apenas se mueve (1,41 → 1,34 GB) porque a 135M dominan las activaciones; para un 7B serían 14 GB → 3,6 GB. El 07 sube su presupuesto de VRAM a 2 GB porque entrena once modelos y el de 4 bits deja ~0,1 GB ocupados.
 
 **Dependencias e infraestructura.** `pyproject.toml` es la única fuente de dependencias (`requirements.txt` solo contiene `-e .[dev]`; `requirements-dev.txt` desapareció; `openai` y `anthropic` son extras opcionales), con dos nuevas: `lightgbm>=4.5` y `bitsandbytes>=0.45`. `tools/build_notebooks.py --keep-outputs` regenera un notebook desde su generador conservando las salidas de las celdas de código que no cambiaron, lo que permitió añadir la teoría sin volver a ejecutar horas de notebooks. La CI pasó a `actions/checkout@v5`, `setup-python@v6`, `ubuntu-24.04` y Python 3.11/3.12.
 
@@ -231,3 +233,38 @@ Los LLMs pequeños no superan a los modelos colaborativos ordenando, pero son ex
 2. **Medir el juez es parte de medir el sistema.** Las diferencias de faithfulness y relevancy que v2 contaba como resultado eran artefactos del juez. Sin intervalos y sin un juez más fuerte, habría seguido contándolas.
 3. **Usar el LLM donde aporta, y decir dónde no.** En recomendación, el mismo modelo empeoró el ranking y mejoró claramente la comprensión de peticiones. El resultado útil es la tabla, no un "los LLMs ayudan" o "no ayudan".
 4. **Un intervalo cambia la conversación.** "+1,4 puntos [+0,7, +2,1]" se defiende; "0,307 frente a 0,293" a secas, no.
+
+## 13. v2.2–v2.11: de un curso a un plan de estudios completo
+
+**Por qué.** Después de la v2.1, el curso enseñaba bien el modelo y las aplicaciones principales, pero le faltaba lo siguiente con lo que se encuentra un ingeniero de LLMs en el trabajo: pesos reales, datos y sistemas a escala, razonamiento, servicio bajo carga, seguridad, entradas multimodales, modelos que envejecen y agentes que escriben código. Cada versión añadió una de esas áreas con las mismas reglas: resultados medidos, *Results* e *In production* al final de cada notebook, y los resultados negativos se quedan.
+
+| versión | qué añadió | un resultado que cambió cómo se enseña el tema |
+|---|---|---|
+| v2.2 | los pesos publicados de SmolLM2 en el transformer hecho desde cero; encoders y encoder-decoders | salida greedy idéntica a Hugging Face (logits a menos de 3e-5); en Banking77, ModernBERT afinado (93,0 %) y embeddings + regresión logística (93,3 %) superan a un LLM de 3B con few-shot (61,9 %) |
+| v2.3 | ingeniería de datos; sistemas para entrenar | un modelo entrenado sobre el crawl en bruto memoriza las páginas repetidas (pérdida 4,35 frente a 5,28 deduplicado); la memoria cuadra con la regla de 16 bytes por parámetro al MB |
+| v2.4 | razonamiento y cómputo en inferencia; fusión de modelos | chain of thought 12,5 % → 85 % en GSM8K; best-of-5 con un juez de 7B salió peor que una votación simple; el entrenamiento multitarea superó a todas las fusiones |
+| v2.5 | embeddings y rerankers afinados; patrones multiagente y un sandbox de código; MCP avanzado | 22 s de fine-tuning contrastivo subieron nDCG@10 de 0,648 a 0,762, por encima de modelos listos para usar más grandes |
+| v2.6 | seguridad y guardrails; servicio bajo carga | la inyección de prefijo subió el éxito de los ataques del 4 % al 64 %; una cascada 3B → 7B superó a ambos modelos |
+| v2.7 | multimodal; clustering y modelado de temas; aprendizaje online y drift | los monitores de entrada (PSI 0,01–0,03) no vieron una deriva de concepto que le costó al recomendador un 13 % de su tasa de aciertos |
+| v2.8 | un harness de agentes (mini-swe-agent) con modelos locales | modelos de 3–8B resolvieron el 20–30 % de 10 tareas de código; 11 de 30 ejecuciones dijeron "terminado" sin estarlo |
+| v2.9 | la visión general del transformer; DSPy; Inspect AI y Phoenix | un router por recuperación superó a todos los optimizadores de DSPy (0,922 frente a ≤ 0,558) con el 3 % de las llamadas al LLM; el scorer de serie de un framework movió GSM8K 5 puntos |
+| v2.10 | el harness con Claude Haiku 5.5, 16 tareas × 3 ejecuciones | 100 % resueltas por 0,42 US$; cinco bugs del harness encontrados leyendo trayectorias |
+| v2.11 | notebooks renumerados en orden de estudio; una guía de cierre *Del notebook a producción*; `AGENTS.md` | el número de un notebook es ahora su lugar en el curso |
+
+**Lo que enseñó el harness de agentes (v2.8 → v2.10).** La primera versión ejecutaba tres modelos locales y medía sobre todo sus límites. Pasar el mismo harness a un modelo de API hizo visible al propio harness, porque todos los fallos que quedaban eran suyos:
+- **Sin contexto de trabajo:** el agente buscaba por todo el disco (`find /`).
+- **Un timeout que mataba a bash pero no a sus hijos:** un `vim` o un `find` sueltos colgaban la ejecución para siempre.
+- **Un tope de 1.024 tokens por respuesta, pensado para modelos locales pequeños:** demasiado corto para un modelo que razona antes de responder.
+- **Una verificación que exigía código de salida 0:** rechazaba trabajo correcto tras un `pytest` inofensivo ("no tests ran") o un `grep` vacío.
+- **El enmascarado de observaciones en el cliente:** editaba el historial, y la API lo rechaza con los modelos Claude actuales (preserved thinking).
+
+Los cinco se encontraron leyendo trayectorias, no mirando la tasa de resueltas. Una vez corregidos, la suite se saturó al 100 %, así que la comparación entre diseños de harness pasó de la precisión al costo: el perfil moderno gasta un 28 % más de tokens y no aporta nada en tareas cortas con un modelo fuerte.
+
+**La renumeración (v2.11).** Los notebooks estaban numerados en el orden en que se escribieron, así que el orden de estudio vivía en un mapa aparte. Renumerar 31 notebooks tocó nombres de archivo, carpetas, enlaces, cada referencia cruzada, la documentación en dos idiomas, el CI y los tests. La parte mecánica fue un script con modo de prueba. Aplicaba la misma reescritura a los generadores y a los notebooks ejecutados, así que las celdas de código quedaron idénticas y `--keep-outputs` conservó todas las salidas: no hubo que reejecutar ningún notebook. La parte de sentido (los "Next:", los rangos como "notebooks 07–16" que ya no forman un bloque) fue una revisión aparte. Esa revisión encontró lo que el script hizo mal: un patrón de listas había reescrito conteos que venían detrás de un número de notebook ("NB 20, 16 de 80 respuestas" había pasado a 26).
+
+**Lecciones de v2.2–v2.11**
+1. **Un bug del harness parece un fallo del modelo.** Con un modelo débil se culpa al modelo; con uno fuerte aparecen los bugs del propio harness. Lee trayectorias antes de ajustar nada.
+2. **Un control con falsos positivos es peor que ninguno.** Cuesta pasos y tokens y no le enseña nada al agente.
+3. **Un benchmark saturado deja de discriminar.** Cuando todo da 100 %, compara el costo o escribe tareas más difíciles.
+4. **Respeta el contrato de la API del modelo al que llamas.** Técnicas de los papers (enmascarar observaciones antiguas) pueden chocar con cómo un proveedor protege el razonamiento de sus modelos.
+5. **Un refactor mecánico necesita una revisión de sentido.** Un regex puede renombrar archivos sin riesgo; no puede saber que el "16" tras una coma era un conteo.

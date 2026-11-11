@@ -11,7 +11,7 @@ Retrieval / ranking metrics (RAG, recommenders)
 RAG-specific
     context_support            fraction of answer tokens found in the retrieved context (a faithfulness proxy)
 LLM-as-judge
-    done with the frameworks: RAGAS metrics (notebook 10) and LangSmith evaluators (notebook 15)
+    done with the frameworks: RAGAS metrics (notebook 18) and LangSmith evaluators (notebook 28)
 Systems
     benchmark_generation       tokens/s, time to first token and peak memory of model.generate
 Classification
@@ -168,7 +168,7 @@ def context_support(answer: str, context: str, min_len: int = 4) -> float:
     return sum(t in ctx for t in toks) / max(1, len(toks))
 
 
-# LLM-as-judge evaluation lives in the frameworks now: RAGAS (notebook 10), LangSmith evaluators (notebook 15).
+# LLM-as-judge evaluation lives in the frameworks now: RAGAS (notebook 18), LangSmith evaluators (notebook 28).
 
 # Systems benchmarks
 

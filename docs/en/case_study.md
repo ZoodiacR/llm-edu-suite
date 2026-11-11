@@ -50,8 +50,8 @@ flowchart TB
     end
     OLL["Ollama: qwen2.5:3b · nomic-embed-text"]
     GEN[tools/notebooks/nbXX_*.py] -->|generates| NB
-    NB -->|00-06, 12 import| core
-    NB -->|07-16 use| FW
+    NB -->|02-10, 23 import| core
+    NB -->|11, 13, 14, 16, 18, 19, 23, 25, 26, 28 use| FW
     FW --> cfg --> OLL
     SCR[scripts/ CLI] --> PKG
     SCR --> FW
@@ -62,7 +62,7 @@ flowchart TB
 
 Three design decisions:
 
-- **The notebooks are generated from code** (`tools/notebooks/nbXX_*.py`). Changes are reviewed as code, diffs are readable and the notebooks never drift out of sync. Notebook 00 also exports its cells to `scripts/mini_llm.py`, so the notebook and the script come from a single source.
+- **The notebooks are generated from code** (`tools/notebooks/nbXX_*.py`). Changes are reviewed as code, diffs are readable and the notebooks never drift out of sync. Notebook 01 also exports its cells to `scripts/mini_llm.py`, so the notebook and the script come from a single source.
 - **A single configurable model class** (`ModelConfig`): every attention and FFN variant is compared on equal terms.
 - **A deterministic `MockLLM`** instead of an API: the RAG, agent, observability and MCP pipelines run and are tested without a network. Switching to a real model takes one line (`OpenAICompatibleClient`).
 
@@ -93,7 +93,7 @@ The first version had tests and notebooks, but the PyTorch notebooks **had never
 
 The notebooks "worked", but several results taught nothing or, worse, taught something false. Every change was validated with preliminary experiments before going into the notebook.
 
-### Fine-tuning (notebook 07)
+### Fine-tuning (notebook 13)
 
 | | Before | After | What changed |
 |---|---|---|---|
@@ -102,7 +102,7 @@ The notebooks "worked", but several results taught nothing or, worse, taught som
 | Rank ablation | 0 / 0 / 0 / 0 / 0% | **1.3 / 1.3 / 48.0%** (r = 1 / 4 / 16, with 800 steps) | the ablation now has signal: learning a new behavior takes rank |
 | Distillation | the distilled student (68.7%) ended up *worse* than the undistilled one (98%) | **24.7% → 98.0%** | a realistic scenario: few human labels and a teacher that labels unlabeled prompts. Logit distillation turned out to be fragile (98.7% on CPU, 44.7% on GPU), and the notebook explains it |
 
-### Preferences and RL (notebook 08)
+### Preferences and RL (notebook 14)
 
 | | Before | After |
 |---|---|---|
@@ -113,20 +113,20 @@ The notebooks "worked", but several results taught nothing or, worse, taught som
 
 ### Other
 
-- **Efficient attention (03)**: the comparison used global perplexity, dominated by 44 out of every 55 random tokens, so every variant came out the same (~243). I switched to measuring **copy accuracy** on the repeated tokens only, and to training for 1500 steps. Result: dense 99.9%, block-sparse 88.7%, hybrid 48.4%, sliding window 0.6% and linear 0.3%. In addition, at 300 steps even the dense model is at 0.3%: this is the *induction head* phase transition.
-- **Pre-training (05)**: every ablation gave the same perplexity (2.78 versus 2.78), because the model was already at the corpus's entropy floor. The notebook now **computes the irreducible loss analytically** (4·ln 10 nats per sentence) and compares learning curves against that floor: Chinchilla's *E* term made tangible.
-- **MoE (04)**: the aux-free balancing demo oscillated (`bias_lr=0.1` is huge for sigmoid scores). With 0.01 it converges from 4.0× to ~1.15× imbalance, and the notebook plots both configurations.
-- **Sampling (06)**: with the same seed the strategies produced identical outputs because the distribution is very peaked. Entropy and diversity (distinct-2) are now measured, and the filtered distribution is plotted.
-- **Quantization (09)**: perplexity barely moved (3 bits came out "better" than fp, through noise). I added the **KL against the fp model** and **top-1 agreement**, the metrics llama.cpp uses. They show a monotonic degradation: 98.6% agreement with NF4 at 4 bits and 88% at 2 bits.
+- **Efficient attention (04)**: the comparison used global perplexity, dominated by 44 out of every 55 random tokens, so every variant came out the same (~243). I switched to measuring **copy accuracy** on the repeated tokens only, and to training for 1500 steps. Result: dense 99.9%, block-sparse 88.7%, hybrid 48.4%, sliding window 0.6% and linear 0.3%. In addition, at 300 steps even the dense model is at 0.3%: this is the *induction head* phase transition.
+- **Pre-training (08)**: every ablation gave the same perplexity (2.78 versus 2.78), because the model was already at the corpus's entropy floor. The notebook now **computes the irreducible loss analytically** (4·ln 10 nats per sentence) and compares learning curves against that floor: Chinchilla's *E* term made tangible.
+- **MoE (05)**: the aux-free balancing demo oscillated (`bias_lr=0.1` is huge for sigmoid scores). With 0.01 it converges from 4.0× to ~1.15× imbalance, and the notebook plots both configurations.
+- **Sampling (10)**: with the same seed the strategies produced identical outputs because the distribution is very peaked. Entropy and diversity (distinct-2) are now measured, and the filtered distribution is plotted.
+- **Quantization (11)**: perplexity barely moved (3 bits came out "better" than fp, through noise). I added the **KL against the fp model** and **top-1 agreement**, the metrics llama.cpp uses. They show a monotonic degradation: 98.6% agreement with NF4 at 4 bits and 88% at 2 bits.
 
 ## 7. New extensions (v1)
 
 | Piece | Why it matters | Evidence |
 |---|---|---|
-| **00 · mini LLM in one notebook** | see how all the pieces fit together without jumping between modules | self-contained (torch only); also available as a script |
-| **14 · agentic AI** | production agents fail through loops, cost and lack of evaluation, not just wrong answers | plan-and-execute solves 6/6 multi-step tasks versus 2/6 for a single loop; every run has a stop reason |
-| **15 · observability** | without traces you can neither debug nor control the cost of an LLM system | span tree, p50/p95/p99, SLOs, quality scores and drill-down to the worst trace |
-| **16 · MCP** | it is the current standard for connecting tools to LLMs | a custom server that passes 7/7 conformance checks over real stdio and works with Claude Code |
+| **01 · mini LLM in one notebook** | see how all the pieces fit together without jumping between modules | self-contained (torch only); also available as a script |
+| **25 · agentic AI** | production agents fail through loops, cost and lack of evaluation, not just wrong answers | plan-and-execute solves 6/6 multi-step tasks versus 2/6 for a single loop; every run has a stop reason |
+| **26 · MCP** | it is the current standard for connecting tools to LLMs | a custom server that passes 7/7 conformance checks over real stdio and works with Claude Code |
+| **28 · observability** | without traces you can neither debug nor control the cost of an LLM system | span tree, p50/p95/p99, SLOs, quality scores and drill-down to the worst trace |
 
 ## 8. Lessons learned
 
@@ -146,9 +146,11 @@ The notebooks "worked", but several results taught nothing or, worse, taught som
 
 **v2.1:** plus LightGBM (LambdaMART), `bitsandbytes` (QLoRA), a FAISS HNSW index and MovieLens-1M as a real dataset; `qwen2.5:7b` as an optional judge.
 
+**v2.2–v2.11:** plus `sentence-transformers`, scikit-learn, `umap-learn`, DSPy (with Optuna for MIPROv2), Arize Phoenix with OpenInference, Inspect AI (in its own `.venv-eco`), mini-swe-agent with litellm (in its own `.venv-harness`), and Claude Haiku 5.5 through the Anthropic API for the agent harness.
+
 ## 10. Next steps
 
-See the [README roadmap](../../README.md#roadmap). Next: loading pretrained weights into the from-scratch transformer, reasoning at inference time (self-consistency, best-of-N), fine-tuned embeddings and rerankers for RAG, and a serving benchmark under load.
+The course is complete in its planned scope. Next, as a new step: a *mini-R1*, the whole recipe of an R1-style reasoning model on the from-scratch mini LLM of notebook 01 (pretraining on a verifiable task, a short SFT on step-by-step solutions, GRPO written from scratch with an exact-answer reward), and the `effort` levels of an API model measured on notebook 15's GSM8K. See the [README roadmap](../../README.md#roadmap) and sections 11–13 below for what each version added.
 
 ## 11. v2: from building everything to using the real tools
 
@@ -160,7 +162,7 @@ See the [README roadmap](../../README.md#roadmap). Next: loading pretrained weig
 |---|---|
 | Local models through **Ollama** (`qwen2.5:3b`, `nomic-embed-text`) | free, offline, reproducible by anyone; fits a 6 GB GPU |
 | One `llm_edu_suite/config.py` (`get_llm()`, `get_embeddings()`) read from `.env` | moving the whole course to OpenAI or Anthropic is a configuration line, not a code change |
-| **LangSmith** optional | notebook 15 runs without a key; with a key, every LLM call in the course is traced |
+| **LangSmith** optional | notebook 28 runs without a key; with a key, every LLM call in the course is traced |
 | One generator per notebook (`tools/notebooks/nbXX_*.py`) | let several blocks be rewritten **in parallel** without conflicts, and changes are reviewed as code |
 | Tests with **LangChain fake models** + integration tests marked `ollama` | GitHub CI has no GPU and no Ollama, but still checks the logic on every push |
 
@@ -170,15 +172,15 @@ See the [README roadmap](../../README.md#roadmap). Next: loading pretrained weig
 
 | Notebook | Measured result |
 |---|---|
-| 07 · SFT/LoRA (SmolLM2-135M) | few-shot 17.5% → **full SFT 35%**, LoRA r=16 32.5% training 3.5% of the parameters. The new-token trap reproduces on the real model: **0% → 100%** once the embeddings are trained |
-| 07 · distillation | a 360M teacher (87.5%) labels 600 prompts; the 135M student goes from 35% to **55%** |
-| 08 · DPO/GRPO | plain DPO: exact match **30% → 7.5%** (likelihood displacement); DPO+NLL 32.5%. **GRPO: 5% → 46%** on arithmetic with only a verifier |
-| 09 · quantization (SmolLM2-360M) | int8/float8 ~96% top-1 agreement at 0.41 GB; int4 73%; int2 breaks the model |
-| 10 · RAG + RAGAS | hybrid BM25 + dense: **evidence MRR 0.84** vs 0.73 dense-only; RAGAS context precision 0.76 → 0.84 |
-| 13 · application patterns | map-reduce 11/13 topics vs 9/13 for a silently truncated single call (6/13 in another run); injection guard **10/10 attacks, 0/10 false positives** |
-| 14 · LangGraph | every guardrail stops with an explicit reason; ReAct beats plan-and-execute (80% vs 60%) with a third of the model calls |
-| 15 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback uncovered a real bug in a tool prompt |
-| 16 · MCP | FastMCP server with **14/14 conformance checks**; the agent answers 6/6 questions through MCP |
+| 11 · quantization (SmolLM2-360M) | int8/float8 ~96% top-1 agreement at 0.41 GB; int4 73%; int2 breaks the model |
+| 13 · SFT/LoRA (SmolLM2-135M) | few-shot 17.5% → **full SFT 35%**, LoRA r=16 32.5% training 3.5% of the parameters. The new-token trap reproduces on the real model: **0% → 100%** once the embeddings are trained |
+| 13 · distillation | a 360M teacher (87.5%) labels 600 prompts; the 135M student goes from 35% to **55%** |
+| 14 · DPO/GRPO | plain DPO: exact match **30% → 7.5%** (likelihood displacement); DPO+NLL 32.5%. **GRPO: 5% → 46%** on arithmetic with only a verifier |
+| 18 · RAG + RAGAS | hybrid BM25 + dense: **evidence MRR 0.84** vs 0.73 dense-only; RAGAS context precision 0.76 → 0.84 |
+| 19 · application patterns | map-reduce 11/13 topics vs 9/13 for a silently truncated single call (6/13 in another run); injection guard **10/10 attacks, 0/10 false positives** |
+| 25 · LangGraph | every guardrail stops with an explicit reason; ReAct beats plan-and-execute (80% vs 60%) with a third of the model calls |
+| 26 · MCP | FastMCP server with **14/14 conformance checks**; the agent answers 6/6 questions through MCP |
+| 28 · LangSmith | with retrieval, judged correctness goes from **0.17 to 0.83**; online feedback uncovered a real bug in a tool prompt |
 
 **Real migration problems (and how they were solved)**
 
@@ -198,11 +200,11 @@ See the [README roadmap](../../README.md#roadmap). Next: loading pretrained weig
 
 **Why.** v2 taught with the real tools, but it had three gaps. The theory was scattered and uneven across notebooks. The recommender was still a synthetic toy (200 items, made-up taste clusters) with an LLM re-ranker that made the list worse (hit@10 0.20 → 0.16). And comparisons on 20 questions were read without intervals, with a 3B judge grading itself. v2.1 tackles all three.
 
-**Theory in every notebook.** Every notebook now has "Background: ..." sections before the code that uses them (the problem, the idea with its equations, why it works, what it competes with, how it fails), and there is a full theory guide in [foundations](foundations.md). Writing it meant checking claims against the installed versions, and it turned up a correction or two: in LangGraph 1.2 the default `recursion_limit` is 10,007, not 25, so an agent stuck in a loop does not stop early on its own, and every run in notebook 14 passes its own limit.
+**Theory in every notebook.** Every notebook now has "Background: ..." sections before the code that uses them (the problem, the idea with its equations, why it works, what it competes with, how it fails), and there is a full theory guide in [foundations](foundations.md). Writing it meant checking claims against the installed versions, and it turned up a correction or two: in LangGraph 1.2 the default `recursion_limit` is 10,007, not 25, so an agent stuck in a loop does not stop early on its own, and every run in notebook 25 passes its own limit.
 
-**The recommender, rebuilt from scratch** (notebook 12). It is now the industry funnel on MovieLens-1M (1,000,209 ratings, 6,040 users, 3,706 movies), with a protocol that does not fool itself: leave-last-two in time order, full ranking over the whole catalog (Krichene and Rendle, 2020), 10% of the movies held out as cold new releases, and a paired bootstrap for every comparison. And one rule: a stage only goes in if it beats the previous one on validation.
+**The recommender, rebuilt from scratch** (notebook 23). It is now the industry funnel on MovieLens-1M (1,000,209 ratings, 6,040 users, 3,706 movies), with a protocol that does not fool itself: leave-last-two in time order, full ranking over the whole catalog (Krichene and Rendle, 2020), 10% of the movies held out as cold new releases, and a paired bootstrap for every comparison. And one rule: a stage only goes in if it beats the previous one on validation.
 
-- SASRec, notebook 02's `TransformerLM` trained with the full softmax, reaches hit@10 0.293 (ItemKNN 0.125, popularity 0.036), inside the published range for this dataset.
+- SASRec, notebook 03's `TransformerLM` trained with the full softmax, reaches hit@10 0.293 (ItemKNN 0.125, popularity 0.036), inside the published range for this dataset.
 - **The first ranker failed the gate.** Trained on a single positive per user (about 4,000 query groups), LambdaMART did not beat SASRec: the best feature was SASRec's own score, and the trees relearned it plus noise. Instead of tuning hyperparameters blindly, I looked at how RecTools' two-stage pipelines and the top Kaggle OTTO solutions do it. Two changes fixed it: fit the retrieval models on the history minus the last 8 events and turn each of those events into a ranker query (48,320 events → 35,762 queries, 1.82M rows), and give the ranker features SASRec cannot see (explicit ratings, demographics, co-visitation, time since the previous event, trending).
 - With that it passes the gate (validation nDCG +0.0059 [+0.0022, +0.0096]) and on test lifts hit@10 from 0.293 to **0.307** (+1.4 points [+0.7, +2.1]). A modest, real gain, about the size a second-stage ranker usually adds over a strong first stage.
 - The final re-ranking measures what it trades: one exploration slot takes hit@10 on new releases from 0.009 to 0.044 for 0.7 points overall, and MMR at λ = 0.8 raises diversity from 0.659 to 0.719 for 0.4 points.
@@ -219,9 +221,9 @@ See the [README roadmap](../../README.md#roadmap). Next: loading pretrained weig
 
 Small LLMs do not beat collaborative models at ranking, but they are excellent at the language around the recommender.
 
-**Evaluation with uncertainty, and a stronger judge** (notebook 10). `evaluation` gained `bootstrap_ci` and `paired_bootstrap_diff`, and `config` gained `judge_model()`: `qwen2.5:7b` if it is pulled (or `JUDGE_MODEL`), the chat model otherwise. With the 7B judge and its intervals, only one of the four RAGAS metrics shows a clear difference between dense and hybrid retrieval: context precision 0.79 → 0.92 (+0.13 [+0.03, +0.25]). Faithfulness (0.87 for both) and relevancy (0.78 → 0.75) do not move. The 3B judge had reported faithfulness 0.38 → 0.54 and relevancy 0.44 → 0.30: **a weak judge does not only add noise, it invents effects**. The price: 1038 s of scoring against about 7 minutes with the 3B. Notebook 15 is still judged by the 3B model (its outputs did not change; it only gained theory).
+**Evaluation with uncertainty, and a stronger judge** (notebook 18). `evaluation` gained `bootstrap_ci` and `paired_bootstrap_diff`, and `config` gained `judge_model()`: `qwen2.5:7b` if it is pulled (or `JUDGE_MODEL`), the chat model otherwise. With the 7B judge and its intervals, only one of the four RAGAS metrics shows a clear difference between dense and hybrid retrieval: context precision 0.79 → 0.92 (+0.13 [+0.03, +0.25]). Faithfulness (0.87 for both) and relevancy (0.78 → 0.75) do not move. The 3B judge had reported faithfulness 0.38 → 0.54 and relevancy 0.44 → 0.30: **a weak judge does not only add noise, it invents effects**. The price: 1038 s of scoring against about 7 minutes with the 3B. Notebook 28 is still judged by the 3B model (its outputs did not change; it only gained theory).
 
-**QLoRA** (notebook 07). The same LoRA on an NF4 base with double quantization and `paged_adamw_8bit`: 37.5% exact match against 32.5% for LoRA, with the same 86.5% of fields (two requests out of 40, noise: the honest reading is "no loss"). The weights drop from 269 MB to 110 MB, but the training peak barely moves (1.41 → 1.34 GB) because activations dominate at 135M; for a 7B model it would be 14 GB → 3.6 GB. Notebook 07 raises its VRAM budget to 2 GB because it trains eleven models and the 4-bit one leaves ~0.1 GB behind.
+**QLoRA** (notebook 13). The same LoRA on an NF4 base with double quantization and `paged_adamw_8bit`: 37.5% exact match against 32.5% for LoRA, with the same 86.5% of fields (two requests out of 40, noise: the honest reading is "no loss"). The weights drop from 269 MB to 110 MB, but the training peak barely moves (1.41 → 1.34 GB) because activations dominate at 135M; for a 7B model it would be 14 GB → 3.6 GB. Notebook 13 raises its VRAM budget to 2 GB because it trains eleven models and the 4-bit one leaves ~0.1 GB behind.
 
 **Dependencies and infrastructure.** `pyproject.toml` is the single source of dependencies (`requirements.txt` only contains `-e .[dev]`; `requirements-dev.txt` is gone; `openai` and `anthropic` are optional extras), with two new ones: `lightgbm>=4.5` and `bitsandbytes>=0.45`. `tools/build_notebooks.py --keep-outputs` rebuilds a notebook from its generator while keeping the outputs of code cells that did not change, which is what made it possible to add the theory without re-running hours of notebooks. CI moved to `actions/checkout@v5`, `setup-python@v6`, `ubuntu-24.04` and Python 3.11/3.12.
 
@@ -231,3 +233,38 @@ Small LLMs do not beat collaborative models at ranking, but they are excellent a
 2. **Measuring the judge is part of measuring the system.** The faithfulness and relevancy differences v2 reported as results were artefacts of the judge. Without intervals and a stronger judge, I would still be quoting them.
 3. **Use the LLM where it adds value, and say where it does not.** In recommendation, the same model made ranking worse and clearly improved request understanding. The useful result is the table, not "LLMs help" or "LLMs do not help".
 4. **An interval changes the conversation.** "+1.4 points [+0.7, +2.1]" can be defended; a bare "0.307 against 0.293" cannot.
+
+## 13. v2.2–v2.11: from a course to a full curriculum
+
+**Why.** After v2.1 the course taught the model and the main applications well, but it skipped what a working LLM engineer meets next: real weights, data and systems at scale, reasoning, serving under load, safety, multimodal inputs, models that age, and agents that write code. Each version added one of those areas, with the same rules: measured results, *Results* and *In production* at the end of every notebook, and negative results kept in.
+
+| version | what it added | a result that changed how the topic is taught |
+|---|---|---|
+| v2.2 | SmolLM2's published weights in the from-scratch transformer; encoders and encoder-decoders | identical greedy output to Hugging Face (logits within 3e-5); on Banking77 a fine-tuned ModernBERT (93.0%) and embeddings + logistic regression (93.3%) beat a 3B LLM few-shot (61.9%) |
+| v2.3 | data engineering; systems for training | a model trained on the raw crawl memorizes repeated pages (loss 4.35 vs 5.28 deduplicated); memory matches the 16-bytes-per-parameter rule to the MB |
+| v2.4 | reasoning and test-time compute; model merging | chain of thought 12.5% → 85% on GSM8K; best-of-5 with a 7B judge did worse than a plain vote; multi-task training beat every merge |
+| v2.5 | fine-tuned embeddings and rerankers; multi-agent patterns and a code sandbox; advanced MCP | 22 s of contrastive fine-tuning lifted nDCG@10 0.648 → 0.762, above larger off-the-shelf models |
+| v2.6 | safety and guardrails; serving under load | prefix injection lifted attack success 4% → 64%; a 3B → 7B cascade beat both models |
+| v2.7 | multimodal; clustering and topic modeling; online learning and drift | input monitors (PSI 0.01–0.03) missed a concept drift that cost the recommender 13% of its hit rate |
+| v2.8 | an agent harness (mini-swe-agent) with local models | 3–8B models solved 20–30% of 10 coding tasks; 11 of 30 runs claimed a false "done" |
+| v2.9 | the transformer big picture; DSPy; Inspect AI and Phoenix | a retrieval router beat every DSPy optimizer (0.922 vs ≤ 0.558) with 3% of the LLM calls; a framework's built-in scorer moved GSM8K by 5 points |
+| v2.10 | the harness on Claude Haiku 5.5, 16 tasks × 3 runs | 100% solved for US$ 0.42; five harness bugs found by reading trajectories |
+| v2.11 | notebooks renumbered in study order; a closing *From notebook to production* guide; `AGENTS.md` | the number of a notebook is now its place in the course |
+
+**What the agent harness taught (v2.8 → v2.10).** The first version ran three local models and measured mostly their limits. Moving the same harness to an API model made the harness itself visible, because every remaining failure was the harness's:
+- **No workspace context:** the agent searched the whole disk (`find /`).
+- **A timeout that killed bash but not its children:** a stray `vim` or `find` hung a run forever.
+- **A 1,024-token reply cap, sized for small local models:** too small for a model that reasons before it answers.
+- **A verification gate that demanded exit code 0:** it rejected correct work after a harmless `pytest` "no tests ran" or an empty `grep`.
+- **Client-side observation masking:** it edited the history, and the API rejects that for current Claude models (preserved thinking).
+
+All five were found by reading trajectories, not by looking at the solve rate. Once fixed, the suite saturated at 100%, so the comparison between harness designs moved from accuracy to cost: the modern profile costs 28% more tokens and buys nothing on short tasks with a strong model.
+
+**The renumbering (v2.11).** The notebooks had been numbered in the order they were written, so the study order lived in a separate map. Renumbering 31 notebooks touched file names, folders, links, every cross-reference, the docs in two languages, the CI and the tests. The mechanical part was a script with a dry run. It applied the same rewrite to generators and executed notebooks, so the code cells stayed identical and `--keep-outputs` kept every output: no notebook had to be re-run. The semantic part ("Next:" pointers, ranges like "notebooks 07–16" that no longer form a block) was a separate review pass. That pass found what the script got wrong: a list pattern had rewritten counts that followed a notebook number ("NB 20, 16 of 80 answers" had become 26).
+
+**Lessons from v2.2–v2.11**
+1. **A harness bug looks like a model failure.** With a weak model you blame the model; with a strong one the harness's own bugs show. Read trajectories before tuning anything.
+2. **A guard with false positives is worse than none.** It costs steps and tokens, and it teaches the agent nothing.
+3. **Saturated benchmarks stop discriminating.** When everything scores 100%, compare cost, or write harder tasks.
+4. **Respect the API contract of the model you call.** Techniques from papers (masking old observations) can collide with how a provider protects its models' reasoning.
+5. **Mechanical refactors need a semantic review.** A regex can rename files safely; it cannot know that "16" after a comma was a count.

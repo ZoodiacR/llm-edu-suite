@@ -80,7 +80,7 @@ def kill_tree(p: subprocess.Popen) -> None:
 class SandboxedBashEnvironment:
     """A mini-swe-agent Environment: the same three methods as its LocalEnvironment (execute, get_template_vars,
     serialize), but every command runs in bash inside the task folder, with a scrubbed environment (no API keys),
-    a permission check and a timeout. Like notebook 14's sandbox, it is a teaching layer, not a security boundary:
+    a permission check and a timeout. Like notebook 25's sandbox, it is a teaching layer, not a security boundary:
     production harnesses add OS-level isolation (containers, Seatbelt, Landlock, restricted Windows tokens)."""
 
     def __init__(self, cwd: str, timeout: int = 60):

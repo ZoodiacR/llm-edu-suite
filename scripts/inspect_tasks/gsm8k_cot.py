@@ -1,6 +1,6 @@
 """
 GSM8K with chain of thought as an Inspect AI task: the same 80 problems, prompt and answer extraction as
-notebook 20, so the hand-written evaluation and the framework can be compared. Used by notebook 29.
+notebook 15, so the hand-written evaluation and the framework can be compared. Used by notebook 29.
 
 Inspect (https://inspect.aisi.org.uk, UK AI Security Institute) runs in its own environment, because it needs a
 newer `rich` than the course environment allows:
@@ -26,7 +26,7 @@ COT = "Solve the problem step by step, then give the final answer as a number on
 
 
 def load(n: int) -> MemoryDataset:
-    gsm = datasets.load_dataset("openai/gsm8k", "main", split="test").shuffle(seed=0).select(range(n))   # notebook 20's sample
+    gsm = datasets.load_dataset("openai/gsm8k", "main", split="test").shuffle(seed=0).select(range(n))   # notebook 15's sample
     return MemoryDataset([Sample(input=q, target=a.split("####")[-1].replace(",", "").strip(), id=i)
                           for i, (q, a) in enumerate(zip(gsm["question"], gsm["answer"]))])
 
@@ -39,7 +39,7 @@ def final_number(text: str):
 
 @scorer(metrics=[accuracy(), stderr()])
 def last_number():
-    """Notebook 20's rule: the last number in the answer must equal the reference."""
+    """Notebook 15's rule: the last number in the answer must equal the reference."""
     async def score(state: TaskState, target: Target) -> Score:
         pred = final_number(state.output.completion)
         ok = pred is not None and abs(pred - float(target.text)) < 1e-6

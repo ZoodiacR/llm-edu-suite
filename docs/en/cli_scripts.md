@@ -14,9 +14,9 @@
 | [`finetune.py`](#finetunepy) | Post-training of SmolLM2-135M-Instruct: `sft`, `dpo` or `grpo` subcommands, each evaluated before and after | Hugging Face `transformers` + `peft` + `trl` | PyTorch, ~260 MB model download on first run; a GPU is strongly recommended |
 | [`rag_demo.py`](#rag_demopy) | Hybrid RAG with citations over a folder of documents, plus retrieval metrics and optional RAGAS evaluation | LangChain (FAISS + BM25 + `EnsembleRetriever`), RAGAS | Ollama (`qwen2.5:3b`, `nomic-embed-text`) |
 | [`mcp_server.py`](#mcp_serverpy) | An MCP server (`llm-edu-docs`) that exposes `data/sample_docs` to Claude Code, Claude Desktop or any MCP client | Official MCP Python SDK (`FastMCP`) + `rank_bm25` | Nothing else (no PyTorch, no Ollama) |
-| [`generate_item_keywords.py`](#generate_item_keywordspy) | LLM-written keywords for every MovieLens-1M movie (used by notebook 12); resumable | `llm_edu_suite` (`config`, `recsys`) + LangChain | Ollama with `qwen2.5:7b`; downloads MovieLens-1M (6 MB) on first run |
+| [`generate_item_keywords.py`](#generate_item_keywordspy) | LLM-written keywords for every MovieLens-1M movie (used by notebook 23); resumable | `llm_edu_suite` (`config`, `recsys`) + LangChain | Ollama with `qwen2.5:7b`; downloads MovieLens-1M (6 MB) on first run |
 | [`harness_run.py`](#harness_runpy) | Run the mini-swe-agent coding-agent harness on one task folder with an API model (Claude by default in notebook 27) or a local one, in a sandboxed bash environment with a permission policy; `--profile modern` adds the techniques of `harness_modern.py`; writes the trajectory as JSON (used by notebook 27) | mini-swe-agent 2.4.6 + litellm | Its own `.venv-harness`, bash (Git Bash on Windows), and an API key for the provider or Ollama with the model to run |
-| [`inspect_tasks/gsm8k_cot.py`](#inspect_tasksgsm8k_cotpy) | Notebook 20's GSM8K chain-of-thought evaluation (80 problems, two scorers on the same generations) as an Inspect AI task, run with `inspect eval` (used by notebook 29) | Inspect AI 0.3.289 | Its own `.venv-eco`, Ollama with `qwen2.5:3b` (or any model Inspect can reach) |
+| [`inspect_tasks/gsm8k_cot.py`](#inspect_tasksgsm8k_cotpy) | Notebook 15's GSM8K chain-of-thought evaluation (80 problems, two scorers on the same generations) as an Inspect AI task, run with `inspect eval` (used by notebook 29) | Inspect AI 0.3.289 | Its own `.venv-eco`, Ollama with `qwen2.5:3b` (or any model Inspect can reach) |
 
 ---
 
@@ -278,15 +278,15 @@ The output looks like `[speculative] acceptance NN%, X.XX tokens/target pass` (n
 - **Maximum length:** the total (prompt + generated) never exceeds `max_seq_len`, which is the training `--block-size`. With `runs/smoke` (128), the default `--max-new-tokens 200` stops at roughly 128 new tokens.
 - **Speculative mode:** `--top-k`, `--top-p` and `--repetition-penalty` are **not applied**. Only the temperature is used, and `k = 4` proposals per round is hard-coded. The implementation recomputes without a cache and is batch-1, so on CPU it can be *slower* than normal generation with a KV-cache. Its purpose is educational: checking the acceptance rate and that the distribution is preserved.
 - **Empty prompt:** `--prompt ""` (as in the README example) also works in a folder that has `tokenizer.json`: if the encoded prompt is empty, generation starts from id 0. Keep in mind that with a real BPE tokenizer, id 0 is the byte `\x00`, not a special token; for text, a prompt of at least one character is usually better (the default `"\n"` works).
-- The tok/s figure includes the *prefill* and the first (warm-up) call. To measure TTFT and *throughput* rigorously, use `evaluation.benchmark_generation` (notebook 06).
+- The tok/s figure includes the *prefill* and the first (warm-up) call. To measure TTFT and *throughput* rigorously, use `evaluation.benchmark_generation` (notebook 10).
 
 ---
 
 ## `mini_llm.py`
 
-A **complete mini LLM in a single file** that depends only on PyTorch (it imports nothing from `llm_edu_suite`): byte-level BPE tokenizer → GPT with RoPE, RMSNorm and SwiGLU → training with AdamW and a cosine schedule → evaluation against the corpus's irreducible loss → sampling → checkpoint save and reload. It is notebook 00 (`notebooks/00_start_here/00_mini_llm_end_to_end.ipynb`) exported as a script: the whole pipeline at a glance, before the notebooks take each piece apart and the package scales it up.
+A **complete mini LLM in a single file** that depends only on PyTorch (it imports nothing from `llm_edu_suite`): byte-level BPE tokenizer → GPT with RoPE, RMSNorm and SwiGLU → training with AdamW and a cosine schedule → evaluation against the corpus's irreducible loss → sampling → checkpoint save and reload. It is notebook 01 (`notebooks/00_start_here/01_mini_llm_end_to_end.ipynb`) exported as a script: the whole pipeline at a glance, before the notebooks take each piece apart and the package scales it up.
 
-> **Generated file.** `scripts/mini_llm.py` is produced from notebook 00 by its generator, `tools/notebooks/nb00_mini_llm_end_to_end.py`. To change it permanently, **edit the generator**, not the script: the next `make notebooks` overwrites it.
+> **Generated file.** `scripts/mini_llm.py` is produced from notebook 01 by its generator, `tools/notebooks/nb01_mini_llm_end_to_end.py`. To change it permanently, **edit the generator**, not the script: the next `make notebooks` overwrites it.
 
 ### Configuration
 
@@ -341,7 +341,7 @@ Where do the 1.86M parameters come from? Embedding (tied) 455 × 192 = 87,360; p
 
 ## `finetune.py`
 
-Post-training with the Hugging Face stack (`transformers` + `peft` + `trl`) on the two small synthetic tasks of notebooks 07–08, using **SmolLM2-135M-Instruct** (downloaded from the Hugging Face Hub on first use, ~260 MB). One subcommand per technique:
+Post-training with the Hugging Face stack (`transformers` + `peft` + `trl`) on the two small synthetic tasks of notebooks 13 and 14, using **SmolLM2-135M-Instruct** (downloaded from the Hugging Face Hub on first use, ~260 MB). One subcommand per technique:
 
 | Subcommand | Task | What it does |
 |---|---|---|
@@ -349,7 +349,7 @@ Post-training with the Hugging Face stack (`transformers` + `peft` + `trl`) on t
 | `dpo` | Booking → JSON extraction | LoRA SFT first, then DPO (+ NLL by default) with TRL's `DPOTrainer` and a second LoRA adapter |
 | `grpo` | Two-digit arithmetic | GRPO with TRL's `GRPOTrainer`, a LoRA adapter and a verifiable reward |
 
-Every subcommand evaluates on a **held-out** set before and after training. The task builders, the scoring and the reward functions are the same ones notebooks 07–08 define inline, and `tests/test_finetune_hf.py` tests them.
+Every subcommand evaluates on a **held-out** set before and after training. The task builders, the scoring and the reward functions are the same ones notebooks 13 and 14 define inline, and `tests/test_finetune_hf.py` tests them.
 
 ### Arguments
 
@@ -438,13 +438,13 @@ How to read them:
 - `--full` changes only the SFT stage. DPO and GRPO always train a LoRA adapter.
 - `--epochs` and `--n-train` have no effect on `grpo`; `--grpo-steps` and `--reward` have no effect on `sft` / `dpo`.
 - On Windows, the first download may print a `huggingface_hub` warning about symlinks. It is harmless (see [troubleshooting](installation.md#troubleshooting)).
-- Nothing is saved: the script is a demonstration that prints scores. To keep a model, see notebook 07, which saves the LoRA adapter with `save_pretrained`, reloads it and merges it.
+- Nothing is saved: the script is a demonstration that prints scores. To keep a model, see notebook 13, which saves the LoRA adapter with `save_pretrained`, reloads it and merges it.
 
 ---
 
 ## `rag_demo.py`
 
-RAG over a folder of `.md` / `.txt` files with **LangChain**: hybrid retrieval (FAISS dense search + BM25, fused with Reciprocal Rank Fusion by an `EnsembleRetriever`) and an answer with numbered citations. It is the pipeline of notebook 10 packaged as a command-line tool. The models come from `llm_edu_suite.config` (Ollama `qwen2.5:3b` and `nomic-embed-text` by default; edit `.env` to switch).
+RAG over a folder of `.md` / `.txt` files with **LangChain**: hybrid retrieval (FAISS dense search + BM25, fused with Reciprocal Rank Fusion by an `EnsembleRetriever`) and an answer with numbered citations. It is the pipeline of notebook 18 packaged as a command-line tool. The models come from `llm_edu_suite.config` (Ollama `qwen2.5:3b` and `nomic-embed-text` by default; edit `.env` to switch).
 
 ### Arguments
 
@@ -686,7 +686,7 @@ client = MultiServerMCPClient({"llm-edu-docs": {"transport": "stdio", "command":
 tools = await client.get_tools()            # search_docs, calculate, create_ticket as LangChain tools
 ```
 
-Notebook 16 walks through both, and builds an agent on top of the tools with LangChain's `create_agent`.
+Notebook 26 walks through both, and builds an agent on top of the tools with LangChain's `create_agent`.
 
 ### Requiring a bearer token
 
@@ -703,7 +703,7 @@ claude mcp add --transport http llm-edu-docs http://127.0.0.1:8000/mcp --header 
 
 From Python, pass the header to the SDK's HTTP client: `streamablehttp_client("http://127.0.0.1:8000/mcp", headers={"Authorization": f"Bearer {token}"})`. To reuse the server elsewhere, `build_server(docs_dir, log_level, token=..., host=..., port=...)` builds it with authentication; the check itself is the `StaticTokenVerifier` class, which compares one shared token in constant time.
 
-A shared token is a teaching stand-in. A real deployment puts an authorization server in front (Auth0, Entra ID, Keycloak, Okta...) and validates short-lived JWTs or calls its introspection endpoint, checking the audience, and adds TLS, per-user scopes inside each tool, rate limits and `Origin` validation. Notebook 16, section 9, shows the whole flow on the wire. `tests/test_mcp_sdk.py` checks that requests without the token or with a wrong one get 401, that the right token works, and that `--require-token` refuses to start without `MCP_AUTH_TOKEN`.
+A shared token is a teaching stand-in. A real deployment puts an authorization server in front (Auth0, Entra ID, Keycloak, Okta...) and validates short-lived JWTs or calls its introspection endpoint, checking the audience, and adds TLS, per-user scopes inside each tool, rate limits and `Origin` validation. Notebook 26, section 9, shows the whole flow on the wire. `tests/test_mcp_sdk.py` checks that requests without the token or with a wrong one get 401, that the right token works, and that `--require-token` refuses to start without `MCP_AUTH_TOKEN`.
 
 ### Notes and pitfalls
 
@@ -711,11 +711,11 @@ A shared token is a teaching stand-in. A real deployment puts an authorization s
 - Use **absolute paths** in the Claude Code and Claude Desktop configuration: the host launches the process from its own working directory.
 - Tickets live in memory and disappear when the process ends.
 - `FastMCP` here is the 1.x SDK class. The course pins `mcp<2` because `langchain-mcp-adapters` does not support the 2.x SDK yet; in 2.x the same class is `mcp.server.mcpserver.MCPServer` and the decorators work the same way.
-- Inside Jupyter, an stdio client needs a workaround because Jupyter's `sys.stderr` has no OS file handle; notebook 16 already applies it. Plain scripts do not need it.
+- Inside Jupyter, an stdio client needs a workaround because Jupyter's `sys.stderr` has no OS file handle; notebook 26 already applies it. Plain scripts do not need it.
 
 ## `generate_item_keywords.py`
 
-Uses an LLM to write a keyword profile for every MovieLens-1M movie. Notebook 12 uses the keywords as content text (for cold start) and as a ranker feature, and measures whether they help instead of assuming it (spoiler: on this dataset, they do not). It is the offline "LLM as feature generator" pattern: it runs once per catalog, not on every request.
+Uses an LLM to write a keyword profile for every MovieLens-1M movie. Notebook 23 uses the keywords as content text (for cold start) and as a ranker feature, and measures whether they help instead of assuming it (spoiler: on this dataset, they do not). It is the offline "LLM as feature generator" pattern: it runs once per catalog, not on every request.
 
 The output is already in the repository, in `data/recsys/ml1m_llm_keywords.json` (3,706 of 3,706 movies), so the notebook does **not** need this script. You only need it to regenerate them, for example with another model or prompt.
 
@@ -861,7 +861,7 @@ In notebook 27 (16 tasks × 3 runs, Claude Haiku 5.5) a baseline run (15 steps, 
 
 ### Notes and pitfalls
 
-- **The agent edits the task folder in place.** Run it on a copy, never on a repository you care about: the sandbox is a teaching layer, like notebook 14's, not a security boundary. Production harnesses add OS-level isolation (containers, Seatbelt, Landlock, restricted Windows tokens).
+- **The agent edits the task folder in place.** Run it on a copy, never on a repository you care about: the sandbox is a teaching layer, like notebook 25's, not a security boundary. Production harnesses add OS-level isolation (containers, Seatbelt, Landlock, restricted Windows tokens).
 - **`Submitted` does not mean solved.** It only means the model declared itself done. Claude Haiku 5.5 had 0 false "done"s in notebook 27, but with local models (v2.8) 11 of 30 runs submitted while the hidden tests failed. Check the result with your own tests afterwards.
 - **`python` inside the agent's shell** is whatever is first on the `PATH`. Notebook 27 puts the harness environment's `Scripts` (or `bin`) folder first so that `python -m pytest` works; do the same, or activate `.venv-harness`, when a task asks the agent to run tests.
 - The deny list matches command text with regular expressions: it is easy to get around (a script file, an alias, `python -c`) and it also refuses harmless commands that happen to match. It shows where a permission policy plugs into the loop, not how strong one should be.
@@ -873,7 +873,7 @@ In notebook 27 (16 tasks × 3 runs, Claude Haiku 5.5) a baseline run (15 steps, 
 
 ## `inspect_tasks/gsm8k_cot.py`
 
-An [Inspect AI](https://inspect.aisi.org.uk) task with notebook 20's GSM8K evaluation: the same 80 test problems, the same chain-of-thought system message, and two scorers on the same generations, notebook 20's "last number" rule and Inspect's built-in numeric match. Notebook 29 runs it to check that the framework reproduces the hand-written loop before trusting it with anything else.
+An [Inspect AI](https://inspect.aisi.org.uk) task with notebook 15's GSM8K evaluation: the same 80 test problems, the same chain-of-thought system message, and two scorers on the same generations, notebook 15's "last number" rule and Inspect's built-in numeric match. Notebook 29 runs it to check that the framework reproduces the hand-written loop before trusting it with anything else.
 
 It is not run with `python`: Inspect loads the file through its `inspect eval` command, which lives in its own environment, `.venv-eco`, because Inspect needs a newer `rich` than the course environment allows. See [installation](installation.md#the-inspect-and-phoenix-environment-notebook-29) for how to create it.
 
@@ -882,7 +882,7 @@ It is not run with `python`: Inspect loads the file through its `inspect eval` c
 | Piece | What it is |
 |---|---|
 | `COT` | The system message: `Solve the problem step by step, then give the final answer as a number on the last line.` |
-| `load(n)` | The first `n` problems of GSM8K's test split (`openai/gsm8k`, config `main`) after `shuffle(seed=0)`, notebook 20's sample, as a `MemoryDataset` of `Sample(input=question, target=final number, id=i)`. |
+| `load(n)` | The first `n` problems of GSM8K's test split (`openai/gsm8k`, config `main`) after `shuffle(seed=0)`, notebook 15's sample, as a `MemoryDataset` of `Sample(input=question, target=final number, id=i)`. |
 | `final_number(text)` | The last number in the answer, after removing `$` and thousands separators (and anything before `</think>`, for reasoning models). |
 | `last_number()` | A `@scorer` with the metrics `accuracy()` and `stderr()`: correct when the last number equals the reference to within 1e-6. It stores the extracted number as the score's `answer`, so the log shows what was read. |
 | `gsm8k_cot(n=80)` | The `@task`: solver `[system_message(COT), generate()]`, scorers `[last_number(), match(location="end", numeric=True)]`. |
@@ -932,7 +932,7 @@ The task has one argument, passed with `-T`: `n` (int, default `80`), the number
 .venv-eco/bin/inspect view
 ```
 
-In notebook 29 the greedy run took 307 s for the 80 problems and scored **0.850** with `last_number` (stderr 0.040), exactly notebook 20's 85.0 %, and 0.800 with `match` (stderr 0.045); its JSON log is 1.9 MB. The three sampled epochs took 918 s and scored 0.812 on average (stderr 0.043), with a 5.5 MB log.
+In notebook 29 the greedy run took 307 s for the 80 problems and scored **0.850** with `last_number` (stderr 0.040), exactly notebook 15's 85.0 %, and 0.800 with `match` (stderr 0.045); its JSON log is 1.9 MB. The three sampled epochs took 918 s and scored 0.812 on average (stderr 0.043), with a 5.5 MB log.
 
 ### Notes and pitfalls
 
@@ -946,7 +946,7 @@ In notebook 29 the greedy run took 307 s for the 80 problems and scored **0.850*
 
 ## Tools and Makefile targets
 
-**`tools/build_notebooks.py`** rebuilds the `.ipynb` files from their generators in `tools/notebooks/nbNN_*.py` (notebook 00's generator also writes `scripts/mini_llm.py`). Building **clears the outputs**.
+**`tools/build_notebooks.py`** rebuilds the `.ipynb` files from their generators in `tools/notebooks/nbNN_*.py` (notebook 01's generator also writes `scripts/mini_llm.py`). Building **clears the outputs**.
 
 ```bash
 python tools/build_notebooks.py                       # every notebook
@@ -956,10 +956,10 @@ python tools/build_notebooks.py --keep-outputs 05     # prose-only edits: keep t
 
 ### `tools/build_notebooks.py --keep-outputs`
 
-Rebuilding from scratch means re-running the notebook, and some take a long time (12 about 25 minutes, 10 about 19). With `--keep-outputs`, the generator looks in the existing `.ipynb` for a code cell with exactly the same source (it matches by content, not by position, so inserting prose cells breaks nothing) and, when it finds one, **keeps its outputs** (text, tables and plots) and its execution count. Markdown cells are always rewritten; a code cell whose source changed comes out empty, and the script prints how many need a re-run (`N code cell(s) changed and need a re-run`) or `no code changed`. It also keeps the kernel metadata, so an unchanged notebook produces no diff. This is what you want when you only edited prose, for example when adding a theory section:
+Rebuilding from scratch means re-running the notebook, and some take a long time (23 about 25 minutes, 18 about 19). With `--keep-outputs`, the generator looks in the existing `.ipynb` for a code cell with exactly the same source (it matches by content, not by position, so inserting prose cells breaks nothing) and, when it finds one, **keeps its outputs** (text, tables and plots) and its execution count. Markdown cells are always rewritten; a code cell whose source changed comes out empty, and the script prints how many need a re-run (`N code cell(s) changed and need a re-run`) or `no code changed`. It also keeps the kernel metadata, so an unchanged notebook produces no diff. This is what you want when you only edited prose, for example when adding a theory section:
 
 ```bash
-python tools/build_notebooks.py --keep-outputs 10 12    # rewrite the prose of 10 and 12 without losing the run
+python tools/build_notebooks.py --keep-outputs 18 23    # rewrite the prose of 18 and 23 without losing the run
 ```
 
 Use it only for changes that do not alter any result. If you change code, re-run the whole notebook with `tools/run_notebooks.py`: keeping the outputs of unchanged cells whose inputs did change (because an earlier cell is different) would leave outputs the code no longer produces.
@@ -968,11 +968,11 @@ Use it only for changes that do not alter any result. If you change code, re-run
 
 ```bash
 python tools/run_notebooks.py                       # every notebook, in number order
-python tools/run_notebooks.py 05_pretraining.ipynb  # by file name, wherever it lives
+python tools/run_notebooks.py 08_pretraining.ipynb  # by file name, wherever it lives
 python tools/run_notebooks.py 05 10 14              # by number (prefix)
 ```
 
-It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the end, with a 1-hour timeout per notebook, and exits with code 1 if any fails, so it can be used in CI. An argument that matches zero or several notebooks stops with an error. Notebooks 10–16 need Ollama running; on a 6 GB GPU, avoid running the training notebooks (07–09) while Ollama has a model loaded (see [installation](installation.md#gpu-notes)).
+It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the end, with a 1-hour timeout per notebook, and exits with code 1 if any fails, so it can be used in CI. An argument that matches zero or several notebooks stops with an error. The notebooks that call a local LLM need Ollama running; on a 6 GB GPU, avoid running the Hugging Face training notebooks (11, 13 and 14) while Ollama has a model loaded (see [installation](installation.md#gpu-notes)).
 
 **Makefile targets** (Linux/macOS, or Git Bash with `make`):
 
@@ -983,7 +983,7 @@ It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the
 | `make notebooks` | `python tools/build_notebooks.py` | Rebuilds every `.ipynb` (and `scripts/mini_llm.py`) from the generators. **Clears outputs.** |
 | `make run-notebooks` | `python tools/run_notebooks.py` | Executes every notebook in place. |
 | `make smoke` | `train.py --steps 100 --d-model 64 --n-layers 2 ...` | A short pre-training smoke test. |
-| `make mini-llm` | `python scripts/mini_llm.py` | Trains the self-contained mini GPT (notebook 00 as a script). |
+| `make mini-llm` | `python scripts/mini_llm.py` | Trains the self-contained mini GPT (notebook 01 as a script). |
 | `make mcp-server` | `python scripts/mcp_server.py` | Starts the MCP server on stdio. |
 
 ---
@@ -1004,6 +1004,6 @@ It prints `[seconds] name: OK | FAIL` per notebook and `N/M notebooks OK` at the
 | `pytest -q -m "not ollama"` / `pytest -q -m ollama` | RTX 3060 Laptop GPU + Ollama | 90 passed in ~42 s / 4 passed in ~40 s |
 | `harness_run.py TASK anthropic/claude-haiku-5-5 OUT --steps 15` (through notebook 27, 16 tasks × 3 runs) | Anthropic API, 4 runs in parallel | hidden tests passed: **100 %** (48/48), 0 false "done"; 3.5 steps, 7.0 s, 6,701 tokens, US$ 0.0010 per run; `--profile modern`: 100 %, 7.2 s, 8,571 tokens; the whole notebook, 366 runs, US$ 0.42 |
 | `harness_run.py TASK MODEL OUT --steps 15` (v2.8, tasks 01–10, local models) | RTX 3060 Laptop GPU + Ollama | hidden tests passed: `qwen2.5:3b` **30 %**, `qwen2.5:7b` 20 %, `freehuntx/qwen3-coder:8b` 20 %; 64 / 82 / 216 s per task; 11 of 30 runs submitted as done while failing the hidden tests |
-| `inspect eval scripts/inspect_tasks/gsm8k_cot.py --model ollama/qwen2.5:3b --temperature 0 ...` (through notebook 29) | RTX 3060 Laptop GPU + Ollama | 80 problems in 307 s; `last_number` **85.0 %** (the same as notebook 20's loop), built-in `match` 80.0 %; with `--temperature 0.7 --epochs 3`, 81.2 % in 918 s |
+| `inspect eval scripts/inspect_tasks/gsm8k_cot.py --model ollama/qwen2.5:3b --temperature 0 ...` (through notebook 29) | RTX 3060 Laptop GPU + Ollama | 80 problems in 307 s; `last_number` **85.0 %** (the same as notebook 15's loop), built-in `match` 80.0 %; with `--temperature 0.7 --epochs 3`, 81.2 % in 918 s |
 
 For the teaching context of each stage, see the [notebooks guide](notebooks_guide.md). For an end-to-end walkthrough with interpretation of the results, see the [case study](case_study.md).

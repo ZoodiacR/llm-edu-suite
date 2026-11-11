@@ -1,5 +1,5 @@
 ﻿"""
-Tests for the LangChain / LangGraph code in notebooks 11 and 14.
+Tests for the LangChain / LangGraph code in notebooks 16 and 25.
 
 The notebook generators keep their reusable cells (tools, helpers, graph builders) in module-level strings,
 so these tests execute exactly the code the notebooks run, with fake chat models from langchain_core
@@ -19,8 +19,8 @@ from langchain_core.runnables import RunnableLambda
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools", "notebooks"))
 
-nb11 = importlib.import_module("nb11_agents_tools_structured_output")
-nb14 = importlib.import_module("nb14_agentic_ai")
+nb16 = importlib.import_module("nb16_agents_tools_structured_output")
+nb25 = importlib.import_module("nb25_agentic_ai")
 
 
 class ScriptedModel(GenericFakeChatModel):
@@ -52,15 +52,15 @@ def run_cells(*cells):
 
 @pytest.fixture(scope="module")
 def ns11():
-    return run_cells(nb11.TOOLS_CELL, nb11.BY_HAND_CELL, nb11.EVAL_HELPERS_CELL)
+    return run_cells(nb16.TOOLS_CELL, nb16.BY_HAND_CELL, nb16.EVAL_HELPERS_CELL)
 
 
 @pytest.fixture()
 def ns14():
-    return run_cells(nb14.TOOLS_CELL, nb14.HELPERS_CELL)
+    return run_cells(nb25.TOOLS_CELL, nb25.HELPERS_CELL)
 
 
-# Notebook 11: tools, the loop by hand, scoring
+# Notebook 16: tools, the loop by hand, scoring
 
 def test_tool_schemas_come_from_hints_docstrings_and_pydantic(ns11):
     from langchain_core.utils.function_calling import convert_to_openai_tool
@@ -121,7 +121,7 @@ def test_score_case(ns11):
     assert ns11["score_case"]([HumanMessage("hi"), AIMessage("hello")], [], [])["success"]
 
 
-# Notebook 14: helpers and guardrails
+# Notebook 25: helpers and guardrails
 
 def test_tool_precision_recall(ns14):
     pr = ns14["tool_precision_recall"]
@@ -181,10 +181,10 @@ def test_tool_errors_to_model_middleware(ns14):
     assert tool_msgs[1].content == "18.0"
 
 
-# Notebook 14: graphs
+# Notebook 25: graphs
 
 def test_triage_graph_routes_by_condition(ns14):
-    ns = run_cells(nb14.TOOLS_CELL, nb14.HELPERS_CELL, nb14.TRIAGE_CELL)
+    ns = run_cells(nb25.TOOLS_CELL, nb25.HELPERS_CELL, nb25.TRIAGE_CELL)
     triage = ns["triage"]
     assert triage.invoke({"ticket": "refund my order"})["category"] == "billing"
     assert triage.invoke({"ticket": "account hacked"})["reply"].startswith("Paging")
@@ -194,7 +194,7 @@ def test_triage_graph_routes_by_condition(ns14):
 
 
 def test_approval_gate_interrupt_and_resume(ns14):
-    ns = run_cells(nb14.TOOLS_CELL, nb14.HELPERS_CELL, nb14.TRIAGE_CELL, nb14.APPROVAL_CELL)
+    ns = run_cells(nb25.TOOLS_CELL, nb25.HELPERS_CELL, nb25.TRIAGE_CELL, nb25.APPROVAL_CELL)
     flow, Command = ns["refund_flow"], ns["Command"]
     cfg = {"configurable": {"thread_id": "t-approve"}}
     paused = flow.invoke({"order_id": "A100", "amount": 20.0}, cfg, version="v2")
@@ -211,7 +211,7 @@ def test_approval_gate_interrupt_and_resume(ns14):
 
 
 def test_plan_execute_graph_wiring(ns14):
-    ns = run_cells(nb14.TOOLS_CELL, nb14.HELPERS_CELL, nb14.TRIAGE_CELL, nb14.PLAN_EXEC_CELL)
+    ns = run_cells(nb25.TOOLS_CELL, nb25.HELPERS_CELL, nb25.TRIAGE_CELL, nb25.PLAN_EXEC_CELL)
     Plan = ns["Plan"]
     planner = RunnableLambda(lambda _: Plan(steps=["Look up order A100", "Add 21% tax"]))
     seen_prompts = []
@@ -238,7 +238,7 @@ def test_plan_execute_graph_wiring(ns14):
 
 
 def test_reflection_verifier_and_loop(ns14):
-    ns = run_cells(nb14.TOOLS_CELL, nb14.HELPERS_CELL, nb14.TRIAGE_CELL, nb14.REFLECTION_CELL)
+    ns = run_cells(nb25.TOOLS_CELL, nb25.HELPERS_CELL, nb25.TRIAGE_CELL, nb25.REFLECTION_CELL)
     run_tests, extract_code = ns["run_tests"], ns["extract_code"]
     assert extract_code("Here:\n```python\ndef f():\n    return 1\n```\nbye") == "def f():\n    return 1"
     assert run_tests("def f(): return 1", "assert f() == 1") == (True, "all tests passed")
@@ -258,7 +258,7 @@ def test_reflection_verifier_and_loop(ns14):
 
 def test_router_sends_to_specialist_subgraph(ns14):
     from langchain.agents import create_agent
-    ns = run_cells(nb14.TOOLS_CELL, nb14.HELPERS_CELL, nb14.TRIAGE_CELL, nb14.APPROVAL_CELL, nb14.ROUTER_CELL)
+    ns = run_cells(nb25.TOOLS_CELL, nb25.HELPERS_CELL, nb25.TRIAGE_CELL, nb25.APPROVAL_CELL, nb25.ROUTER_CELL)
     specialists = {name: create_agent(ListModel(responses=[AIMessage(f"{name} here")]), [], name=name)
                    for name in ("billing", "support", "general")}
     classify = lambda messages: "support" if "ship" in str(messages[-1].content) else "billing"
@@ -271,10 +271,10 @@ def test_router_sends_to_specialist_subgraph(ns14):
 
 
 def test_code_sandbox_runs_code_and_contains_attacks(tmp_path):
-    """The sandbox of notebook 14, section 11: normal code runs; secrets, files outside the work dir,
+    """The sandbox of notebook 25, section 11: normal code runs; secrets, files outside the work dir,
     the network, subprocesses and endless loops are contained."""
     ns = {}
-    exec(nb14.SANDBOX_CELL, ns)
+    exec(nb25.SANDBOX_CELL, ns)
     run, wd = ns["run_python"], str(tmp_path / "work")
     os.makedirs(wd)
     secret = tmp_path / "secret.env"

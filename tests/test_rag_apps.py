@@ -1,5 +1,5 @@
 """
-Tests for the LangChain RAG helpers in scripts/rag_demo.py and for the labelled eval set used by notebook 10.
+Tests for the LangChain RAG helpers in scripts/rag_demo.py and for the labelled eval set used by notebook 18.
 
 The fast tests use LangChain's fake models (no Ollama). The tests marked `ollama` run a tiny end-to-end query
 against the local models and are skipped when no Ollama server answers.

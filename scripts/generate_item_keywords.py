@@ -1,5 +1,5 @@
 """
-Generate LLM keyword profiles for every MovieLens-1M movie (used by notebook 12 for content features and cold start).
+Generate LLM keyword profiles for every MovieLens-1M movie (used by notebook 23 for content features and cold start).
 
 The result is committed as data/recsys/ml1m_llm_keywords.json, so the notebook does not need to run this. It takes
 about an hour on a 6 GB laptop GPU with qwen2.5:7b, and it can be stopped and resumed: movies already in the file

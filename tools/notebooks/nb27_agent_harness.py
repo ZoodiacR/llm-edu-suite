@@ -1,7 +1,7 @@
 """Notebook 27 - Agent harnesses: how Claude Code-style coding agents work, run end to end with mini-swe-agent
 
 Builds 27_agent_harness.ipynb. Run: python tools/build_notebooks.py 27
-Read it after notebook 16 (MCP). Result commentary cells contain {{R_...}} markers filled after execution.
+Read it after notebook 26 (MCP). Result commentary cells contain {{R_...}} markers filled after execution.
 Needs the isolated harness environment described in scripts/harness_run.py (.venv-harness).
 """
 from _common import *  # noqa: F401,F403
@@ -33,7 +33,7 @@ This notebook takes one real, working harness apart and runs it end to end. The 
 | safety | a repository whose README and code contain a prompt injection |
 | a modern harness | native tools, lint and verification gates, loop detection and context masking on the same loop, with an ablation (`scripts/harness_modern.py`) |
 
-Read it **after notebook 16**: it builds on the agent loop of notebooks 11 and 14, the sandbox of notebook 14 and the tool protocol of notebook 16.
+Read it **after notebook 26**: it builds on the agent loop of notebooks 16 and 25, the sandbox of notebook 25 and the tool protocol of notebook 26.
 
 **Sources.** *Build an AI Agent (From Scratch)*; *Building AI Agent Platforms*; Huyen, *AI Engineering*, ch. 6 (agents); Yang et al. (2024), *SWE-agent*; the mini-swe-agent documentation.
 ''')
@@ -118,7 +118,7 @@ nb.md(r'''
 **Reading it.**
 - **`run`** puts two messages in the history: the system prompt and the task, both rendered from Jinja templates. Then it calls `step()` until the last message has the role `exit`.
 - **Errors are part of the protocol.** A malformed reply raises `FormatError`, whose message ("provide EXACTLY ONE action") goes back to the model. After 3 format errors in a row, the run stops.
-- **`query`** checks the limits first (steps, cost, wall time). Limits are the harness's own guardrails, as in notebook 14.
+- **`query`** checks the limits first (steps, cost, wall time). Limits are the harness's own guardrails, as in notebook 25.
 - **`execute_actions`** runs each action in the environment and appends the formatted output as the next user message.
 
 Nothing else: no planner, no memory, no tools. Now the parser and the environment, the two pieces that touch the outside world.
@@ -135,7 +135,7 @@ print("\nfirst lines of the system prompt:\n   " + "\n   ".join(sys_t.strip().sp
 ''')
 nb.md(r'''
 **Reading it.**
-- **The parser** is a regular expression for one fenced block tagged `mswea_bash_command`. Exactly one block per reply, or it is a format error. No native tool calling is needed, which is why this mode suits small local models whose tool calls are unreliable (notebook 11).
+- **The parser** is a regular expression for one fenced block tagged `mswea_bash_command`. Exactly one block per reply, or it is a format error. No native tool calling is needed, which is why this mode suits small local models whose tool calls are unreliable (notebook 16).
 - **The local environment** runs the command with `subprocess` and `shell=True` in a fresh shell every time. The task ends when a command prints `COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as its first line.
 - **What is missing, on purpose:**
   - no sandbox: commands run on your machine, with your files and your full `os.environ`, API keys included;
@@ -377,7 +377,7 @@ def summarize(rows):
                 steps=np.mean([r["steps"] for r in rows]), fmt=np.mean([r["fmt"] for r in rows]),
                 secs=np.mean([r["seconds"] for r in rows]), tokens=np.mean([r["tokens"] for r in rows]),
                 cost=cost(rows) / len(rows))
-def ci95(oks):                                                  # bootstrap over runs, as in notebook 20
+def ci95(oks):                                                  # bootstrap over runs, as in notebook 15
     rng = np.random.default_rng(0); oks = np.array(oks, dtype=float)
     b = [rng.choice(oks, len(oks)).mean() for _ in range(2000)]
     return np.percentile(b, 2.5), np.percentile(b, 97.5)
@@ -715,7 +715,7 @@ What mini-swe-agent leaves out, mature harnesses add. Their designs as of Novemb
 **Choosing.**
 - To **learn** how a harness works, or to **run evaluations** (SWE-bench-style), use mini-swe-agent: small, readable, scriptable, trajectories on disk.
 - For **daily development**, use a full harness (Claude Code, Codex CLI, opencode, Goose) for its sandbox, permissions, compaction, MCP and memory files.
-- To **build a product or platform** on top of an agent, use a plugin architecture (dsh-style) or an agent SDK (OpenAI Agents SDK, Claude Agent SDK, LangGraph of notebook 14).
+- To **build a product or platform** on top of an agent, use a plugin architecture (dsh-style) or an agent SDK (OpenAI Agents SDK, Claude Agent SDK, LangGraph of notebook 25).
 ''')
 nb.md(r'''
 ## Results
@@ -777,7 +777,7 @@ nb.md(r'''
 - Secrets in the environment, and over-broad permissions "to save prompts".
 - Memory files too long to be followed.
 
-**Next:** notebook 15 (observability) to trace agent runs, or notebook 29 for evaluation frameworks.
+**Next:** notebook 28 (observability) to trace agent runs, or notebook 29 for evaluation frameworks.
 ''')
 nb.save(notebook_path("27_agent_harness.ipynb"))
 print("27_agent_harness.ipynb written")

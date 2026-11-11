@@ -14,7 +14,7 @@ same machinery as language models:
    has interacted with yet.
 3. LLM re-ranking and explanation: an LLM reads the user's history and the candidate list, then
    re-orders or explains them. That is useful at the top of the funnel (tens of candidates) but far
-   too slow for retrieval. Notebook 12 builds this stage with LangChain (see its section 4); this
+   too slow for retrieval. Notebook 23 builds this stage with LangChain (see its section 4); this
    module only holds the data, the SASRec training and the embedding rankers.
 
 This module also has synthetic interaction data with hidden taste clusters, a popularity baseline
@@ -207,7 +207,7 @@ def embedding_rank(E: np.ndarray, history: list[int], k: int = 10, recency_decay
     return np.argsort(-scores)[:k].tolist()
 
 
-# MovieLens-1M: real data for the v3 recommender (notebook 12)
+# MovieLens-1M: real data for the v3 recommender (notebook 23)
 #
 # MovieLens is published by GroupLens (University of Minnesota) for research use; it may not be
 # redistributed, so it is downloaded on first use into data/cache/ (git-ignored) instead of being

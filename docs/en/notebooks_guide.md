@@ -4,49 +4,49 @@
 
 The 31 notebooks one by one: what you build, which tools you use, which concepts you take away, what gets measured and what results come out.
 
-The course has two halves. **Notebooks 00–06** build a language model from scratch in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 07–16** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (07–09), LangChain, LangGraph and LangSmith (10–15), and the official MCP SDK (16). The local model for 10–16 is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings. **Notebook 17** (encoders and encoder-decoders) mixes both halves and is read right after 04, before 05: it closes the architecture topic with the two transformer families that are not decoder-only. **Notebook 18** (data engineering) is read right before 05: deduplication, quality filtering, decontamination and synthetic data on a real FineWeb sample, and two `TransformerLM`s trained on raw and clean data to see what changes. **Notebook 19** (systems) is read right after 05: it measures on the course's GPU where the memory and the time of a training run go (weights, gradients, Adam and activations, bf16, activation checkpointing, attention kernels, profiling, CUDA graphs and MFU) and how training is split across several GPUs (real DDP in two processes and a ZeRO / FSDP calculator). **Notebook 20** (reasoning and test-time compute) is read right after 08: on GSM8K with `qwen2.5:3b` it measures what chain of thought, self-consistency, best-of-N with a verifier and a distilled reasoning model (DeepSeek-R1-Distill 1.5B) buy in accuracy and cost in tokens, and how far a pairwise LLM judge can be trusted. **Notebook 21** (embeddings and rerankers) is read right before 10: on the SciFact benchmark it compares BM25 with three embedding models, fine-tunes a small bi-encoder with contrastive learning and hard negatives, shrinks its vectors with Matryoshka truncation and binary quantization, and measures what hybrid retrieval and two cross-encoder rerankers add, and at what latency. **Notebook 22** (safety and guardrails) is read right after 15: on JailbreakBench and XSTest it measures how often `qwen2.5:3b` and `qwen2.5:7b` refuse harmful requests and how often they refuse safe ones, how far three published jailbreak templates get, and what Llama Guard 3 as an input filter and a safety system prompt add, after validating its refusal judge against human labels. **Notebook 23** (serving under load) is read right after 06: with a streaming client against Ollama it measures TTFT, TPOT and throughput, prefill against decode, prefix caching, one request slot against four under concurrency (and Little's law), the same 1.5B model in GGUF Q4_K_M, Q8_0 and FP16, and a small gateway with fallbacks, timeouts and a cost-aware cascade from 3B to 7B. **Notebook 24** (multimodal models) is read right after 21: on 37 cat and dog breeds it measures CLIP zero-shot with and without prompt templates, a linear probe on CLIP embeddings with 1 to ~100 labels per breed and `qwen2.5vl:3b` as a classifier (accuracy, latency, tokens per image, resolution), then structured extraction from synthetic invoice images with a JSON schema and a typographic attack on both models. **Notebook 25** (clustering and topic modeling) is also read right after 21, before 24: on Banking77's 3,080 customer messages, treated as unlabeled logs, it compares embedding models and UMAP for k-means, tries to choose k with the silhouette score, lets HDBSCAN find the clusters, describes them with c-TF-IDF and names from `qwen2.5:3b`, and runs an emerging-intent monitoring loop, using the 77 intent labels only to measure. **Notebook 26** (online learning and drift) is read right after 12: on MovieLens-1M replayed as a weekly stream it measures how a frozen recommender ages against weekly, sliding-window and online updates with prequential evaluation, whether PSI notices, and whether drift-triggered retraining helps; then, on Banking77, how well centroid shift, MMD and a classifier two-sample test detect a change in what users ask from embeddings alone. **Notebook 27** (agent harnesses) is read right after 16: it reads the source of mini-swe-agent, a minimal harness of the kind behind Claude Code and Codex CLI, extends it with a sandboxed environment and a permission policy, and runs it with Claude Haiku 5.5 (or any litellm model) on 16 coding tasks scored by hidden tests, 3 runs each; then it measures what an `AGENTS.md` file adds, what a prompt injection planted in the repository does, and what a modern harness profile (native tools, lint and verification gates, loop detection, masking) costs and buys. **Notebook 28** (DSPy) is read right after 13: on 17's Banking77 sample it turns the hand-written classifier into a DSPy signature and module, compares random and nearest-neighbour few-shot examples with retrieval alone, runs three prompt optimizers (bootstrap random search, MIPROv2 and GEPA) and measures what a bigger model and a router that only calls the LLM when the neighbours disagree add. **Notebook 29** (evaluation and tracing frameworks) is read right after 15: it reproduces 20's GSM8K result as an Inspect AI task, measures what the scorer and sampling epochs change, and traces a LangChain pipeline over OpenTelemetry to a self-hosted Phoenix server, with latency and tokens per step, annotations on the traces and the cost of tracing. **Notebook 30** (transformers, the big picture) is the first one to read, before 00: it follows one sentence through the real SmolLM2-135M (tokens, embeddings, attention maps, the logit lens layer by layer, the next-token distribution and where the parameters live), without training anything.
+The course has two halves. **The from-scratch notebooks (01–05, 08 and 10)** build a language model in PyTorch, with the course's own package `llm_edu_suite`, so you see every piece. **Notebooks 11, 13, 14, 16, 18, 19, 23, 25, 26 and 28** do the same jobs with the frameworks the industry uses: Hugging Face `transformers`, `peft`, `trl`, `bitsandbytes` and `optimum-quanto` on SmolLM2 (11, 13, 14), LangChain, LangGraph and LangSmith (16, 18, 19, 23, 25, 28), and the official MCP SDK (26). The local model for the application notebooks is `qwen2.5:3b` served by Ollama, with `nomic-embed-text` for embeddings. **Notebook 00** (transformers, the big picture) is the first one to read, before 01: it follows one sentence through the real SmolLM2-135M (tokens, embeddings, attention maps, the logit lens layer by layer, the next-token distribution and where the parameters live), without training anything. **Notebook 06** (encoders and encoder-decoders) mixes both halves: it closes the architecture topic with the two transformer families that are not decoder-only. **Notebook 07** (data engineering) is read right before 08: deduplication, quality filtering, decontamination and synthetic data on a real FineWeb sample, and two `TransformerLM`s trained on raw and clean data to see what changes. **Notebook 09** (systems) is read right after 08: it measures on the course's GPU where the memory and the time of a training run go (weights, gradients, Adam and activations, bf16, activation checkpointing, attention kernels, profiling, CUDA graphs and MFU) and how training is split across several GPUs (real DDP in two processes and a ZeRO / FSDP calculator). **Notebook 12** (serving under load) is read after 10: with a streaming client against Ollama it measures TTFT, TPOT and throughput, prefill against decode, prefix caching, one request slot against four under concurrency (and Little's law), the same 1.5B model in GGUF Q4_K_M, Q8_0 and FP16, and a small gateway with fallbacks, timeouts and a cost-aware cascade from 3B to 7B. **Notebook 15** (reasoning and test-time compute) is read right after 14: on GSM8K with `qwen2.5:3b` it measures what chain of thought, self-consistency, best-of-N with a verifier and a distilled reasoning model (DeepSeek-R1-Distill 1.5B) buy in accuracy and cost in tokens, and how far a pairwise LLM judge can be trusted. **Notebook 17** (embeddings and rerankers) is read right before 18: on the SciFact benchmark it compares BM25 with three embedding models, fine-tunes a small bi-encoder with contrastive learning and hard negatives, shrinks its vectors with Matryoshka truncation and binary quantization, and measures what hybrid retrieval and two cross-encoder rerankers add, and at what latency. **Notebook 20** (DSPy) is read right after 19: on 06's Banking77 sample it turns the hand-written classifier into a DSPy signature and module, compares random and nearest-neighbour few-shot examples with retrieval alone, runs three prompt optimizers (bootstrap random search, MIPROv2 and GEPA) and measures what a bigger model and a router that only calls the LLM when the neighbours disagree add. **Notebook 21** (clustering and topic modeling) is read after 17, before 22: on Banking77's 3,080 customer messages, treated as unlabeled logs, it compares embedding models and UMAP for k-means, tries to choose k with the silhouette score, lets HDBSCAN find the clusters, describes them with c-TF-IDF and names from `qwen2.5:3b`, and runs an emerging-intent monitoring loop, using the 77 intent labels only to measure. **Notebook 22** (multimodal models) is read after 17: on 37 cat and dog breeds it measures CLIP zero-shot with and without prompt templates, a linear probe on CLIP embeddings with 1 to ~100 labels per breed and `qwen2.5vl:3b` as a classifier (accuracy, latency, tokens per image, resolution), then structured extraction from synthetic invoice images with a JSON schema and a typographic attack on both models. **Notebook 24** (online learning and drift) is read right after 23: on MovieLens-1M replayed as a weekly stream it measures how a frozen recommender ages against weekly, sliding-window and online updates with prequential evaluation, whether PSI notices, and whether drift-triggered retraining helps; then, on Banking77, how well centroid shift, MMD and a classifier two-sample test detect a change in what users ask from embeddings alone. **Notebook 27** (agent harnesses) is read right after 26: it reads the source of mini-swe-agent, a minimal harness of the kind behind Claude Code and Codex CLI, extends it with a sandboxed environment and a permission policy, and runs it with Claude Haiku 5.5 (or any litellm model) on 16 coding tasks scored by hidden tests, 3 runs each; then it measures what an `AGENTS.md` file adds, what a prompt injection planted in the repository does, and what a modern harness profile (native tools, lint and verification gates, loop detection, masking) costs and buys. **Notebook 29** (evaluation and tracing frameworks) is read after 28: it reproduces 15's GSM8K result as an Inspect AI task, measures what the scorer and sampling epochs change, and traces a LangChain pipeline over OpenTelemetry to a self-hosted Phoenix server, with latency and tokens per step, annotations on the traces and the cost of tracing. **Notebook 30** (safety and guardrails) is read after 28: on JailbreakBench and XSTest it measures how often `qwen2.5:3b` and `qwen2.5:7b` refuse harmful requests and how often they refuse safe ones, how far three published jailbreak templates get, and what Llama Guard 3 as an input filter and a safety system prompt add, after validating its refusal judge against human labels.
 
 **How to use this guide.** Read the entry before you open the notebook, run it cell by cell, then come back and compare your numbers with the ones here. Every number below comes from the run committed to the repository (a laptop with a 6 GB RTX 3060). Your numbers will move a little: small models are sensitive to each machine's arithmetic, and anything an LLM generates or judges changes between runs. Where a result is fragile, the notebook says so, and so does this guide. Every notebook also has theory sections ("Background: ...") before the code that uses them; the long version of that theory, with the equations, is in the [theoretical foundations](foundations.md).
 
 **What each block needs**
-- **00–06**: PyTorch and `llm_edu_suite` only. They also run on CPU.
-- **07–09**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA in 07) and `optimum-quanto`. The first run downloads SmolLM2 from the Hugging Face Hub. Each notebook caps its own VRAM (`VRAM_BUDGET_GB`) so it fits on the GPU next to Ollama: 2 GB by default in 07, which trains eleven models and whose 4-bit model leaves ~0.1 GB behind, and 1.5 GB in 08 and 09.
-- **10–16**: **Ollama must be running** with `qwen2.5:3b` and `nomic-embed-text` pulled. The first cell (`setup()` from `llm_edu_suite.config`) checks this. Notebook 10 also uses `qwen2.5:7b` as the RAGAS judge if it is pulled (`ollama pull qwen2.5:7b`, optional; otherwise the 3B model judges), and notebook 14 uses it for the code-writing agent of section 11 (without it, the 3B model takes the 7B's place). In notebook 12, Ollama is only needed for the content embeddings and the LLM layer (requests and explanations); SASRec, the two-tower model and the LightGBM ranker are plain PyTorch and LightGBM, and MovieLens-1M is downloaded into `data/cache/` on the first run.
-- **17**: `transformers` (ModernBERT-base and Flan-T5-small, downloaded from the Hugging Face Hub on the first run), `datasets` (Banking77), `scikit-learn` (logistic regression) and **Ollama running** with `qwen2.5:3b` and `nomic-embed-text` for section 2.
-- **18**: `datasets` (FineWeb and FineWeb-Edu samples, about 100 MB streamed once and kept in `data/cache/`), `transformers` (the `HuggingFaceFW/fineweb-edu-classifier`, ~440 MB, and the SmolLM2 tokenizer), `llm_edu_suite.model` for the two models it trains, and **Ollama running** with `qwen2.5:3b` for section 7 (synthetic data). About 30 minutes on the RTX 3060: two trainings of 10–11 minutes and about 3 minutes of LLM generation.
-- **19**: PyTorch and `llm_edu_suite.model` only, no downloads and no Ollama, but it **needs a CUDA GPU** (it measures GPU memory and kernels; without one it stops with a message at the start). The Windows PyTorch wheels ship without FlashAttention-2 and without Triton (the `inductor` backend of `torch.compile`): the notebook detects this and carries on with what is available, and DDP runs in two CPU processes with `gloo`. About 5 minutes on the RTX 3060.
-- **20**: **Ollama running** with `qwen2.5:3b`, `deepseek-r1:1.5b` (`ollama pull deepseek-r1:1.5b`, 1.1 GB) and, as the verifier and pairwise judge, `qwen2.5:7b` (if it is not pulled, `config.judge_model()` falls back to the chat model and the 3B model judges itself); `datasets` downloads the GSM8K test split from the Hugging Face Hub on the first run. No training and no PyTorch model: it is all LLM calls. About 53 minutes on the RTX 3060, of which about 25 go to sampling five chains of thought for each of the 80 problems, about 10 to the verifier and about 10 to the reasoning model.
-- **21**: `sentence-transformers` (installed with the project), `rank-bm25` and `datasets`. On the first run it downloads SciFact and NFCorpus (`mteb/scifact`, `mteb/nfcorpus`) and four models from the Hugging Face Hub (all-MiniLM-L6-v2, BAAI/bge-small-en-v1.5, cross-encoder/ms-marco-MiniLM-L6-v2 and BAAI/bge-reranker-base). **Ollama running** with `nomic-embed-text` for the nomic runs. A GPU is recommended: it fine-tunes three bi-encoders and runs two cross-encoders over 50 candidates per query, which on CPU would be much slower (not measured). About 18 minutes on the RTX 3060, of which about 10 go to the rerankers and about 4 to the off-the-shelf models (mostly encoding the corpus with nomic through Ollama); the three fine-tunings take 13–23 s each.
-- **22**: `datasets` (JailbreakBench, XSTest and XSTest's human-labelled replies, downloaded from the Hugging Face Hub on the first run) and **Ollama running** with `qwen2.5:3b`, `qwen2.5:7b` and the guard model `llama-guard3:1b` (`ollama pull llama-guard3:1b`, 1.6 GB). The 7B model is both the second model under test and the candidate LLM judge; without it, `config.judge_model()` falls back to the 3B model and the comparison between the two sizes loses its meaning. No training: it is all generation and classification. About 48 minutes on the RTX 3060, of which about 28 go to the baseline (the 7B model takes about 4.7 s per prompt against about 1.7 s for the 3B), about 8.5 to the three jailbreaks, about 7 to the safety-prompt reruns and about 3 to validating the judges; the input-guard pass over 700 prompts takes 38 s.
-- **23**: **Ollama running** with `qwen2.5:3b`, `qwen2.5:7b` (the second model of the gateway and the cascade, through `config.judge_model()`) and the three formats of `qwen2.5:1.5b-instruct` (`ollama pull qwen2.5:1.5b-instruct-q4_K_M`, `-q8_0` and `-fp16`: 986 MB, 1.6 GB and 3.1 GB); `datasets` downloads ARC-Easy (`allenai/ai2_arc`) and the GSM8K test split (`openai/gsm8k`) from the Hugging Face Hub on the first run. A GPU is assumed: every number is a latency on the RTX 3060. For the concurrency section the notebook starts a second, temporary Ollama server on a free port with `OLLAMA_NUM_PARALLEL=4` and stops it afterwards; it finds the models folder in the Ollama desktop app's `server.log` (otherwise `OLLAMA_MODELS` or `~/.ollama/models`), and it unloads the models from the default server first so the two fit on a 6 GB card. Do not run it next to another GPU job: the latencies are the measurement. No training. About 28 minutes on the RTX 3060, of which about 23 go to the cascade (three passes over the 80 GSM8K problems, two with the 3B model and one with the 7B), about 3.5 to the load test and 85 s to the three weight formats.
-- **24**: `transformers`, `datasets` and `scikit-learn` (installed with the project); on the first run it downloads CLIP ViT-B/32 (`openai/clip-vit-base-patch32`) and Oxford-IIIT Pet (`timm/oxford-iiit-pet`) from the Hugging Face Hub. **Ollama running** with the vision model `qwen2.5vl:3b` (`ollama pull qwen2.5vl:3b`, 3.2 GB), called through the `ollama` Python client. A GPU is recommended: CLIP encodes the 3,680 training images and the test sample, and the VLM reads its images one at a time (150 for classification, 40 at each of three resolutions, the 40 invoices twice and 60 stamped images). The invoices are rendered on the fly with Pillow, so there is nothing else to download. About 12 minutes on the RTX 3060, of which about 6.5 go to the VLM as a classifier, about 3 to the invoice extraction and about 1.5 to the typographic attack.
-- **25**: `sentence-transformers`, `umap-learn`, `scikit-learn` (k-means, HDBSCAN and the metrics) and `datasets`, all installed with the project; on the first run it downloads Banking77 (`PolyAI/banking77`) and the two embedding models of 21 (all-MiniLM-L6-v2 and bge-small-en-v1.5) if they are not cached yet. **Ollama running** with `qwen2.5:3b`, which names the clusters through `config.get_llm`. A GPU helps with encoding but is not essential: the models are small and the data is 3,080 messages plus the training split. About 196 s on the RTX 3060, of which 88 s go to the cell that names the clusters with the LLM, about a minute to loading Banking77 and the libraries, and 29 s to the embeddings and UMAP.
-- **26**: NumPy and `llm_edu_suite.recsys` for MovieLens-1M (the same `data/cache/` download as 12, fetched on the first run if 12 has not run), plus `sentence-transformers`, `scikit-learn` and `datasets` for the last section, which downloads Banking77 (`PolyAI/banking77`) and bge-small-en-v1.5 if they are not cached yet. No LLM calls: Ollama is only checked by the setup cell. A GPU only speeds up the encoding of Banking77. About 90 s on the RTX 3060, of which 49 s go to the Banking77 drift tests (encoding included) and 27 s to the 22-week recommender stream.
+- **00**: `transformers` only (installed with the project); on the first run it downloads the base SmolLM2-135M (`HuggingFaceTB/SmolLM2-135M`, 260 MB) from the Hugging Face Hub. No Ollama and no training; it runs on CPU or GPU. About 1.5 minutes on the RTX 3060 including the kernel start, of which the cells themselves take about 15 s once the model is cached.
+- **01–05, 08, 10**: PyTorch and `llm_edu_suite` only. They also run on CPU.
+- **06**: `transformers` (ModernBERT-base and Flan-T5-small, downloaded from the Hugging Face Hub on the first run), `datasets` (Banking77), `scikit-learn` (logistic regression) and **Ollama running** with `qwen2.5:3b` and `nomic-embed-text` for section 2.
+- **07**: `datasets` (FineWeb and FineWeb-Edu samples, about 100 MB streamed once and kept in `data/cache/`), `transformers` (the `HuggingFaceFW/fineweb-edu-classifier`, ~440 MB, and the SmolLM2 tokenizer), `llm_edu_suite.model` for the two models it trains, and **Ollama running** with `qwen2.5:3b` for section 7 (synthetic data). About 30 minutes on the RTX 3060: two trainings of 10–11 minutes and about 3 minutes of LLM generation.
+- **09**: PyTorch and `llm_edu_suite.model` only, no downloads and no Ollama, but it **needs a CUDA GPU** (it measures GPU memory and kernels; without one it stops with a message at the start). The Windows PyTorch wheels ship without FlashAttention-2 and without Triton (the `inductor` backend of `torch.compile`): the notebook detects this and carries on with what is available, and DDP runs in two CPU processes with `gloo`. About 5 minutes on the RTX 3060.
+- **11, 13, 14**: `transformers`, `peft`, `trl`, `bitsandbytes` (QLoRA in 13) and `optimum-quanto`. The first run downloads SmolLM2 from the Hugging Face Hub. Each notebook caps its own VRAM (`VRAM_BUDGET_GB`) so it fits on the GPU next to Ollama: 2 GB by default in 13, which trains eleven models and whose 4-bit model leaves ~0.1 GB behind, and 1.5 GB in 14 and 11.
+- **12**: **Ollama running** with `qwen2.5:3b`, `qwen2.5:7b` (the second model of the gateway and the cascade, through `config.judge_model()`) and the three formats of `qwen2.5:1.5b-instruct` (`ollama pull qwen2.5:1.5b-instruct-q4_K_M`, `-q8_0` and `-fp16`: 986 MB, 1.6 GB and 3.1 GB); `datasets` downloads ARC-Easy (`allenai/ai2_arc`) and the GSM8K test split (`openai/gsm8k`) from the Hugging Face Hub on the first run. A GPU is assumed: every number is a latency on the RTX 3060. For the concurrency section the notebook starts a second, temporary Ollama server on a free port with `OLLAMA_NUM_PARALLEL=4` and stops it afterwards; it finds the models folder in the Ollama desktop app's `server.log` (otherwise `OLLAMA_MODELS` or `~/.ollama/models`), and it unloads the models from the default server first so the two fit on a 6 GB card. Do not run it next to another GPU job: the latencies are the measurement. No training. About 28 minutes on the RTX 3060, of which about 23 go to the cascade (three passes over the 80 GSM8K problems, two with the 3B model and one with the 7B), about 3.5 to the load test and 85 s to the three weight formats.
+- **15**: **Ollama running** with `qwen2.5:3b`, `deepseek-r1:1.5b` (`ollama pull deepseek-r1:1.5b`, 1.1 GB) and, as the verifier and pairwise judge, `qwen2.5:7b` (if it is not pulled, `config.judge_model()` falls back to the chat model and the 3B model judges itself); `datasets` downloads the GSM8K test split from the Hugging Face Hub on the first run. No training and no PyTorch model: it is all LLM calls. About 53 minutes on the RTX 3060, of which about 25 go to sampling five chains of thought for each of the 80 problems, about 10 to the verifier and about 10 to the reasoning model.
+- **16, 18, 19, 23, 25, 26, 28**: **Ollama must be running** with `qwen2.5:3b` and `nomic-embed-text` pulled. The first cell (`setup()` from `llm_edu_suite.config`) checks this. Notebook 18 also uses `qwen2.5:7b` as the RAGAS judge if it is pulled (`ollama pull qwen2.5:7b`, optional; otherwise the 3B model judges), and notebook 25 uses it for the code-writing agent of section 11 (without it, the 3B model takes the 7B's place). In notebook 23, Ollama is only needed for the content embeddings and the LLM layer (requests and explanations); SASRec, the two-tower model and the LightGBM ranker are plain PyTorch and LightGBM, and MovieLens-1M is downloaded into `data/cache/` on the first run.
+- **17**: `sentence-transformers` (installed with the project), `rank-bm25` and `datasets`. On the first run it downloads SciFact and NFCorpus (`mteb/scifact`, `mteb/nfcorpus`) and four models from the Hugging Face Hub (all-MiniLM-L6-v2, BAAI/bge-small-en-v1.5, cross-encoder/ms-marco-MiniLM-L6-v2 and BAAI/bge-reranker-base). **Ollama running** with `nomic-embed-text` for the nomic runs. A GPU is recommended: it fine-tunes three bi-encoders and runs two cross-encoders over 50 candidates per query, which on CPU would be much slower (not measured). About 18 minutes on the RTX 3060, of which about 10 go to the rerankers and about 4 to the off-the-shelf models (mostly encoding the corpus with nomic through Ollama); the three fine-tunings take 13–23 s each.
+- **20**: `dspy>=3.5` and `optuna` (both in `pyproject.toml`; DSPy talks to Ollama through its own HTTP client, `engine="lm15"`, on the OpenAI-compatible `/v1` endpoint, so litellm is not needed), `sentence-transformers` and `datasets`; on the first run it downloads Banking77 (`PolyAI/banking77`) and bge-small-en-v1.5 if they are not cached yet. **Ollama running** with `qwen2.5:3b` (the model being optimized) and `qwen2.5:7b` (MIPROv2's prompt model, GEPA's reflection model and the 7B classifier of section 5). DSPy's cache is off, so every call is a real call and the timings are honest. About 57 minutes on the RTX 3060: 20 for the three optimizers (4.7, 6.8 and 8.5 minutes), 7.3 for GEPA on the kNN program, and most of the rest evaluating 13 variants on 231 messages (the 7B classifier, at 1.6 s per message, is the slowest). Run it alone: it is a long chain of Ollama calls.
+- **21**: `sentence-transformers`, `umap-learn`, `scikit-learn` (k-means, HDBSCAN and the metrics) and `datasets`, all installed with the project; on the first run it downloads Banking77 (`PolyAI/banking77`) and the two embedding models of 17 (all-MiniLM-L6-v2 and bge-small-en-v1.5) if they are not cached yet. **Ollama running** with `qwen2.5:3b`, which names the clusters through `config.get_llm`. A GPU helps with encoding but is not essential: the models are small and the data is 3,080 messages plus the training split. About 196 s on the RTX 3060, of which 88 s go to the cell that names the clusters with the LLM, about a minute to loading Banking77 and the libraries, and 29 s to the embeddings and UMAP.
+- **22**: `transformers`, `datasets` and `scikit-learn` (installed with the project); on the first run it downloads CLIP ViT-B/32 (`openai/clip-vit-base-patch32`) and Oxford-IIIT Pet (`timm/oxford-iiit-pet`) from the Hugging Face Hub. **Ollama running** with the vision model `qwen2.5vl:3b` (`ollama pull qwen2.5vl:3b`, 3.2 GB), called through the `ollama` Python client. A GPU is recommended: CLIP encodes the 3,680 training images and the test sample, and the VLM reads its images one at a time (150 for classification, 40 at each of three resolutions, the 40 invoices twice and 60 stamped images). The invoices are rendered on the fly with Pillow, so there is nothing else to download. About 12 minutes on the RTX 3060, of which about 6.5 go to the VLM as a classifier, about 3 to the invoice extraction and about 1.5 to the typographic attack.
+- **24**: NumPy and `llm_edu_suite.recsys` for MovieLens-1M (the same `data/cache/` download as 23, fetched on the first run if 23 has not run), plus `sentence-transformers`, `scikit-learn` and `datasets` for the last section, which downloads Banking77 (`PolyAI/banking77`) and bge-small-en-v1.5 if they are not cached yet. No LLM calls: Ollama is only checked by the setup cell. A GPU only speeds up the encoding of Banking77. About 90 s on the RTX 3060, of which 49 s go to the Banking77 drift tests (encoding included) and 27 s to the 22-week recommender stream.
 - **27**: a **second virtual environment**, `.venv-harness`, with `mini-swe-agent==2.4.6` and `pytest` (its terminal UI needs a newer `rich` than the course environment allows; see [installation](installation.md#the-agent-harness-environment-notebook-27)); on Windows, **Git Bash** (`C:\Program Files\Git\bin\bash.exe`, or the path in `HARNESS_BASH`), because the agent's commands run in bash. A model: by default **Claude Haiku 5.5**, with `ANTHROPIC_API_KEY` in `.env` (the notebook loads it itself; 366 agent runs, about US$ 0.42); `HARNESS_MODEL` picks any other litellm model, and without a key it falls back to `qwen2.5:7b` through **Ollama**, which is much slower (v2.8's local models took 64–216 s per task). `HARNESS_REPS` sets the runs per task (3) and `HARNESS_WORKERS` the parallel runs (4 for API models, 1 for local ones). The notebook itself runs in the course kernel and starts `scripts/harness_run.py` with the harness environment's Python, one process per run. With Claude Haiku 5.5 it took about 27 minutes of API calls and no GPU; with a local model, run it alone, since two Ollama jobs at once on a 6 GB card can hang.
-- **28**: `dspy>=3.5` and `optuna` (both in `pyproject.toml`; DSPy talks to Ollama through its own HTTP client, `engine="lm15"`, on the OpenAI-compatible `/v1` endpoint, so litellm is not needed), `sentence-transformers` and `datasets`; on the first run it downloads Banking77 (`PolyAI/banking77`) and bge-small-en-v1.5 if they are not cached yet. **Ollama running** with `qwen2.5:3b` (the model being optimized) and `qwen2.5:7b` (MIPROv2's prompt model, GEPA's reflection model and the 7B classifier of section 5). DSPy's cache is off, so every call is a real call and the timings are honest. About 57 minutes on the RTX 3060: 20 for the three optimizers (4.7, 6.8 and 8.5 minutes), 7.3 for GEPA on the kNN program, and most of the rest evaluating 13 variants on 231 messages (the 7B classifier, at 1.6 s per message, is the slowest). Run it alone: it is a long chain of Ollama calls.
-- **29**: a **third virtual environment**, `.venv-eco`, with `inspect-ai==0.3.289`, `arize-phoenix==21.0.0` and `datasets` (Inspect needs a newer `rich` than the course environment allows; see [installation](installation.md#the-inspect-and-phoenix-environment-notebook-29)); in the course environment, `arize-phoenix-otel` and `openinference-instrumentation-langchain` (in `pyproject.toml`). **Ollama running** with `qwen2.5:3b`; GSM8K's test split from the Hugging Face Hub (the same download as 20). The notebook runs in the course kernel: it calls `inspect eval` from `.venv-eco` (logs in `data/cache/inspect_logs`) and starts `phoenix serve` from there as a subprocess on a free port, with its data in `data/cache/phoenix` (both folders are emptied at the start of every run), and stops the server at the end. About 23 minutes on the RTX 3060: 307 s for the greedy Inspect run, 918 s for the three sampled epochs and 69 s for the 20 traced requests.
-- **30**: `transformers` only (installed with the project); on the first run it downloads the base SmolLM2-135M (`HuggingFaceTB/SmolLM2-135M`, 260 MB) from the Hugging Face Hub. No Ollama and no training; it runs on CPU or GPU. About 1.5 minutes on the RTX 3060 including the kernel start, of which the cells themselves take about 15 s once the model is cached.
-- **LangSmith is optional.** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env`, every LangChain/LangGraph call in 10–16 is traced. Without a key everything still runs, and notebook 15 skips the cells that need the LangSmith server and prints that it skipped them. The committed run had LangSmith on, except for notebook 22, which was run with it off. Notebook 23 talks to Ollama's HTTP API directly, and 24 through the `ollama` Python client, both without LangChain, so they produce no traces either way. Notebook 25 names its clusters through LangChain, so its LLM calls are traced when the key is set; the committed run had LangSmith off. Notebook 26 makes no LLM calls. Notebook 27 calls Ollama through litellm inside mini-swe-agent, not through LangChain, so it produces no traces; its record is the JSON trajectory of each run. Notebooks 28–30 produce no LangSmith traces either: 28 calls Ollama through DSPy's own HTTP client, not LangChain, and counts its calls with a DSPy callback; 29 sends its traces to a local Phoenix server instead, and its record is the Inspect logs and the Phoenix spans (its one LangChain chain would also be traced to LangSmith if a key were set; the committed run had LangSmith off); 30 makes no LLM calls.
+- **29**: a **third virtual environment**, `.venv-eco`, with `inspect-ai==0.3.289`, `arize-phoenix==21.0.0` and `datasets` (Inspect needs a newer `rich` than the course environment allows; see [installation](installation.md#the-inspect-and-phoenix-environment-notebook-29)); in the course environment, `arize-phoenix-otel` and `openinference-instrumentation-langchain` (in `pyproject.toml`). **Ollama running** with `qwen2.5:3b`; GSM8K's test split from the Hugging Face Hub (the same download as 15). The notebook runs in the course kernel: it calls `inspect eval` from `.venv-eco` (logs in `data/cache/inspect_logs`) and starts `phoenix serve` from there as a subprocess on a free port, with its data in `data/cache/phoenix` (both folders are emptied at the start of every run), and stops the server at the end. About 23 minutes on the RTX 3060: 307 s for the greedy Inspect run, 918 s for the three sampled epochs and 69 s for the 20 traced requests.
+- **30**: `datasets` (JailbreakBench, XSTest and XSTest's human-labelled replies, downloaded from the Hugging Face Hub on the first run) and **Ollama running** with `qwen2.5:3b`, `qwen2.5:7b` and the guard model `llama-guard3:1b` (`ollama pull llama-guard3:1b`, 1.6 GB). The 7B model is both the second model under test and the candidate LLM judge; without it, `config.judge_model()` falls back to the 3B model and the comparison between the two sizes loses its meaning. No training: it is all generation and classification. About 48 minutes on the RTX 3060, of which about 28 go to the baseline (the 7B model takes about 4.7 s per prompt against about 1.7 s for the 3B), about 8.5 to the three jailbreaks, about 7 to the safety-prompt reruns and about 3 to validating the judges; the input-guard pass over 700 prompts takes 38 s.
+- **LangSmith is optional.** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in `.env`, every LangChain/LangGraph call in 16, 18, 19, 23, 25, 26 and 28 is traced. Without a key everything still runs, and notebook 28 skips the cells that need the LangSmith server and prints that it skipped them. The committed run had LangSmith on, except for notebook 30, which was run with it off. Notebook 12 talks to Ollama's HTTP API directly, and 22 through the `ollama` Python client, both without LangChain, so they produce no traces either way. Notebook 21 names its clusters through LangChain, so its LLM calls are traced when the key is set; the committed run had LangSmith off. Notebook 24 makes no LLM calls. Notebook 27 calls Ollama through litellm inside mini-swe-agent, not through LangChain, so it produces no traces; its record is the JSON trajectory of each run. Notebooks 20, 29 and 00 produce no LangSmith traces either: 20 calls Ollama through DSPy's own HTTP client, not LangChain, and counts its calls with a DSPy callback; 29 sends its traces to a local Phoenix server instead, and its record is the Inspect logs and the Phoenix spans (its one LangChain chain would also be traced to LangSmith if a key were set; the committed run had LangSmith off); 00 makes no LLM calls.
 
 | Topic | Notebooks | GPU time of the final run |
 |---|---|---|
-| Start here | [30](#30) · [00](#00) | ≈ 1.5 min · 32 s (≈ 2 min) |
-| Architecture | [01](#01) · [02](#02) · [03](#03) · [04](#04) · [17](#17) | 5 s · 31 s · 180 s · 48 s · ≈ 15 min (≈ 19.5 min) |
-| Pre-training and inference | [18](#18) · [05](#05) · [19](#19) · [06](#06) · [23](#23) · [09](#09) | ≈ 30 min · 35 s · ≈ 5 min · 61 s · ≈ 28 min · 53 s (≈ 65.5 min) |
-| Post-training | [07](#07) · [08](#08) · [20](#20) | ≈ 25 min · 645 s · ≈ 53 min (≈ 89 min) |
-| Applications | [21](#21) · [25](#25) · [24](#24) · [10](#10) · [12](#12) · [26](#26) · [13](#13) · [28](#28) | ≈ 18 min · 196 s · ≈ 12 min · ≈ 19 min · ≈ 25 min · 90 s · 140 s · ≈ 57 min (≈ 138 min) |
-| Agents and MCP | [11](#11) · [14](#14) · [16](#16) · [27](#27) | 56 s · ≈ 6 min · 71 s · ≈ 27 min of API calls (≈ 35 min) |
-| LLMOps | [15](#15) · [29](#29) · [22](#22) | 129 s · ≈ 23 min · ≈ 48 min (≈ 73 min) |
+| Start here | [00](#00) · [01](#01) | ≈ 1.5 min · 32 s (≈ 2 min) |
+| Architecture | [02](#02) · [03](#03) · [04](#04) · [05](#05) · [06](#06) | 5 s · 31 s · 180 s · 48 s · ≈ 15 min (≈ 19.5 min) |
+| Pre-training and inference | [07](#07) · [08](#08) · [09](#09) · [10](#10) · [11](#11) · [12](#12) | ≈ 30 min · 35 s · ≈ 5 min · 61 s · 53 s · ≈ 28 min (≈ 65.5 min) |
+| Post-training | [13](#13) · [14](#14) · [15](#15) | ≈ 25 min · 645 s · ≈ 53 min (≈ 89 min) |
+| Applications | [16](#16) · [17](#17) · [18](#18) · [19](#19) · [20](#20) · [21](#21) · [22](#22) · [23](#23) · [24](#24) | 56 s · ≈ 18 min · ≈ 19 min · 140 s · ≈ 57 min · 196 s · ≈ 12 min · ≈ 25 min · 90 s (≈ 139 min) |
+| Agents and MCP | [25](#25) · [26](#26) · [27](#27) | ≈ 6 min · 71 s · ≈ 27 min of API calls (≈ 34 min) |
+| LLMOps | [28](#28) · [29](#29) · [30](#30) | 129 s · ≈ 23 min · ≈ 48 min (≈ 73 min) |
 
-Notebooks 07, 10 and 12 were re-run for v2.1 and their times are approximate: 07 now also trains QLoRA, 10 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 12 includes ~11 minutes of ranker feature building. Notebook 14 grew from 119 s to about 6 minutes (354 s) with its sections on multi-agent teams and code execution; about 3 of those minutes are the code-writing agent with `qwen2.5:7b`. Notebook 16 went from 65 s to 71 s with its section on client features and remote servers. In total, about an hour and a half for notebooks 00–16, plus about 15 minutes for 17, about 30 for 18, about 5 for 19, about 53 for 20, about 18 for 21, about 48 for 22, about 28 for 23, about 12 for 24, about 3 for 25, about 1.5 for 26, about 101 for 27, about 57 for 28, about 23 for 29 and about 1.5 for 30, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for 10–16 grow a lot (the LLM calls queue up). CPU times were not measured for this run: 00–06 work fine on CPU, but expect 07–09 to be much slower without a GPU. Notebook 19 does not run without a CUDA GPU.
+Notebooks 13, 18 and 23 were re-run for v2.1 and their times are approximate: 13 now also trains QLoRA, 18 uses a 7B judge (about 17 of its 19 minutes are RAGAS scoring) and 23 includes ~11 minutes of ranker feature building. Notebook 25 grew from 119 s to about 6 minutes (354 s) with its sections on multi-agent teams and code execution; about 3 of those minutes are the code-writing agent with `qwen2.5:7b`. Notebook 26 went from 65 s to 71 s with its section on client features and remote servers. In total, about an hour and a half for notebooks 01–05, 08, 10, 11, 13, 14, 16, 18, 19, 23, 25, 26 and 28, plus about 1.5 minutes for 00, about 15 for 06, about 30 for 07, about 5 for 09, about 28 for 12, about 53 for 15, about 18 for 17, about 57 for 20, about 3 for 21, about 12 for 22, about 1.5 for 24, about 27 for 27 (Claude Haiku 5.5 through the Anthropic API), about 23 for 29 and about 48 for 30, on the GPU, with Ollama not shared with other jobs. When something else is using the GPU, the times for the notebooks that call Ollama grow a lot (the LLM calls queue up). CPU times were not measured for this run: the from-scratch notebooks (01–05, 08, 10) work fine on CPU, but expect the Hugging Face training notebooks (11, 13, 14) to be much slower without a GPU. Notebook 09 does not run without a CUDA GPU.
 
 ---
 
-<a id="30"></a>
-## 30 · Transformers, the big picture: what happens between your text and the next word
-`notebooks/00_start_here/30_transformers_big_picture.ipynb` · `transformers` · `HuggingFaceTB/SmolLM2-135M` (the base model, Llama architecture)
+<a id="00"></a>
+## 00 · Transformers, the big picture: what happens between your text and the next word
+`notebooks/00_start_here/00_transformers_big_picture.ipynb` · `transformers` · `HuggingFaceTB/SmolLM2-135M` (the base model, Llama architecture)
 
-Read this one first, before 00. Every model in the course, from 135 million parameters to the 7B models served by Ollama and the frontier models behind APIs, does the same thing: it reads a sequence of tokens and outputs a probability for every possible next token, then one is picked, appended, and the loop repeats. Before building any of the pieces, this notebook opens a small real model and follows one sentence through it. No training and no math beyond a dot product, and every step points to the notebook that takes that piece apart.
+Read this one first, before 01. Every model in the course, from 135 million parameters to the 7B models served by Ollama and the frontier models behind APIs, does the same thing: it reads a sequence of tokens and outputs a probability for every possible next token, then one is picked, appended, and the loop repeats. Before building any of the pieces, this notebook opens a small real model and follows one sentence through it. No training and no math beyond a dot product, and every step points to the notebook that takes that piece apart.
 
 **What you build.**
 1. **Text → tokens**: the ids and pieces of "The capital of France is", the token cost of the same three sentences in English and in Spanish, and the edge cases (digits, spaces, a rare word).
@@ -79,19 +79,19 @@ Read this one first, before 00. Every model in the course, from 135 million para
 
 **Honest findings**
 - **The model knows Paris but prefers ' the'.** For "The capital of France is" and "The Eiffel Tower is in", Paris ends at rank 2 (p 0.09 and 0.24), behind ' the' ("...is the capital of..."), a grammatical continuation. Knowing a fact and saying it next are different things, and a base model is not a question-answering system.
-- **Greedy decoding goes in circles.** Always taking the top token produced *"The capital of France is the capital of the country. The capital of France"*: bland, circular, and already repeating itself. Real systems sample (temperature, top-p, min-p), penalize repetition and instruction-tune the model so the most likely continuation is a direct answer (07 and 08).
+- **Greedy decoding goes in circles.** Always taking the top token produced *"The capital of France is the capital of the country. The capital of France"*: bland, circular, and already repeating itself. Real systems sample (temperature, top-p, min-p), penalize repetition and instruction-tune the model so the most likely continuation is a direct answer (13 and 14).
 - **Averages hide heads.** Averaged over heads, "it" barely looks at "animal" in any layer, while one head of the 270 resolves the reference. Reading one head, or the average of all of them, as "what the model thinks" is a mistake either way.
 - **The lens is a rough reading.** It reads intermediate layers with a head trained only on the last one, so in a small model the middle layers look wrong when they are only in a different basis. Use it to locate where a behaviour appears, then confirm with an intervention.
 - **The vocabulary is expensive at this size.** A 49k vocabulary eats a fifth of a 135M model; Qwen2.5-7B's 152k vocabulary is 14 % of a 7B one.
-- The notebook ends with "Results" and an "In production" section: count tokens with the deployed model's tokenizer, not words (non-English text, code and numbers can cost 1.5–3× more), and pick a tokenizer suited to your languages; decoding settings are product settings (temperature 0 or low for extraction, classification and tool calls, moderate with top-p or min-p for writing, never greedy on a base model for open-ended text, and the settings logged with every request); memory is parameters plus KV cache (a 7B model is ~15 GB at bf16 and ~4.5 GB at 4 bits, notebook 09); logit lens, attention maps and probes are debugging tools, confirmed by ablating a head or patching an activation; and the failure modes (one word taken as one token, a single head or an average read as an explanation, the top-1 token taken as the model's knowledge, a tokenizer that does not match the model exactly).
+- The notebook ends with "Results" and an "In production" section: count tokens with the deployed model's tokenizer, not words (non-English text, code and numbers can cost 1.5–3× more), and pick a tokenizer suited to your languages; decoding settings are product settings (temperature 0 or low for extraction, classification and tool calls, moderate with top-p or min-p for writing, never greedy on a base model for open-ended text, and the settings logged with every request); memory is parameters plus KV cache (a 7B model is ~15 GB at bf16 and ~4.5 GB at 4 bits, notebook 11); logit lens, attention maps and probes are debugging tools, confirmed by ablating a head or patching an activation; and the failure modes (one word taken as one token, a single head or an average read as an explanation, the top-1 token taken as the model's knowledge, a tokenizer that does not match the model exactly).
 
-**Next:** [00](#00), a complete mini LLM built from scratch, then 01–04 to take each piece apart.
+**Next:** [01](#01), a complete mini LLM built from scratch, then 02–05 to take each piece apart.
 
 ---
 
-<a id="00"></a>
-## 00 · A complete mini LLM in one notebook
-`notebooks/00_start_here/00_mini_llm_end_to_end.ipynb` · also as a script: `python scripts/mini_llm.py`
+<a id="01"></a>
+## 01 · A complete mini LLM in one notebook
+`notebooks/00_start_here/01_mini_llm_end_to_end.ipynb` · also as a script: `python scripts/mini_llm.py`
 
 **What you build.** A whole GPT without importing anything from the project, just PyTorch: a byte-level BPE tokenizer, a modern transformer (embeddings, RoPE, RMSNorm, causal attention, SwiGLU, tied output head), the training loop (AdamW, warmup + cosine, clipping), evaluation, sampling and saving.
 
@@ -107,9 +107,9 @@ Read this one first, before 00. Every model in the course, from 135 million para
 
 ---
 
-<a id="01"></a>
-## 01 · Tokenization
-`notebooks/01_architecture/01_tokenization.ipynb` · module `tokenizer`
+<a id="02"></a>
+## 02 · Tokenization
+`notebooks/01_architecture/02_tokenization.ipynb` · module `tokenizer`
 
 **What you build.** A byte-level BPE with training, encoding, decoding, special tokens and save/load.
 
@@ -119,9 +119,9 @@ Read this one first, before 00. Every model in the course, from 135 million para
 
 ---
 
-<a id="02"></a>
-## 02 · Attention, RoPE and normalization
-`notebooks/01_architecture/02_attention_rope_norm.ipynb` · modules `layers`, `model`
+<a id="03"></a>
+## 03 · Attention, RoPE and normalization
+`notebooks/01_architecture/03_attention_rope_norm.ipynb` · modules `layers`, `model`
 
 **What you build.** RMSNorm (checked against `torch.nn.RMSNorm`), RoPE with Llama-3.1-style scaling, attention written by hand (checked against `F.scaled_dot_product_attention`), MHA → GQA → MQA → MLA, and the KV-cache.
 
@@ -131,9 +131,9 @@ Read this one first, before 00. Every model in the course, from 135 million para
 
 ---
 
-<a id="03"></a>
-## 03 · Efficient attention for long contexts
-`notebooks/01_architecture/03_efficient_attention.ipynb` · module `layers`
+<a id="04"></a>
+## 04 · Efficient attention for long contexts
+`notebooks/01_architecture/04_efficient_attention.ipynb` · module `layers`
 
 **What you build.** Sliding window (SWA), Longformer, FlexAttention (if your PyTorch has it), content-selected block-sparse attention, linear attention (with its constant-state recurrent form) and hybrids.
 
@@ -153,9 +153,9 @@ With only 300 steps even the dense model is at 0.3%: ***induction heads*** appea
 
 ---
 
-<a id="04"></a>
-## 04 · FFN and Mixture of Experts
-`notebooks/01_architecture/04_ffn_moe.ipynb` · module `layers`
+<a id="05"></a>
+## 05 · FFN and Mixture of Experts
+`notebooks/01_architecture/05_ffn_moe.ipynb` · module `layers`
 
 **What you build.** SwiGLU with Llama's sizing rule, an MoE layer with top-k routing, shared experts, balancing with an auxiliary loss and *aux-free* balancing (DeepSeek-V3).
 
@@ -163,17 +163,17 @@ With only 300 steps even the dense model is at 0.3%: ***induction heads*** appea
 
 **Results.** With top-2 of 8 experts, the layer has 3× (2.99×) more total than active parameters. Aux-free balancing takes an unbalanced router **from 4.0× to 1.15×** with `bias_lr=0.01`, while 0.1 oscillates (it only gets to 1.68×; the plot shows it). On the toy corpus MoE does not beat the dense model: dense ppl 3.24, MoE with auxiliary loss 3.31, MoE aux-free 3.24, with the same active parameters. The notebook explains why MoE pays off at scale.
 
-**Next:** [17](#17), which completes the architecture topic, then [18](#18) (the data) and 05.
+**Next:** [06](#06), which completes the architecture topic, then [07](#07) (the data) and [08](#08).
 
 ---
 
-<a id="17"></a>
-## 17 · Encoders and encoder-decoders: the other two transformer families
-`notebooks/01_architecture/17_encoders_and_encoder_decoders.ipynb` · modules `model`, `data`, `training` · `transformers`, `datasets`, `scikit-learn`, LangChain (Ollama)
+<a id="06"></a>
+## 06 · Encoders and encoder-decoders: the other two transformer families
+`notebooks/01_architecture/06_encoders_and_encoder_decoders.ipynb` · modules `model`, `data`, `training` · `transformers`, `datasets`, `scikit-learn`, LangChain (Ollama)
 
-Read it after 04 and before 05. Notebooks 00–06 build a single kind of transformer, the decoder-only one; this notebook covers the other two branches of the original transformer: **encoders** (BERT, ModernBERT), with bidirectional attention, and **encoder-decoders** (T5, Flan-T5), with *cross-attention*.
+Read it after 05 and before 07. The from-scratch notebooks (01–05, 08, 10) build a single kind of transformer, the decoder-only one; this notebook covers the other two branches of the original transformer: **encoders** (BERT, ModernBERT), with bidirectional attention, and **encoder-decoders** (T5, Flan-T5), with *cross-attention*.
 
-**What you build.** Three parts. (1) **From scratch:** the same `TransformerLM` with `ModelConfig(causal=False)` (bidirectional attention), trained with BERT's MLM objective, against a causal decoder of the same size; both for 800 steps (~30 s each) on the synthetic corpus of 05, followed by a fill-in-the-blank test. (2) **In practice:** classifying the real messages of Banking77 (77 intents) three ways: fine-tuning an encoder (ModernBERT-base), frozen embeddings + logistic regression, and asking an LLM (`qwen2.5:3b`) zero-shot and few-shot. (3) **Encoder-decoder:** Flan-T5-small, how its parameters are split and what its cross-attention reads.
+**What you build.** Three parts. (1) **From scratch:** the same `TransformerLM` with `ModelConfig(causal=False)` (bidirectional attention), trained with BERT's MLM objective, against a causal decoder of the same size; both for 800 steps (~30 s each) on the synthetic corpus of 08, followed by a fill-in-the-blank test. (2) **In practice:** classifying the real messages of Banking77 (77 intents) three ways: fine-tuning an encoder (ModernBERT-base), frozen embeddings + logistic regression, and asking an LLM (`qwen2.5:3b`) zero-shot and few-shot. (3) **Encoder-decoder:** Flan-T5-small, how its parameters are split and what its cross-attention reads.
 
 **Tools.** `ModelConfig(causal=False)` and `train_lm` from `llm_edu_suite`; a `mask_tokens` function with BERT's 80/10/10 recipe; `datasets.load_dataset("PolyAI/banking77")` with a stratified validation split; `AutoModelForSequenceClassification` + `Trainer` (`learning_rate=5e-5`, warm-up, linear decay, bf16, `DataCollatorWithPadding` for dynamic padding); `AutoModel` with mean pooling; `OllamaEmbeddings(nomic-embed-text)` with the `classification:` prefix; `scikit-learn` (`StandardScaler` + `LogisticRegression`, `C` chosen on validation, and `f1_score`); `with_structured_output(..., method="json_schema" | "function_calling", include_raw=True)` with a `Literal` of the 77 intents; `evaluation.bootstrap_ci` and `paired_bootstrap_diff`; `AutoModelForSeq2SeqLM` with `attn_implementation="eager"` to get the attention weights.
 
@@ -219,27 +219,27 @@ Flan-T5-small (77M): a 19M encoder stack, a 25M decoder stack (with cross-attent
 - **With labels, a fine-tuned encoder or a linear classifier beats a small LLM by more than 30 points** on a 77-way task. Many intents are near-duplicates ("pending_transfer" vs "transfer_not_received_by_recipient") that only data teaches.
 - **Embeddings + logistic regression match fine-tuning** (0.926 against 0.922 on the paired sample, a difference inside the noise), with no network training and half the latency. Frozen ModernBERT, never trained for similarity, is four points behind: for a "general" representation, the pre-training objective matters.
 - **The encoder is data-hungry at first**: with 8 examples per intent it stays at 69.6%, still above the LLM, and it improves with every label, while prompting does not.
-- **How the output is constrained decides between usable and useless.** With `function_calling` the model mostly did not call the tool with a 77-value enum (181 of 231 outputs invalid); with `json_schema` (grammar-constrained decoding) every output was valid. This is the contrast with [11](#11), where function calling was the more reliable method on a small schema.
+- **How the output is constrained decides between usable and useless.** With `function_calling` the model mostly did not call the tool with a 77-value enum (181 of 231 outputs invalid); with `json_schema` (grammar-constrained decoding) every output was valid. This is the contrast with [16](#16), where function calling was the more reliable method on a small schema.
 - **Flan-T5-small** classifies the stolen-card message correctly ("lost card") and writes a reasonable summary, but its translation is wrong: "Einzahlung" means *deposit*, not *purchase*. The last layer's cross-attention map is dominated by two *attention sinks* (the "e" of "Translate" and `</s>`), with a faint alignment underneath. The last layer of a small model is a poor place to look for alignment.
 - The notebook ends with "Results" and an "In production" section with a decision guide (no labels: an LLM with constrained decoding; hundreds of labels: embeddings + logistic regression; for the last points: fine-tune an encoder), what to monitor and the typical failure modes (label drift, over-confidence out of distribution, train/test leakage).
 
-**Next:** [18](#18), what happens to text before pre-training, and then 05.
+**Next:** [07](#07), what happens to text before pre-training, and then [08](#08).
 
 ---
 
-<a id="18"></a>
-## 18 · Data engineering for LLMs: deduplication, quality filtering, decontamination
-`notebooks/02_pretraining_and_inference/18_data_engineering.ipynb` · modules `model`, `config` · `datasets`, `transformers`, LangChain (Ollama)
+<a id="07"></a>
+## 07 · Data engineering for LLMs: deduplication, quality filtering, decontamination
+`notebooks/02_pretraining_and_inference/07_data_engineering.ipynb` · modules `model`, `config` · `datasets`, `transformers`, LangChain (Ollama)
 
-Read it right before 05: this is what happens to text before a model ever sees it. The most repeated sentence in LLM engineering is that the data matters more than the model, and the open models that caught up with closed ones in 2023–2024 did it largely through better data (FineWeb, DCLM, Llama 3's data pipeline). This notebook builds the main steps of that pipeline on a real sample, measures what each one removes and why, and finally checks whether cleaning actually changes the trained model.
+Read it right before 08: this is what happens to text before a model ever sees it. The most repeated sentence in LLM engineering is that the data matters more than the model, and the open models that caught up with closed ones in 2023–2024 did it largely through better data (FineWeb, DCLM, Llama 3's data pipeline). This notebook builds the main steps of that pipeline on a real sample, measures what each one removes and why, and finally checks whether cleaning actually changes the trained model.
 
 **What you build.** On a **FineWeb** sample (12,000 documents, 6.2M words, median 297 per document; streamed once into `data/cache/`, ODC-By license, not redistributed) and a **FineWeb-Edu** reference (1,000 documents):
 1. A **simulated raw crawl** with known duplicates, because FineWeb is already deduplicated: 10,000 base documents plus 600 exact copies (a mirror), 50 documents copied 10 times each (syndicated content) and 600 near-duplicates of each of four kinds (another template with the text unchanged, and another template with 1 %, 3 % or 10 % of the words replaced). 13,500 documents in total. The last 2,000 FineWeb documents stay out of everything as a clean held-out set.
 2. **Exact deduplication**: normalize (lowercase, collapse whitespace), SHA-1, keep the first document of each hash.
 3. **MinHash + LSH from scratch**: word 5-gram shingles hashed to 32 bits with CRC-32; 128 affine hash functions $h_i(x) = (a_i x + b_i) \bmod p$ with the Mersenne prime $p = 2^{61} - 1$; 16 bands of 8 rows; a candidate is accepted if its signatures agree on at least 70 % of positions, and accepted pairs are merged into clusters with union-find. Recall is measured per duplicate kind and compared with the theoretical curve.
-4. **Quality filters**: a compact version of the Gopher and C4 rules that records which rule removes each document (a per-rule funnel), then the **FineWeb-Edu classifier** (a 110M BERT encoder, like the ones in [17](#17)) scoring a sample of the survivors.
+4. **Quality filters**: a compact version of the Gopher and C4 rules that records which rule removes each document (a per-rule funnel), then the **FineWeb-Edu classifier** (a 110M BERT encoder, like the ones in [06](#06)) scoring a sample of the survivors.
 5. **Decontamination** with 13-grams: 200 held-out documents act as a "benchmark", the first 300 words of 50 of them are pasted into training documents, and training documents sharing any 13-gram with the benchmark are flagged.
-6. **Does it change the model?**: two identical `TransformerLM`s (the one from 05, 4 layers of width 256, ~16M parameters, SmolLM2's 49k-token BPE tokenizer), one on the raw crawl and one on the clean corpus, with the same number of tokens.
+6. **Does it change the model?**: two identical `TransformerLM`s (the one from 08, 4 layers of width 256, ~16M parameters, SmolLM2's 49k-token BPE tokenizer), one on the raw crawl and one on the clean corpus, with the same number of tokens.
 7. **Synthetic data**: `qwen2.5:3b` writes "textbook" passages on 20 topics (3 samples per topic at temperature 0.8), treated like any other data: near-duplicates with MinHash, diversity (distinct bigrams) and the classifier's score.
 
 **Tools.** `datasets.load_dataset("HuggingFaceFW/fineweb" / "HuggingFaceFW/fineweb-edu", name="sample-10BT", streaming=True)` with `itertools.islice` to read only the first documents; `hashlib.sha1` and `zlib.crc32`; NumPy for the signatures (the 128 hash functions vectorized over all of a document's shingles); `collections.defaultdict` as the per-band bucket table; union-find with path compression; `AutoModelForSequenceClassification` with `HuggingFaceFW/fineweb-edu-classifier` (truncated to 512 tokens, bf16); `AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM2-135M")`; `ModelConfig` and `TransformerLM` from `llm_edu_suite.model` with AdamW (`lr=1e-3`, `betas=(0.9, 0.95)`, `weight_decay=0.1`) and warm-up + cosine; `config.get_llm(temperature=0.8)` with `.batch(..., max_concurrency=4)`.
@@ -274,13 +274,13 @@ Read it right before 05: this is what happens to text before a model ever sees i
 - **Synthetic text games the filter that judges it.** The classifier scores the `qwen2.5:3b` passages above human FineWeb-Edu text (4.15 vs 3.14) because it rewards what *looks* educational. They are not near-duplicates of each other (same-topic pairs share only 0.09 of their 3-grams, none above 0.5); the narrowing is subtler: the same structure and phrasing patterns across topics, visible in the distinct bigrams (0.60 vs 0.72). Synthetic data is evaluated by training on it, not by the classifier, and lexical diversity is the cheap early warning of collapse.
 - The notebook ends with "Results" and an "In production" section: use a framework built for this (`datatrove`, used for FineWeb, or NVIDIA NeMo Curator) and keep each step's decision per document; defaults (exact dedup, then MinHash on 5-grams with a threshold around 0.75, within each crawl snapshot first; Gopher and C4 as a baseline with a model score on top, its threshold chosen by small training ablations; decontaminate against every benchmark you report, with 8 to 13-grams; for synthetic data, varied prompts, personas and seeds, and measure diversity); what to monitor (each source's and filter's share over time, duplicate rates per source, the classifier's score distribution and a random sample read by a person at every release); and failure modes (a threshold that silently removes a whole domain such as code, other languages or dialects; over-aggressive dedup that removes legitimate repetition; contamination discovered after publication; synthetic data that inflates the metrics used to judge it).
 
-**Next:** [05](#05), where text like this becomes a trained model.
+**Next:** [08](#08), where text like this becomes a trained model.
 
 ---
 
-<a id="05"></a>
-## 05 · Pre-training
-`notebooks/02_pretraining_and_inference/05_pretraining.ipynb` · modules `training`, `data`
+<a id="08"></a>
+## 08 · Pre-training
+`notebooks/02_pretraining_and_inference/08_pretraining.ipynb` · modules `training`, `data`
 
 **What you build.** The full pipeline: text → tokenizer → model → loop with AdamW, warmup + cosine, clipping, checkpoints and a dashboard (loss, gradient norm, LR); then generation, saving and loading.
 
@@ -288,15 +288,15 @@ Read it right before 05: this is what happens to text before a model ever sees i
 
 **Results.** Validation perplexity 2.79 against a theoretical floor of 2.75 (**1.5% above the floor** in loss). At the same number of steps the 1.67M model learns much faster than the 125K one (loss 1.054 versus 1.259 at step 50). Cosine and WSD end up practically the same (1.024 versus 1.027).
 
-**Next:** [19](#19), which measures what a training run like this costs (memory, precision, kernels and parallelism), then [06](#06).
+**Next:** [09](#09), which measures what a training run like this costs (memory, precision, kernels and parallelism), then [10](#10).
 
 ---
 
-<a id="19"></a>
-## 19 · Systems for training LLMs: memory, precision, kernels and parallelism
-`notebooks/02_pretraining_and_inference/19_systems_memory_and_parallelism.ipynb` · modules `model`, `utils` · `torch.profiler`, `torch.utils.checkpoint`, `torch.nn.attention`, `torch.compile`, `torch.distributed`
+<a id="09"></a>
+## 09 · Systems for training LLMs: memory, precision, kernels and parallelism
+`notebooks/02_pretraining_and_inference/09_systems_memory_and_parallelism.ipynb` · modules `model`, `utils` · `torch.profiler`, `torch.utils.checkpoint`, `torch.nn.attention`, `torch.compile`, `torch.distributed`
 
-Read right after 05. Notebook 05 trains a model; this one looks at **what that costs and why**: the part of LLM engineering that decides whether a run fits on your hardware, how fast it goes and how it scales to many GPUs. Everything is measured on the course's GPU (an RTX 3060 Laptop, 6 GB), mostly with a 29.4M-parameter `TransformerLM` (width 512, 8 layers, vocabulary 8,192, context 512) on random tokens: what matters here is the cost, not what it learns.
+Read right after 08. Notebook 08 trains a model; this one looks at **what that costs and why**: the part of LLM engineering that decides whether a run fits on your hardware, how fast it goes and how it scales to many GPUs. Everything is measured on the course's GPU (an RTX 3060 Laptop, 6 GB), mostly with a 29.4M-parameter `TransformerLM` (width 512, 8 layers, vocabulary 8,192, context 512) on random tokens: what matters here is the cost, not what it learns.
 
 **What you build.**
 1. **Memory anatomy**: `torch.cuda.memory_allocated()` after moving the model, after forward + backward and after the optimizer step, against the textbook formula (in fp32, 4 bytes per parameter for the weights, 4 for the gradients and 8 for Adam's two moments), and the activation peak from batch 2 to 16 in fp32 and in bf16.
@@ -343,19 +343,19 @@ Read right after 05. Notebook 05 trains a model; this one looks at **what that c
 - **Knowing which kernel your build uses is part of the job.** The Windows PyTorch wheels do not include FlashAttention-2, so the fused kernels compared are memory-efficient and cuDNN, built on the same IO-aware idea. The naive version grows with the square of the sequence (0.035 GB at 512 tokens, 4.1 GB at 8,192, out of memory at 16,384); memory-efficient needs 0.118 GB at 8,192 (about 35× less) and 0.220 GB at 16,384, and cuDNN runs forward and backward at 16,384 tokens in 51.9 ms. At short lengths all of them are fast and the differences are noise.
 - **A Windows trap: slow instead of failing.** SDPA's unfused *math* backend reported 8.1 GB at 8,192 tokens on a 6 GB card and took 978 ms: the Windows driver spilled into system RAM ("shared GPU memory") instead of raising an out-of-memory error. If a job suddenly slows down instead of crashing, check whether it is paging into shared memory.
 - **Matmuls are only 47 %.** One bf16 step is 226.9 ms of GPU time and 1,136 kernels; outside the matmuls are the element-wise operations (`mul`, `copy_`, the RMSNorm and SwiGLU arithmetic), the fused attention backward (3.6 %) and AdamW (3.4 %). At width 512 each matmul is short and the memory-bound work weighs more: that is what kernel fusion (`torch.compile`, Triton, Liger kernels) targets.
-- **`torch.compile` without Triton.** The default backend, `inductor`, is unavailable (`TritonMissing`: Triton is not supported on Windows). With `backend="cudagraphs"` the small model's forward goes from 8.68 to 2.11 ms (4.1×) with identical output: the GPU does the same arithmetic, and what disappears is the CPU cost of launching hundreds of small kernels, the caveat of [06](#06). That is why vLLM, TensorRT-LLM and llama.cpp capture the decode step in CUDA graphs.
+- **`torch.compile` without Triton.** The default backend, `inductor`, is unavailable (`TritonMissing`: Triton is not supported on Windows). With `backend="cudagraphs"` the small model's forward goes from 8.68 to 2.11 ms (4.1×) with identical output: the GPU does the same arithmetic, and what disappears is the CPU cost of launching hundreds of small kernels, the caveat of [10](#10). That is why vLLM, TensorRT-LLM and llama.cpp capture the decode step in CUDA graphs.
 - **An MFU of 32 %.** 36,608 tokens/s at 202 MFLOPs per token is 7.38 TFLOP/s of useful work against a measured peak of 23.0 TFLOP/s. That is reasonable for 29M parameters on a laptop; what is missing is the time outside matmuls and the launches. For perspective: at this speed, even this small model would need 4.5 hours to see its Chinchilla-optimal 588M tokens.
 - **DDP is large-batch training, split up.** After 5 steps, the weights of two processes with batch 4 and of one process with batch 8 differ by at most 7.45 × 10⁻⁹, floating-point rounding. Each step all-reduces 0.53 MB of gradients (the small model's 133k fp32 parameters). NCCL, the GPU backend, needs Linux and several GPUs, so `gloo` on CPU is used here; and instead of `torchrun`, whose TCP rendezvous needs libuv (which this PyTorch build lacks), the processes are launched with `torch.multiprocessing.spawn` and meet through a shared file (`init_method="file://..."`).
 - **Plain DDP does not scale memory.** It replicates the 16 bytes per parameter on every GPU: 112 GB per GPU for a 7B model, however many GPUs you add. ZeRO-1 brings it to 38.5 GB with 8 GPUs, ZeRO-2 to 26.2 GB and ZeRO-3 / FSDP to 14.0 GB (1.8 GB with 64). For 70B, from 1,120 GB to 140 GB per GPU with 8, still too much for an 80 GB H100, and 17.5 GB with 64. ZeRO-3 pays for that memory in communication (an all-gather of the weights before each layer); that is why the largest models combine tensor parallelism inside a node, over NVLink, with FSDP across nodes.
 - The notebook ends with "Results" and an "In production" section: defaults (bf16 with fp32 master weights; a fused attention kernel, checking the backend, which on Linux is FlashAttention-2/3; AdamW with weight decay, clipping and checkpointing only where memory forces it; a batch that fills memory and gradient accumulation for the effective batch); how to scale out (DDP while the 16 bytes per parameter fit on one GPU, FSDP with `fully_shard` or DeepSpeed ZeRO-3 when they do not, tensor parallelism inside a node for the largest models; `torchtitan`, Megatron-LM / NeMo and DeepSpeed as references, launched with `torchrun` on Linux with NCCL over NVLink or InfiniBand); measuring before optimizing (`torch.profiler` or Nsight Systems, MFU from $6N$ FLOPs per token against the real peak, tokens/s and memory per GPU on a dashboard, and a drop in MFU treated like any other regression), and the failure modes (out of memory from activations, silent fallbacks, fp16 without loss scaling, communication-bound scaling and nondeterminism between runs).
 
-**Next:** [06](#06), where the same ideas (memory-bound decoding, KV-cache, batching) apply to serving.
+**Next:** [10](#10), where the same ideas (memory-bound decoding, KV-cache, batching) apply to serving.
 
 ---
 
-<a id="06"></a>
-## 06 · Inference and serving
-`notebooks/02_pretraining_and_inference/06_inference_serving.ipynb` · modules `inference`, `model` · `transformers` (section 6)
+<a id="10"></a>
+## 10 · Inference and serving
+`notebooks/02_pretraining_and_inference/10_inference_serving.ipynb` · modules `inference`, `model` · `transformers` (section 6)
 
 **What you build.** Sampling strategies, KV-cache, **speculative decoding from scratch** (with a check that it preserves the distribution), batching and TTFT/throughput measurement.
 
@@ -365,15 +365,43 @@ Read right after 05. Notebook 05 trains a model; this one looks at **what that c
 
 **Section 6: from our code to real weights.** SmolLM2-135M-Instruct's published weights are loaded into our `TransformerLM`. It takes a mapping of tensor names and a permutation of the rows of `q_proj` and `k_proj`, because Hugging Face uses the *rotate_half* RoPE convention and our code the interleaved one. Result in fp32: 272 tensors copied, the same 134,515,008 parameters, logits equal to within 3e-5, the same token at 100% of positions (KL 2.4e-8) and **the same 76 generated tokens** as `transformers`. Without the permutation the model loads and runs but silently gets worse: it agrees on only 68% of tokens and answers something fluent but unrelated to the question. Lesson: always check a port numerically.
 
-**Next:** [23](#23), which serves models through an HTTP server under real load: TTFT and TPOT, prefix caching, request slots, GGUF formats and a gateway.
+**Next:** [11](#11), which measures quantization on weights you control, then [12](#12), which serves models through an HTTP server under real load: TTFT and TPOT, prefix caching, request slots, GGUF formats and a gateway.
 
 ---
 
-<a id="23"></a>
-## 23 · Serving under load: what users wait for, and what it costs
-`notebooks/02_pretraining_and_inference/23_serving_and_load.ipynb` · modules `config`, `evaluation` · `httpx` (Ollama's HTTP API, streamed), `asyncio`, `datasets`
+<a id="11"></a>
+## 11 · Quantization in practice
+`notebooks/02_pretraining_and_inference/11_quantization.ipynb` · `optimum-quanto`
 
-Read right after 06. Notebook 06 opens up a single generation (sampling, the KV-cache, speculative decoding, batching) inside our own code; this one serves models the way an application does, through an HTTP server and many requests at a time, and measures what the user and the bill see. The server is Ollama (llama.cpp underneath) with `qwen2.5:3b`, plus `qwen2.5:7b` and three formats of `qwen2.5:1.5b-instruct`, but every lesson carries over to vLLM, SGLang, TGI or a provider's API.
+**What you build.** First under the hood, in a few lines of torch: absmax per tensor, per row and per block, and NF4, on a real weight matrix of SmolLM2-135M (it has an outlier at 15 standard deviations). Then a real model, SmolLM2-360M-Instruct, quantized to int8, float8, int4 and int2.
+
+**Tools.** `optimum.quanto.quantize(model, weights=qint8 | qfloat8 | qint4 | qint2)` and `freeze(model)` (int4/int2 in groups of 128), with `lm_head` kept in bf16. Measurement against the fp32 model on ~500 held-out tokens. Production table: bitsandbytes (QLoRA), GPTQ, AWQ, GGUF (the course's `qwen2.5:3b` is a `Q4_K_M` GGUF), FP8, torchao, KV-cache quantization.
+
+**Key concepts.** Why finer scales reduce error (and cost ~0.25 extra bits per weight with blocks of 64); NF4 puts its levels at the quantiles of a normal distribution; **the metrics that really detect damage**: KL against the original model and top-1 agreement, which is what llama.cpp reports. Perplexity alone hides differences. Memory savings are guaranteed; speed needs a fused kernel.
+
+**Results.** On the real matrix, the relative weight error at 4 bits goes from 58.7% (per tensor) to 16.7% (per row) and 11.4% (blocks of 64); NF4 lowers it to 9.3%. At 8 bits: 3.4% / 0.9% / 0.6%.
+
+| SmolLM2-360M | Weights | Perplexity | KL vs fp32 | Top-1 agreement | Tokens/s |
+|---|---|---|---|---|---|
+| fp32 (reference, CPU) | – | 17.16 | – | – | – |
+| bf16 | 0.72 GB | 17.13 | 0.0010 | 97.2% | 24.0 |
+| int8 | 0.41 GB | 17.32 | 0.0048 | 96.6% | 16.8 |
+| float8 | 0.41 GB | 17.13 | 0.0094 | 95.1% | 15.2 |
+| int4 (g128) | 0.26 GB | 22.16 | 0.27 | 73.3% | 10.5 |
+| int2 (g128) | 0.19 GB | ~228,000 | 9.40 | 1.4% | 8.3 |
+
+- bf16 is not exact either: its 97.2% agreement is the noise floor.
+- int8 and float8 are almost free. float8 has **the same perplexity as bf16 but twice int8's KL**: perplexity hides what KL shows.
+- int4 cuts memory to a third of bf16, but on a model this small it costs a quarter of the top-1 agreement and +29% perplexity. Plain round-to-nearest int2 destroys the model (word salad).
+- Honest: on this GPU **the quantized models are slower** than bf16. At batch 1 a 360M model is limited by kernel launches, and quanto adds unpacking work; real speed-ups need a fused kernel for the format.
+
+---
+
+<a id="12"></a>
+## 12 · Serving under load: what users wait for, and what it costs
+`notebooks/02_pretraining_and_inference/12_serving_and_load.ipynb` · modules `config`, `evaluation` · `httpx` (Ollama's HTTP API, streamed), `asyncio`, `datasets`
+
+Read after 10. Notebook 10 opens up a single generation (sampling, the KV-cache, speculative decoding, batching) inside our own code; this one serves models the way an application does, through an HTTP server and many requests at a time, and measures what the user and the bill see. The server is Ollama (llama.cpp underneath) with `qwen2.5:3b`, plus `qwen2.5:7b` and three formats of `qwen2.5:1.5b-instruct`, but every lesson carries over to vLLM, SGLang, TGI or a provider's API.
 
 **What you build.**
 1. **A streaming client** (`stream_chat`) that times each request from the client side, the way the user sees it (TTFT, TPOT, end-to-end latency), and also collects the server's own counters: prompt tokens, tokens taken from the cache, prefill and decode time.
@@ -381,7 +409,7 @@ Read right after 06. Notebook 06 opens up a single generation (sampling, the KV-
 3. **Prefix caching**: a system prompt of about 1,344 tokens (the policy documents in `data/sample_docs/`) and eight different questions sent one after the other.
 4. **A load test**: sixteen requests of 128 tokens with 1, 2, 4 and 8 in flight, first on a server with one request slot and then on one with four. The four-slot server is a second, temporary `ollama serve` that the notebook starts on a free port with `OLLAMA_NUM_PARALLEL=4` and stops at the end, so the default server and its settings are left alone; the models are unloaded from the default server first so the two do not fight over the 6 GB of GPU memory. Each configuration is also checked against Little's law.
 5. **Three weight formats** of the same model (`qwen2.5:1.5b-instruct` in GGUF Q4_K_M, Q8_0 and FP16): the GPU memory each one takes, its decode speed, its accuracy on 200 ARC-Easy questions and how often its answer letter matches FP16's.
-6. **A minimal gateway** (a `Gateway` class of a few dozen lines) that tries a chain of (model, timeout) pairs, falls back on errors and timeouts and logs every attempt; then a **cost-aware cascade** from 3B to 7B on the 80 GSM8K problems of [20](#20), compared with always-3B, always-7B and a perfect router, in accuracy and in GPU-seconds.
+6. **A minimal gateway** (a `Gateway` class of a few dozen lines) that tries a chain of (model, timeout) pairs, falls back on errors and timeouts and logs every attempt; then a **cost-aware cascade** from 3B to 7B on the 80 GSM8K problems of [15](#15), compared with always-3B, always-7B and a perfect router, in accuracy and in GPU-seconds.
 
 **Tools.** `httpx.AsyncClient.stream("POST", ".../api/chat")` with `stream: true`, reading Ollama's final chunk (`eval_count`, `prompt_eval_count`, `prompt_eval_cached_count`, `prompt_eval_duration`, `eval_duration`, `load_duration`); `asyncio.Semaphore` and `asyncio.gather` for concurrency and `asyncio.wait_for` for the gateway's timeouts; `subprocess.Popen(["ollama", "serve"])` with `OLLAMA_HOST`, `OLLAMA_NUM_PARALLEL`, `OLLAMA_MAX_LOADED_MODELS` and `OLLAMA_MODELS`, and a free port from `socket.bind(("127.0.0.1", 0))`; `/api/ps` (`size_vram`) for GPU memory and `/api/generate` with `keep_alive: 0` to unload a model; `datasets.load_dataset` for `allenai/ai2_arc` (ARC-Easy) and `openai/gsm8k`; `config.judge_model()` to pick the 7B model; `evaluation.bootstrap_ci` and `evaluation.paired_bootstrap_diff` for the intervals.
 
@@ -429,19 +457,19 @@ Read right after 06. Notebook 06 opens up a single generation (sampling, the KV-
 - **With one slot, concurrency only builds a queue.** TTFT grew with the number of requests waiting (1.7 s with 2 in flight, 5.8 s with 4, 13.4 s with 8) and throughput even dropped slightly, from 84 to 67 tok/s. That is the default server on this machine (`OLLAMA_NUM_PARALLEL=1`), and it is how any single-user setup behaves when an application sends it parallel traffic.
 - **Batching is a trade, not a free lunch.** Four slots doubled throughput (171 tok/s) and kept TTFT under 100 ms up to 4 requests, but each user's tokens came 23 ms apart instead of 12.5, and even a single request was slower on the four-slot server (68 against 84 tok/s). With 8 in flight on 4 slots the queue came back: TTFT 3.0 s at a flat 172 tok/s.
 - **Little's law held to the decimal** in every configuration, for example 1.33 req/s × 3.00 s = 4.0 requests in the system with 4 in flight. That is the arithmetic for sizing a deployment from its expected request rate and its latency target.
-- **Fewer bits are faster because decode is memory-bound, but not proportionally.** Q4_K_M took 1.17 GB against 3.28 GB for FP16 (2.8× less) and decoded 2.0× faster (130 against 64 tok/s): dequantizing and other fixed costs remain. Q8_0 gave FP16's answer on all 200 questions; Q4_K_M changed 2 % of them and scored 1.5 points lower, an interval of [−3.5, +0.0], so a small loss at most, in line with what [09](#09) measures on our own quantization.
+- **Fewer bits are faster because decode is memory-bound, but not proportionally.** Q4_K_M took 1.17 GB against 3.28 GB for FP16 (2.8× less) and decoded 2.0× faster (130 against 64 tok/s): dequantizing and other fixed costs remain. Q8_0 gave FP16's answer on all 200 questions; Q4_K_M changed 2 % of them and scored 1.5 points lower, an interval of [−3.5, +0.0], so a small loss at most, in line with what [11](#11) measures on our own quantization.
 - **The gateway did its job, and its log is the point.** The missing model failed in 0.27 s and the 3B model answered in 4.0 s (loading included); the 7B model timed out with its 0.5 s budget while loading, and the gateway fell back again; the normal call took 0.58 s. Every attempt, failures included, is in the log, which is how you notice a dead model or a timeout shorter than a cold load before users do.
 - **The cascade was the most accurate option, not the cheapest.** The two 3B answers (greedy and sampled at temperature 0.7) disagreed on 16 % of the problems; on those, the 3B model was wrong 77 % of the time, against 6 % where they agreed. The cascade reached 85.0 %, 6.2 points above always-7B (interval [+0.0, +13.8]), close to the 87.5 % of a perfect router, but the second 3B sample doubles the cost of every problem, so it used 88 % of the 7B's GPU time. A cheaper signal (log-probabilities, a small trained router, a verifier) would cut that.
-- **The bigger model was not better here.** The 7B model scored below the 3B (78.8 % against 82.5 %), but their intervals overlap widely and 80 problems cannot separate them. As with the judge in [22](#22), the expensive option has to be measured, not assumed.
+- **The bigger model was not better here.** The 7B model scored below the 3B (78.8 % against 82.5 %), but their intervals overlap widely and 80 problems cannot separate them. As with the judge in [30](#30), the expensive option has to be measured, not assumed.
 - The notebook ends with "Results" and an "In production" section: choosing a server (llama.cpp or Ollama for local, edge and single-user setups, with `OLLAMA_NUM_PARALLEL` and the context size set for your traffic; vLLM, SGLang or TGI on data-center GPUs for multi-user traffic, TensorRT-LLM for NVIDIA's highest throughput; all of them behind an OpenAI-compatible API); SLOs and capacity (targets on TTFT p95 and TPOT p95, goodput against them, load tests with realistic lengths and arrival patterns using `vllm bench`, `genai-perf`, Locust or k6, and autoscaling on queue length or KV-cache usage, not CPU); cost (cache-friendly prompts first, then quantized weights validated on your evaluation set, then routing or cascades, and offline work on batch capacity); what to monitor (TTFT, TPOT and end-to-end percentiles per model and route, queue length, tokens per second, cache hit rate and KV-cache usage, error, timeout and fallback rates per backend, GPU memory and cost per request), and the failure modes (parallel traffic to a single-slot server, a prompt layout that defeats the cache, context sizes that silently reload the model, over-quantized models that pass a smoke test, timeouts shorter than a cold load, fallbacks that hide a dead primary, routers whose signal costs more than it saves).
 
-**Next:** back to the main path with [07](#07) (fine-tuning); [09](#09) measures quantization on weights you control, and [15](#15) adds observability to everything served here.
+**Next:** [13](#13) (fine-tuning); [28](#28) adds observability to everything served here.
 
 ---
 
-<a id="07"></a>
-## 07 · Fine-tuning with Hugging Face: SFT, LoRA and distillation
-`notebooks/03_post_training/07_finetuning_sft_lora.ipynb` · `transformers`, `peft`, `trl` · also as a script: `python scripts/finetune.py sft`
+<a id="13"></a>
+## 13 · Fine-tuning with Hugging Face: SFT, LoRA and distillation
+`notebooks/03_post_training/13_finetuning_sft_lora.ipynb` · `transformers`, `peft`, `trl` · also as a script: `python scripts/finetune.py sft`
 
 **What you build.** You fine-tune `HuggingFaceTB/SmolLM2-135M-Instruct` to turn a booking request into strict JSON (`name`, `restaurant`, `people` as an integer, lowercase `day`, `time` in 24h). 300 labelled examples; 40 test requests with names and restaurants never seen in training. Few-shot baseline → full SFT → LoRA → QLoRA on a 4-bit base → the "new special token" trap → rank ablation → distillation from a 360M teacher → model merging: a second adapter for another task (converting a time to 24-hour format) is merged with the booking adapter in four ways and compared with one multi-task adapter trained on both datasets.
 
@@ -498,11 +526,11 @@ Model merging (both tasks on the same model; booking = exact match on the 40 req
 
 ---
 
-<a id="08"></a>
-## 08 · Preference tuning and RL with TRL: DPO and GRPO
-`notebooks/03_post_training/08_preference_rl_dpo_grpo.ipynb` · `trl`, `peft` · also as a script: `python scripts/finetune.py dpo` / `grpo`
+<a id="14"></a>
+## 14 · Preference tuning and RL with TRL: DPO and GRPO
+`notebooks/03_post_training/14_preference_rl_dpo_grpo.ipynb` · `trl`, `peft` · also as a script: `python scripts/finetune.py dpo` / `grpo`
 
-**What you build.** On notebook 07's booking task, a partially trained SFT model (LoRA, 30% exact), then DPO and DPO + NLL on 400 preference pairs (256 of them with the SFT model's own mistake as the rejected answer). Then GRPO with verifiable rewards on two-digit addition and subtraction, starting from the instruct model, with a **sparse** reward (exact) and a **dense** one (partial credit + format bonus).
+**What you build.** On notebook 13's booking task, a partially trained SFT model (LoRA, 30% exact), then DPO and DPO + NLL on 400 preference pairs (256 of them with the SFT model's own mistake as the rejected answer). Then GRPO with verifiable rewards on two-digit addition and subtraction, starting from the instruct model, with a **sparse** reward (exact) and a **dense** one (partial credit + format bonus).
 
 **Tools.** `trl.DPOConfig(beta=0.1, loss_type="sigmoid")` / `DPOTrainer` with a `peft_config` (the reference is the same network with the adapter off); DPO + NLL as `loss_type=["sigmoid", "sft"]`, `loss_weights=[1.0, 1.0]` (formerly `rpo_alpha`); `trl.GRPOConfig(num_generations=8, max_completion_length=32, temperature=1.0, beta=0.04)` / `GRPOTrainer(reward_funcs=[reward_exact, reward_partial])` with `reward_weights=[1, 0]` or `[0, 1]`, so both rewards are logged and only one drives the update.
 
@@ -524,7 +552,7 @@ Booking extraction (40 held-out requests):
 | + DPO + NLL | 100% | 32.5% | 86.5% | 32.5% |
 
 - Plain DPO **hurts**: log π(chosen) falls from −1.91 to −5.63 (rejected: −4.81 → −12.74), even though its training metrics look good. With NLL the chosen answer stays put (−1.91 → −2.01) while the rejected one still falls (−4.81 → −8.22).
-- Honest: DPO + NLL gains a single request (30% → 32.5%), which is noise. The model lacks a *rule* (12h → 24h), not a preference; more SFT data was the stronger lever in 07.
+- Honest: DPO + NLL gains a single request (30% → 32.5%), which is noise. The model lacks a *rule* (12h → 24h), not a preference; more SFT data was the stronger lever in 13.
 
 Arithmetic (100 held-out problems, 40 GRPO steps):
 
@@ -538,15 +566,15 @@ Arithmetic (100 held-out problems, 40 GRPO steps):
 - The dense reward gives a signal to more groups, but it did not produce a better model: a bit higher on its proxy, a bit lower on exact match. That is the direction Goodhart predicts, but 4 problems out of 100 are within noise.
 - Peak VRAM was at most 1.40 GB for everything (0.88 GB for GRPO).
 
-**Next:** [20](#20), where reasoning of the kind GRPO trains is put to work and measured at inference time, then [09](#09).
+**Next:** [15](#15), where reasoning of the kind GRPO trains is put to work and measured at inference time.
 
 ---
 
-<a id="20"></a>
-## 20 · Reasoning and test-time compute: chain of thought, self-consistency, verifiers, reasoning models
-`notebooks/03_post_training/20_reasoning_test_time_compute.ipynb` · modules `config`, `evaluation` · LangChain (Ollama), `datasets`, Pydantic
+<a id="15"></a>
+## 15 · Reasoning and test-time compute: chain of thought, self-consistency, verifiers, reasoning models
+`notebooks/03_post_training/15_reasoning_test_time_compute.ipynb` · modules `config`, `evaluation` · LangChain (Ollama), `datasets`, Pydantic
 
-Read right after 08. GRPO in 08 is how reasoning is *trained*; this notebook is about how it is *used* and what it costs. Since 2024 the strongest models (o1/o3, DeepSeek-R1, Claude with extended thinking, Gemini thinking, Qwen3) spend extra tokens thinking before they answer. Here that idea is taken apart lever by lever on 80 problems from the GSM8K test set, with `qwen2.5:3b` served by Ollama, and every lever is measured in accuracy (with bootstrap intervals), output tokens and seconds per problem.
+Read right after 14. GRPO in 14 is how reasoning is *trained*; this notebook is about how it is *used* and what it costs. Since 2024 the strongest models (o1/o3, DeepSeek-R1, Claude with extended thinking, Gemini thinking, Qwen3) spend extra tokens thinking before they answer. Here that idea is taken apart lever by lever on 80 problems from the GSM8K test set, with `qwen2.5:3b` served by Ollama, and every lever is measured in accuracy (with bootstrap intervals), output tokens and seconds per problem.
 
 **What you build.**
 1. **Direct answer vs chain of thought**: the same model with greedy decoding, once told to give only the final number (16 tokens allowed) and once told to solve step by step and put the number on the last line (512 tokens).
@@ -563,9 +591,9 @@ Read right after 08. GRPO in 08 is how reasoning is *trained*; this notebook is 
 - **Test-time compute**: parallel sampling (self-consistency, best-of-N), sequential refinement (self-refine, *budget forcing*) and trained reasoning are all ways of spending more compute per problem at inference time; Snell et al. (2024) treat it as a scaling axis of its own.
 - **maj@k vs pass@k**: the gap between them is the most a verifier could recover. When it is small, voting already extracts nearly everything.
 - **Verifiers**: an *outcome* reward model scores the final answer, a *process* reward model every step. A verifier only helps if it tells right from wrong better than the vote.
-- **Reasoning models and distillation**: R1 learned long reasoning with RL on verifiable rewards (08); R1-Distill copies it into small models by SFT on R1's traces. Whether that holds up outside the training distribution has to be measured, not assumed.
-- **Costs and failure modes**: reasoning is paid in output tokens, the slow and expensive ones (06); overthinking, unfaithful chains of thought, fooled or reward-hacked verifiers, and answer-extraction bugs.
-- **Bradley-Terry and pairwise judges**: $P(i \succ j) = e^{\beta_i} / (e^{\beta_i} + e^{\beta_j})$, the model behind Chatbot Arena and RLHF reward models (08); an LLM judge has to be checked for position bias by judging every pair in both orders.
+- **Reasoning models and distillation**: R1 learned long reasoning with RL on verifiable rewards (14); R1-Distill copies it into small models by SFT on R1's traces. Whether that holds up outside the training distribution has to be measured, not assumed.
+- **Costs and failure modes**: reasoning is paid in output tokens, the slow and expensive ones (10); overthinking, unfaithful chains of thought, fooled or reward-hacked verifiers, and answer-extraction bugs.
+- **Bradley-Terry and pairwise judges**: $P(i \succ j) = e^{\beta_i} / (e^{\beta_i} + e^{\beta_j})$, the model behind Chatbot Arena and RLHF reward models (14); an LLM judge has to be checked for position bias by judging every pair in both orders.
 
 **Results**
 
@@ -587,45 +615,37 @@ Read right after 08. GRPO in 08 is how reasoning is *trained*; this notebook is 
 - **On the cost-accuracy curve the returns diminish fast**: the first ~243 tokens of reasoning bought 72.5 points, the next ~1,000 of self-consistency bought 5 more, the verifier bought nothing, and the reasoning model spent more tokens for less.
 - **Bradley-Terry separates the strategies cleanly**: self-consistency +3.09, chain of thought +1.14, R1-Distill −0.58 and direct −3.65, with bootstrap intervals that do not overlap between neighbours. Read as probabilities: on a problem where they differ, chain of thought beats R1-Distill 85 % of the time.
 - **The pairwise judge is the cautionary tale.** All 30 pairs were judged in both orders and the judge gave the same verdict only 43 % of the time. It did not lean towards one position overall (52 % of verdicts for A), so this is less position bias than plain noise. When it was consistent and exactly one solution was right, it picked the right one 89 % of the time, but that was only 9 cases.
-- The notebook ends with "Results" and an "In production" section: how to choose a strategy (start with chain of thought, or a reasoning model with a capped thinking budget; add self-consistency, with $k$ between 3 and 8, only where the gain is worth $k$× the cost; use best-of-N only with a verifier shown to discriminate: unit tests, a calculator or solver, a schema validator, a trained reward model); how to serve reasoning models (explicit `max_tokens` or a thinking budget, watching the share of answers that hit the limit, robust answer parsing with extraction failures as their own metric, pricing by output tokens); how to evaluate with judges (both orders, consistency reported, the judge validated against ground truth as in [10](#10) and [15](#15), bounded judge reasoning, Bradley-Terry with intervals); what to monitor (tokens per request and their tail, truncated or unparseable answers, accuracy against the target and latency), and the failure modes.
+- The notebook ends with "Results" and an "In production" section: how to choose a strategy (start with chain of thought, or a reasoning model with a capped thinking budget; add self-consistency, with $k$ between 3 and 8, only where the gain is worth $k$× the cost; use best-of-N only with a verifier shown to discriminate: unit tests, a calculator or solver, a schema validator, a trained reward model); how to serve reasoning models (explicit `max_tokens` or a thinking budget, watching the share of answers that hit the limit, robust answer parsing with extraction failures as their own metric, pricing by output tokens); how to evaluate with judges (both orders, consistency reported, the judge validated against ground truth as in [18](#18) and [28](#28), bounded judge reasoning, Bradley-Terry with intervals); what to monitor (tokens per request and their tail, truncated or unparseable answers, accuracy against the target and latency), and the failure modes.
 
-**Next:** back to the main path with [09](#09) (quantization), or [14](#14) to see reasoning inside agents.
-
----
-
-<a id="09"></a>
-## 09 · Quantization in practice
-`notebooks/02_pretraining_and_inference/09_quantization.ipynb` · `optimum-quanto`
-
-**What you build.** First under the hood, in a few lines of torch: absmax per tensor, per row and per block, and NF4, on a real weight matrix of SmolLM2-135M (it has an outlier at 15 standard deviations). Then a real model, SmolLM2-360M-Instruct, quantized to int8, float8, int4 and int2.
-
-**Tools.** `optimum.quanto.quantize(model, weights=qint8 | qfloat8 | qint4 | qint2)` and `freeze(model)` (int4/int2 in groups of 128), with `lm_head` kept in bf16. Measurement against the fp32 model on ~500 held-out tokens. Production table: bitsandbytes (QLoRA), GPTQ, AWQ, GGUF (the course's `qwen2.5:3b` is a `Q4_K_M` GGUF), FP8, torchao, KV-cache quantization.
-
-**Key concepts.** Why finer scales reduce error (and cost ~0.25 extra bits per weight with blocks of 64); NF4 puts its levels at the quantiles of a normal distribution; **the metrics that really detect damage**: KL against the original model and top-1 agreement, which is what llama.cpp reports. Perplexity alone hides differences. Memory savings are guaranteed; speed needs a fused kernel.
-
-**Results.** On the real matrix, the relative weight error at 4 bits goes from 58.7% (per tensor) to 16.7% (per row) and 11.4% (blocks of 64); NF4 lowers it to 9.3%. At 8 bits: 3.4% / 0.9% / 0.6%.
-
-| SmolLM2-360M | Weights | Perplexity | KL vs fp32 | Top-1 agreement | Tokens/s |
-|---|---|---|---|---|---|
-| fp32 (reference, CPU) | – | 17.16 | – | – | – |
-| bf16 | 0.72 GB | 17.13 | 0.0010 | 97.2% | 24.0 |
-| int8 | 0.41 GB | 17.32 | 0.0048 | 96.6% | 16.8 |
-| float8 | 0.41 GB | 17.13 | 0.0094 | 95.1% | 15.2 |
-| int4 (g128) | 0.26 GB | 22.16 | 0.27 | 73.3% | 10.5 |
-| int2 (g128) | 0.19 GB | ~228,000 | 9.40 | 1.4% | 8.3 |
-
-- bf16 is not exact either: its 97.2% agreement is the noise floor.
-- int8 and float8 are almost free. float8 has **the same perplexity as bf16 but twice int8's KL**: perplexity hides what KL shows.
-- int4 cuts memory to a third of bf16, but on a model this small it costs a quarter of the top-1 agreement and +29% perplexity. Plain round-to-nearest int2 destroys the model (word salad).
-- Honest: on this GPU **the quantized models are slower** than bf16. At batch 1 a 360M model is limited by kernel launches, and quanto adds unpacking work; real speed-ups need a fused kernel for the format.
+**Next:** [16](#16) (tools and structured output), or [25](#25) to see reasoning inside agents.
 
 ---
 
-<a id="21"></a>
-## 21 · Embeddings and rerankers: how retrieval models work, are trained, compressed and combined
-`notebooks/04_applications/21_embeddings_and_rerankers.ipynb` · modules `config`, `evaluation` · `sentence-transformers`, `rank-bm25`, `datasets`, LangChain (Ollama)
+<a id="16"></a>
+## 16 · Tools, function calling and structured output with LangChain
+`notebooks/04_applications/16_agents_tools_structured_output.ipynb` · `langchain-core`, `langchain`, `langchain-ollama`, `pydantic`
 
-Read right before 10. Every RAG system, semantic search box, recommender (12) and agent memory (14) starts by picking a few relevant documents out of thousands, almost always with two kinds of model: an **embedding model** (a bi-encoder) that turns text into searchable vectors, and a **reranker** (a cross-encoder) that reads the best candidates more carefully. This notebook takes both apart on a real BEIR benchmark, **SciFact** (5,183 scientific abstracts, 300 test claims labelled by experts, 809 training claims), and measures every decision you make when you build a retriever, each with nDCG@10, recall@100 and paired bootstrap intervals over queries.
+**What you build.** Four tools for a small shop (weather, calculator, order lookup, doc search), the tool-calling loop by hand, the same loop with `create_agent`, error handling, structured output with validation and retries, and a trajectory evaluation on labelled requests.
+
+**Tools.** `@tool` (name, docstring and type hints become the schema) and Pydantic `args_schema` (field descriptions, regex `pattern`); `convert_to_openai_tool`; `llm.bind_tools`, `AIMessage.tool_calls`, `ToolMessage`, `tool.invoke(tool_call)`; `langchain.agents.create_agent`; `GenericFakeChatModel` as a scripted model for deterministic tests; `ToolErrorMiddleware`; `with_structured_output(Schema, method="json_schema" | "function_calling" | "json_mode", include_raw=True)` with a Pydantic `field_validator`.
+
+**Key concepts.** The model never executes anything: your code does. Descriptions and schemas are prompts. Tool schemas are re-sent on every call (~390 prompt tokens here). Validation errors go back to the model automatically; tool exceptions only when you opt in. Constrained decoding guarantees the *shape* of the output, not its *content*. Retry *with the error*, not blindly. Evaluate the trajectory, not just the text.
+
+**Results**
+- The hand-written loop solves "order A100 plus 21% tax" in two tool steps (`order_status`, then `calculate`) → $145.20. `create_agent` issues the weather and order calls in parallel in one turn.
+- With tools attached, `qwen2.5:3b` declined to answer "who wrote Don Quixote?", a question it could have answered alone.
+- An invalid `order_id` (`a-100`) comes back as a `ToolMessage` with `status=error`. Without middleware, an exception inside the tool crashes the run; with `ToolErrorMiddleware` the model reads the error and retries with `2**10` → 1024.
+- **Retry with feedback**: the summary went from 22 words to 13 and then 13 again; after 3 attempts it still did not meet the 12-word limit, and the function returned `None`. The feedback helped, but not enough: cap the attempts and log the failures.
+- **Structured output, 8 labelled emails**: all three methods produce 8/8 valid objects, but field accuracy is 85% for `json_schema` (it returned `order_id = null` on the emails that mention an order), 98% for `function_calling` and 98% for `json_mode`.
+- **Agent evaluation, 14 requests**: tool selection 79%, valid arguments 86%, **task success 64%**, median latency 0.8 s, 864 tokens on average. Failures: arithmetic done without the calculator, `c300` in lower case broke the pattern (the model asked the user instead of fixing it), chit-chat that called `search_docs`, a translation it refused, and a multi-step request that skipped the order lookup.
+
+---
+
+<a id="17"></a>
+## 17 · Embeddings and rerankers: how retrieval models work, are trained, compressed and combined
+`notebooks/04_applications/17_embeddings_and_rerankers.ipynb` · modules `config`, `evaluation` · `sentence-transformers`, `rank-bm25`, `datasets`, LangChain (Ollama)
+
+Read right before 18. Every RAG system, semantic search box, recommender (23) and agent memory (25) starts by picking a few relevant documents out of thousands, almost always with two kinds of model: an **embedding model** (a bi-encoder) that turns text into searchable vectors, and a **reranker** (a cross-encoder) that reads the best candidates more carefully. This notebook takes both apart on a real BEIR benchmark, **SciFact** (5,183 scientific abstracts, 300 test claims labelled by experts, 809 training claims), and measures every decision you make when you build a retriever, each with nDCG@10, recall@100 and paired bootstrap intervals over queries.
 
 **What you build.**
 1. **The data and the metrics**: SciFact and NFCorpus (`mteb/scifact` and `mteb/nfcorpus`, from the Hugging Face Hub), and nDCG@10 and recall@100 written out in a few lines, kept per query.
@@ -637,7 +657,7 @@ Read right before 10. Every RAG system, semantic search box, recommender (12) an
 **Tools.** `datasets.load_dataset("mteb/scifact", ...)` for corpus, queries and qrels; `rank_bm25.BM25Okapi`; `SentenceTransformer(...).encode(normalize_embeddings=True)` and exact cosine search with `torch.topk` (what FAISS or a vector database does at scale); `config.get_embeddings()` (LangChain's `OllamaEmbeddings` with `nomic-embed-text`); `losses.MultipleNegativesRankingLoss`, `losses.MatryoshkaLoss` and `SentenceTransformerTrainer` with `BatchSamplers.NO_DUPLICATES` (3 epochs, batch of 32); `sentence_transformers.quantization.quantize_embeddings` (int8 calibrated on the corpus, and `ubinary`); `CrossEncoder.predict`; `evaluation.bootstrap_ci` and `paired_bootstrap_diff`.
 
 **Key concepts**
-- **Bi-encoder, cross-encoder and late interaction**: encode query and document separately (fast, precomputable), together (accurate, one forward pass per candidate), or keep one vector per token and score with MaxSim (ColBERT). Production uses the retrieve-then-rerank funnel already seen in 12.
+- **Bi-encoder, cross-encoder and late interaction**: encode query and document separately (fast, precomputable), together (accurate, one forward pass per candidate), or keep one vector per token and score with MaxSim (ColBERT). Production uses the retrieve-then-rerank funnel that 23 also uses.
 - **Contrastive learning with InfoNCE**: a cross-entropy over the batch where each query's class is its own document, with a temperature (the `scale = 20` of `sentence-transformers` is $1/\tau$), in-batch negatives (bigger batches, harder task) and **hard negatives** mined with BM25 or an earlier model.
 - **Task prefixes**: asymmetric models expect `query:` / `passage:` or `search_query:` / `search_document:`; forgetting them is a common silent bug.
 - **Matryoshka embeddings**: the loss is summed over several prefix lengths, so the first $m$ dimensions are a good embedding on their own and vectors can be truncated after the fact.
@@ -681,18 +701,138 @@ Read right before 10. Every RAG system, semantic search box, recommender (12) an
 - On this task the best system is the cheapest one: a 22M-parameter bi-encoder fine-tuned for 22 seconds, stored as binary codes with int8 rescoring, with no reranker.
 - The notebook ends with "Results" and an "In production" section: how to choose and build the retriever (a labelled set of 100–300 real queries first; BM25, two or three MTEB models and hybrid, all with paired intervals; fine-tuning with `MultipleNegativesRankingLoss`, mined hard negatives and `NO_DUPLICATES`, plus `MatryoshkaLoss` if you may want smaller vectors later; a general set before and after to catch forgetting; watching for false negatives among the mined hard negatives); how to serve it (documents encoded offline and versioned with their model, a vector index with HNSW or IVF and quantization with rescoring, a reranker only if it beats your best first stage, with a capped depth, and fine-tuned with `CrossEncoderTrainer` if you have labels); what to monitor (nDCG@10 and recall@k on a frozen set at every change, online signals, latency per component, index size, query drift), and the failure modes.
 
-**Next:** [25](#25), which uses the same embeddings to find structure in unlabeled text, then [24](#24), which applies the contrastive idea to images; or go straight to [10](#10), which puts these components into a full RAG pipeline.
+**Next:** [18](#18), which puts these components into a full RAG pipeline; [21](#21) uses the same embeddings to find structure in unlabeled text, and [22](#22) applies the contrastive idea to images.
 
 ---
 
-<a id="25"></a>
-## 25 · Clustering and topic modeling: what are users actually asking?
-`notebooks/04_applications/25_clustering_topic_modeling.ipynb` · modules `config` · `sentence-transformers`, `umap-learn`, `scikit-learn` (`KMeans`, `HDBSCAN`, `CountVectorizer`, the metrics), `datasets`, LangChain (Ollama)
+<a id="18"></a>
+## 18 · RAG with LangChain, evaluated with RAGAS
+`notebooks/04_applications/18_rag.ipynb` · LangChain, FAISS, RAGAS · also as a script: `python scripts/rag_demo.py`
 
-Read right after 21, whose embeddings everything here is built on. Production LLM systems pile up unlabeled text: user messages, support tickets, failed agent runs, search queries, feedback. Before you can evaluate, route or improve anything you need to know what is in there, and clustering and topic modeling answer that without labels. The notebook runs the modern pipeline popularized by BERTopic (embed, reduce with UMAP, cluster with HDBSCAN, describe with c-TF-IDF and an LLM) step by step on **Banking77**: 3,080 real customer messages to a bank, 40 per intent, treated as unlabeled logs. The 77 intent labels are used only to *measure* how well each step recovers the true structure.
+**What you build.** A full RAG system over the course's own documentation (`data/knowledge_base/*.md`, 5 files, ~190 KB): loading, chunking at three sizes, embeddings, a vector index, BM25, hybrid fusion, an LCEL chain with numbered citations, multi-query (RAG-Fusion), and an evaluation that separates retrieval from generation.
+
+**Tools.** `DirectoryLoader` + `TextLoader`; `RecursiveCharacterTextSplitter` (300 / 800 / 1500 characters → 978 / 358 / 174 chunks); `OllamaEmbeddings(nomic-embed-text)` (768 dimensions) and `ChatOllama(qwen2.5:3b)` through `llm_edu_suite.config`; `FAISS` (exact `IndexFlatL2`, embedding in batches of 64); `BM25Retriever` with a tokenizer that lowercases; `EnsembleRetriever` (Reciprocal Rank Fusion, `c = 60`, from `langchain_classic`), checked against a six-line reimplementation; LCEL with `ChatPromptTemplate`, `RunnableParallel`, `.assign`, `StrOutputParser`; RAGAS 0.4 with `llm_factory` over Ollama's OpenAI-compatible API and the metrics `Faithfulness`, `AnswerRelevancy`, `ContextPrecision`, `ContextRecall`; the judge comes from `config.judge_model()` (`qwen2.5:7b` if it is pulled, or whatever `JUDGE_MODEL` says) and the intervals from `evaluation.bootstrap_ci` and `paired_bootstrap_diff`.
+
+**Key concepts.** Dense versus lexical search and why to combine them (technical docs are full of exact strings); chunk size as a hyperparameter; file-level versus evidence-level metrics (does the retrieved *chunk* contain the evidence?); hit@k and MRR; the four RAGAS metrics and which ones need a reference; bootstrap intervals and the paired difference, so you do not read noise; **validate the judge** before trusting it, because a weak judge does not only add noise, it invents effects.
+
+**Results** (20 labelled questions in `data/eval/rag_eval.json`, 4 per document; chunk 800, k = 4)
+
+| Retriever | File hit@1 | Evidence hit@1 | Evidence hit@4 | Evidence MRR |
+|---|---|---|---|---|
+| dense | 0.95 | 0.65 | 0.85 | 0.73 |
+| BM25 | 0.90 | 0.70 | **0.95** | 0.80 |
+| **hybrid (RRF)** | 0.95 | **0.80** | 0.90 | **0.84** |
+| hybrid + multi-query | 0.95 | 0.75 | 0.90 | 0.82 |
+
+- File hit@4 is 1.00 for all of them (saturated); the differences only appear at evidence level. Hybrid is best at the top of the ranking, and BM25 is surprisingly strong on this corpus.
+- **Multi-query did not help** (MRR 0.82, one extra LLM call per question).
+- Chunk size does not push every retriever the same way (evidence MRR at 300 / 800 / 1500): dense 0.77 / 0.73 / 0.67 gets worse, BM25 0.74 / 0.80 / 0.82 and hybrid 0.75 / 0.84 / 0.89 get better.
+- Without retrieval the model makes up what MCP stands for ("Management and Configuration Protocol").
+
+RAGAS, with `qwen2.5:7b` judging the answers that `qwen2.5:3b` generates (1038 s for 40 answers × 4 metrics, most of the notebook's runtime). In brackets, the 95% bootstrap interval over the 20 questions:
+
+| Configuration | Faithfulness | Answer relevancy | Context precision | Context recall |
+|---|---|---|---|---|
+| dense | 0.87 [0.74, 0.97] | 0.78 [0.64, 0.89] | 0.79 [0.62, 0.92] | 0.95 [0.85, 1.00] |
+| hybrid | 0.87 [0.74, 0.96] | 0.75 [0.60, 0.86] | **0.92** [0.80, 0.99] | 0.95 [0.85, 1.00] |
+| hybrid − dense (paired) | −0.00 [−0.16, +0.17] | −0.03 [−0.16, +0.10] | **+0.13 [+0.03, +0.25]** | +0.00 [−0.15, +0.15] |
+
+- There is **one** clear difference: context precision rises from 0.79 to 0.92 and its interval excludes zero. Hybrid puts the useful chunks higher, which is what the label-based MRR said too. The other three metrics show no difference: once the right passage is somewhere in the top 4, the 3B generator answers equally well from either list.
+- **The judge mattered more than the system.** When the 3B model graded its own answers (the previous version of this notebook), it reported faithfulness 0.38 → 0.54 and answer relevancy 0.44 → 0.30 from dense to hybrid, and gave relevancy 0 to correct answers. With the 7B judge those "differences" vanish inside the intervals. A weak judge does not only add noise: it can invent effects.
+- The low rows of the per-question table separate the three failure modes. "Where does `mini_llm.py` save its checkpoint?" is a **retrieval** failure (no evidence in the top 4; precision and recall 0). The question about notebook 04's copy accuracy is a **generation** failure: the evidence was ranked first, both context metrics are 1.00, and the 3B model still answered "I don't know". The DPO + NLL question shows a **label** problem: our evidence-string check does not find the passage, but the judge finds the fact in the context (recall 1.00). Gold labels need checking too.
+- Cost: a stronger judge is slower (about 17 minutes with the 7B against about 7 with the 3B). Evaluation is a budget line: a fixed, small, representative set on every change, not everything.
+
+---
+
+<a id="19"></a>
+## 19 · Modern LLM application patterns with LangChain
+`notebooks/04_applications/19_modern_llm_applications.ipynb` · `langchain-core`, `pydantic`
+
+**What you build.** Six production patterns, each with its own metric: structured extraction, zero-/few-shot classification, map-reduce summarization, caching (exact and semantic), prompt-injection defence, and batch processing with token and cost accounting. Everything at temperature 0 on small hand-labelled sets (8 to 20 items).
+
+**Tools.** Pydantic + `with_structured_output` (`json_schema` and `function_calling`); `FewShotChatMessagePromptTemplate` and a `Literal` label; map-reduce in LCEL with `RecursiveCharacterTextSplitter` and `.batch`; `set_llm_cache(InMemoryCache())` and a semantic cache written against `BaseCache` with `nomic-embed-text`; an LLM classifier with a structured verdict; `.batch(max_concurrency=n)` and `get_usage_metadata_callback()`.
+
+**Key concepts.** With `json_schema`, `ChatOllama` passes the schema only to the decoder, so the model never *reads* the field descriptions; few-shot examples are a prompt change that has to be evaluated; long inputs are silently truncated (check `usage_metadata["input_tokens"]`); a cache serves wrong answers just as fast as right ones; injection is managed in layers, not solved; project cost and duration before scaling up.
+
+**Results**
+- **Extraction (8 records)**: every variant returns 8/8 valid objects, but all fields are right in 62% with `json_schema`, 88% with `json_schema` + the rules in the system message, and 88% with `function_calling`.
+- **Classification (20 tickets)**: zero-shot 100%, few-shot 100% in the committed run (95% in an earlier run, with a shipping ticket sent to technical). The examples bought nothing.
+- **Summarization**: the document is ~4,135 tokens, but the single "stuff" call processed only 2,050 (truncated without any error): 9/13 topics (it lost the beginning: tokenization, attention, MoE) and 779 words instead of a 150-word paragraph; 6/13 in another run. Map-reduce (6+1 calls): 11/13 topics, 210 words, 12× compression, 30.4 s versus 15.7 s.
+- **Exact cache**: 0.54 s for the first call, 1–2 ms for the next ones. It also caches the 3B model's *wrong* answer about the KV-cache. **Pitfall found by measuring:** `ChatOllama`'s `llm_string` (the model part of the cache key) contains neither the model name nor the temperature, so a call at T=0.5 was served the T=0 answer (3 ms, a hit).
+- **Semantic cache**: paraphrases score cosine 0.73–0.95 and near misses 0.56–0.93 (they overlap). To keep false hits at zero the threshold must be 0.94, and then only 20% of paraphrases hit (3 hits in 25 requests).
+- **Prompt injection (10 documents)**: attack success 90% with the naive prompt, **100% when delimiting** (it did not help at all with this model) and 40% with delimiting + a reminder after the document ("sandwich"). The LLM guard catches 10/10 attacks with 0/10 false positives on its own set and blocks 8/10 of the injected documents. Combined: ≈ 0.2 × 0.4 = 8% expected success, not zero.
+- **Batch (40 records)**: 8.5 s with concurrency 1 and 8.3 s with 4 (~210 ms per record; a single local Ollama barely gains). ~131 input and 9 output tokens per record → ~$25 per million records at $0.15/M in and $0.60/M out; locally, a million records would take 57 hours.
+
+**Next:** [20](#20), which stops writing prompts by hand: the same kind of classifier as a DSPy program, with its examples and instructions searched instead of tuned.
+
+---
+
+<a id="20"></a>
+## 20 · DSPy: from hand-written prompts to optimized programs
+`notebooks/04_applications/20_dspy_prompt_optimization.ipynb` · DSPy 3.5 (with its own HTTP client, `engine="lm15"`, to Ollama's OpenAI-compatible `/v1` endpoint; no litellm), Optuna (for MIPROv2), `sentence-transformers` (bge-small-en-v1.5), `datasets` (Banking77), module `evaluation` · `qwen2.5:3b`, `qwen2.5:7b`
+
+Read right after 19. Every prompt in the course so far was written and tuned by hand: in 06, `qwen2.5:3b` classified Banking77's 77 intents at 48.9 % zero-shot and 61.9 % with one example per intent. That is slow, it does not transfer when the model changes, and nobody can say whether a better prompt exists. DSPy treats the prompt as a parameter of a program: you declare what a step does (a *signature*), a *module* decides how to prompt for it, and an *optimizer* searches the instructions and examples that maximize your metric on your data. Every run uses the same 231-message test sample as 06 (3 per intent), so the numbers are comparable and paired. It also uses the structured output of 16 and the embeddings of 17.
 
 **What you build.**
-1. **Embeddings and k-means with the true k**: all-MiniLM-L6-v2 and bge-small-en-v1.5 from [21](#21), and k-means with $k = 77$ on the raw vectors and on a 5-dimensional UMAP of them, scored with ARI and NMI against the intents.
+1. **A signature and a module**: `Classify` (`message: str -> intent: Literal[...77 intents]`, with a docstring as the task description), wrapped in `dspy.Predict`; the prompt DSPy's `ChatAdapter` writes for it, printed; and a callback that counts LM calls.
+2. **An evaluation loop** that keeps per-example scores for paired comparisons, counts outputs that do not parse as wrong, and records latency and LM calls per message; zero-shot `Predict` and `ChainOfThought`.
+3. **Few-shot from data**: `LabeledFewShot` with 16 random examples; per-message nearest-neighbour demos (what `dspy.KNNFewShot` does), written as a 10-line module over the ~9,000 embedded training messages, with k = 4, 8 and 16; and, as a baseline, **retrieval alone**: the majority intent of the 8 nearest neighbours, with no LLM.
+4. **Three optimizers** starting from zero-shot `Predict`, with 154 training examples and a 77-message validation set: `BootstrapFewShotWithRandomSearch` (6 candidate demo sets), `MIPROv2` with `auto="light"` (`qwen2.5:7b` proposes instructions and Optuna's TPE searches instruction × demo set on minibatches) and `GEPA` (`qwen2.5:7b` reads the 3B model's mistakes with textual feedback and rewrites the instruction, with a budget of 600 metric calls), each with its LM calls and minutes.
+5. **Combining what works**: `qwen2.5:7b` with 16 kNN demos; a **router** that answers with the 8-NN vote when at least τ of the 8 neighbours agree and sends the rest to the LLM with kNN demos (τ chosen on the validation set, never on the test); and GEPA on top of the kNN program, with each training message kept out of its own demos during optimization.
+6. **All results, paired** against zero-shot `Predict` with the paired bootstrap, next to 06's hand-written prompts, in a table and a bar chart.
+7. **Shipping**: the best optimized program saved to JSON, reloaded into the same program class and checked on 30 messages.
+
+**Tools.** `dspy.LM("ollama_chat/...", base_url=".../v1", engine="lm15", cache=False)`, `dspy.configure`, `dspy.context(lm=...)`; `dspy.Signature` with `InputField` / `OutputField` and a `Literal`; `dspy.Predict`, `dspy.ChainOfThought`, `dspy.Module`, `dspy.Example(...).with_inputs`, `dspy.Prediction`; `dspy.ChatAdapter().format` to print the prompt; `dspy.utils.callback.BaseCallback` (`on_lm_start`) to count calls; the optimizers `LabeledFewShot`, `BootstrapFewShotWithRandomSearch`, `MIPROv2` and `GEPA` (with a metric that returns `dspy.Prediction(score=..., feedback=...)`); `program.save` / `load`; `SentenceTransformer("BAAI/bge-small-en-v1.5")`; `evaluation.bootstrap_ci` and `paired_bootstrap_diff`.
+
+**Key concepts**
+- **Signatures, modules and adapters**: what a step does, how it is prompted, and how the prompt is written and the answer parsed for a given model. Changing the model or the adapter changes the prompt without touching the program.
+- **Demos** (input/output examples placed in the prompt as earlier turns) are most of what optimizers choose: the same examples for every input, or examples chosen per input.
+- The optimizers, from cheapest to most expensive: labeled demos, kNN demos, bootstrapped demos with random search, MIPROv2 (instruction and demos with Bayesian search), GEPA (reflective evolution of the instruction, keeping a Pareto front of candidates).
+- **The metric is the specification**: an optimizer maximizes exactly what the metric measures on exactly the data it is given, and with a small validation set it overfits. A better validation score is a hypothesis until the held-out test confirms it.
+- A non-LLM baseline and the **cascade**: a cheap, confident component answers first and the LLM only sees what it is unsure about.
+- An optimized prompt is a versioned artifact (JSON), re-optimized when the model, the data or the metric changes.
+
+**Results** (`qwen2.5:3b` unless noted, 231 test messages, 95 % bootstrap intervals; Δ is the paired difference against zero-shot `Predict`)
+
+| Variant | Accuracy | Δ vs zero-shot `Predict` | s per message | Optimization |
+|---|---|---|---|---|
+| 17: hand-written zero-shot (`json_schema`) | 0.489 | | | |
+| 17: hand-written, 1 example per intent | 0.619 | | | |
+| `Predict`, zero-shot | 0.558 [0.489, 0.623] | | 0.36 | |
+| `ChainOfThought`, zero-shot | 0.541 | −0.017 [−0.061, +0.026] | 0.83 | |
+| `LabeledFewShot`, 16 random demos | 0.433 | −0.126 [−0.182, −0.074] | 0.39 | |
+| kNN demos, k = 4 / 8 / 16 | 0.818 / 0.848 / 0.870 | +0.260 / +0.290 / +0.312 | 0.46 / 0.52 / 0.68 | |
+| `BootstrapFewShotWithRandomSearch` | 0.558 | +0.000 | 0.37 | 4.7 min, 750 calls |
+| `MIPROv2` (light) | 0.554 | −0.004 [−0.013, +0.000] | 0.37 | 6.8 min, 665 calls (20 to the 7B) |
+| `GEPA` | 0.554 | −0.004 [−0.056, +0.048] | 0.71 | 8.5 min, 868 calls (7 to the 7B) |
+| retrieval only: 8-NN vote, no LLM | 0.913 | +0.355 [+0.290, +0.424] | 0.02 | |
+| GEPA on the kNN program (k = 16) | 0.870 | +0.312 [+0.247, +0.377] | 0.69 | 7.3 min, 414 calls |
+| **router**: the vote if ≥ 4 of 8 agree, otherwise the LLM with 16 kNN demos | **0.922** [0.883, 0.957] | +0.364 [+0.299, +0.429] | 0.03 | τ = 4 chosen on validation |
+| kNN demos, k = 16, `qwen2.5:7b` | **0.926** [0.892, 0.957] | +0.368 [+0.303, +0.433] | 1.62 | |
+
+**Honest findings**
+- **DSPy's default prompt beats the hand-written one.** Same model, same messages: 0.558 against 06's 0.489. The adapter's prompt is long (about 4,100 characters of system message and 2,100 of user message, the 77 allowed values listed twice and a strict output format), and none of the 231 answers failed to parse.
+- **Chain of thought does not help a recall task.** 0.541, with 2 unparsable answers, at more than twice the latency. Here the answer has to be *recalled* (which of 77 similar-sounding labels the bank uses), not *derived*, and a 3B model reasoning about `card_arrival` against `card_delivery_estimate` only adds tokens.
+- **Random examples hurt, relevant ones help a lot.** 16 random demos cover at most 16 of the 77 intents and pull the model towards those labels (0.433). The 16 nearest training messages lift it to 0.870.
+- **Retrieval alone beats the LLM it feeds.** The majority intent of the 8 nearest neighbours reaches 0.913 at 0.02 s per message, 18 to 34 times faster than the LLM variants. With 9,000 labeled examples and a good embedding model this task is mostly lookup, and the LLM with kNN demos is slightly worse than the vote it was given, because it sometimes overrides a clear majority.
+- **The three optimizers found nothing better than the starting point.** All within ±0.004 of zero-shot `Predict`, which is noise: two runs of the notebook differed by that much. Bootstrap random search scored 9 candidates on validation and the best (53.25 %) was the unoptimized program itself; MIPROv2 kept the original instruction and no demos; GEPA rewrote the instruction into a long text with five worked examples and the reflection model's feedback, scored 59.7 % on validation and 0.554 on the test: it overfit the handful of failures it was written from. An optimizer searches within the space you give it, and when the missing ingredient is per-message information (which labeled messages look like this one), no instruction can supply it.
+- **The router is the configuration to deploy.** With τ = 4 (0.948 on validation), 97 % of the test messages were answered by the vote alone: 0.922, about as accurate as the 7B with kNN demos (0.926) at about 1/50 of its latency and 3 % of the LLM calls. GEPA on top of the kNN program kept the original instruction (0.870) after 414 calls: once the right examples are in the prompt, the wording hardly matters.
+- **The large gains came from what information reaches the model**, not from how the instruction is worded: hand-written 0.489, DSPy zero-shot 0.558, optimizers ~0.55, kNN demos 0.870, retrieval 0.913, router 0.922, 7B with kNN demos 0.926.
+- **Shipping works.** The best optimized program (GEPA on kNN demos) is 2.4 KB of JSON and gave the same prediction on 30 of 30 messages after reloading.
+- The notebook ends with "Results" and an "In production" section: DSPy-style programs pay off when the pipeline has several LM steps, the model may change and there is a metric with a few hundred labeled examples; fix the information flow before optimizing prompts (retrieve examples or documents per request, measure a non-LLM baseline, cascade); when you optimize, hold out a test set the optimizer never sees, use a validation set large enough for the differences you care about (77 examples cannot separate 0.55 from 0.56), keep the optimized JSON in version control and re-run the optimizer when the model, the data or the metric changes; optimization is paid once (here 400–900 calls) and inference forever, so compare accuracy, latency and calls per message together; and the failure modes (a validation set too small or overlapping the training examples, a weak baseline, chain of thought by default, trusting a reflective optimizer's long instruction, silent output-format changes when switching models).
+
+**Next:** [21](#21) (clustering and topic modeling), or [29](#29) to evaluate and trace LLM programs with Inspect and Phoenix.
+
+---
+
+<a id="21"></a>
+## 21 · Clustering and topic modeling: what are users actually asking?
+`notebooks/04_applications/21_clustering_topic_modeling.ipynb` · modules `config` · `sentence-transformers`, `umap-learn`, `scikit-learn` (`KMeans`, `HDBSCAN`, `CountVectorizer`, the metrics), `datasets`, LangChain (Ollama)
+
+Read after 17, whose embeddings everything here is built on. Production LLM systems pile up unlabeled text: user messages, support tickets, failed agent runs, search queries, feedback. Before you can evaluate, route or improve anything you need to know what is in there, and clustering and topic modeling answer that without labels. The notebook runs the modern pipeline popularized by BERTopic (embed, reduce with UMAP, cluster with HDBSCAN, describe with c-TF-IDF and an LLM) step by step on **Banking77**: 3,080 real customer messages to a bank, 40 per intent, treated as unlabeled logs. The 77 intent labels are used only to *measure* how well each step recovers the true structure.
+
+**What you build.**
+1. **Embeddings and k-means with the true k**: all-MiniLM-L6-v2 and bge-small-en-v1.5 from [17](#17), and k-means with $k = 77$ on the raw vectors and on a 5-dimensional UMAP of them, scored with ARI and NMI against the intents.
 2. **Choosing k without labels**: k-means for k from 10 to 160 on the UMAP space, with the silhouette score (no labels) next to ARI (labels), in one plot.
 3. **HDBSCAN**: density clustering on the same space for `min_cluster_size` from 10 to 40, with the number of clusters it finds, the share of noise and ARI on the clustered points and on all of them; a 2-D UMAP picture of the true intents next to the clusters.
 4. **Describing clusters**: c-TF-IDF written from scratch over word 1–2-grams, then `qwen2.5:3b` naming every cluster from its keywords and five example messages, with structured output. The names are checked automatically: is the intent name closest to the LLM's name (by bge-small embeddings) the cluster's majority intent?
@@ -730,31 +870,31 @@ Read right after 21, whose embeddings everything here is built on. Production LL
 | ARI on clustered points (all points) | 0.651 (0.541) | **0.696** (0.618) | 0.683 (0.609) | 0.614 (0.563) | 0.465 (0.426) |
 
 **Honest findings**
-- **The embedding space decides most of the quality.** bge-small, which also retrieved better in [21](#21), clusters better on both representations: an embedding model that separates meanings well for search also separates them well for clustering. Encoding the 3,080 messages took about 2 s with either model.
+- **The embedding space decides most of the quality.** bge-small, which also retrieved better in [17](#17), clusters better on both representations: an embedding model that separates meanings well for search also separates them well for clustering. Encoding the 3,080 messages took about 2 s with either model.
 - **UMAP helps k-means a lot**, by +0.07 to +0.10 ARI, even though it keeps only 5 of 384 dimensions: it preserves each message's neighbourhood and drops the directions that only add noise to distances. Even with the right $k$, 0.685 is far from perfect, because several intents are genuinely close ("pending transfer" and "transfer timing", "card arrival" and "card delivery estimate"), and no clustering can separate what the embeddings place together.
 - **The silhouette score did not find 77.** It peaks at k = 60 and is flat between 50 and 100 (0.721–0.742), while ARI keeps rising up to 77–100. Real text has no single true number of topics, because intents nest (card problems → card arrived damaged / card not working). Unsupervised scores can only rule out bad values (here, anything below about 40); the granularity is a decision, and you merge or split by hand after reading the clusters.
 - **HDBSCAN found 73 clusters without being told $k$**, with ARI 0.683 on the clustered points, as good as k-means *with* the true $k$, and set 5 % of the messages aside as noise: ambiguous or one-off messages that no dense group claims. In production that noise bucket is where odd requests, spam and new needs show up. `min_cluster_size` is the granularity knob (120 small clusters at 10, 39 broad ones at 40); the best ARI was at 15 (0.696), but the right value depends on the smallest topic you care about, not on a metric.
 - **Most clusters are clean, and the big ones are where intents merge.** The median cluster has 91 % of its messages from one intent. The largest, 122 messages, is only 32 % "fiat currency support", because it merges several currency and exchange intents, and the 12 largest clusters have purities of 32–70 %. A cluster much bigger than its neighbours usually needs splitting.
 - **Keywords are already informative and LLM names need review.** c-TF-IDF costs nothing and gives "declined, card declined, card payment" for declined card payments. The LLM's names match the majority intent for 58 % of clusters (42 of 73) by the nearest-name test, and many misses are right but broader ("Transfer Issues Cluster" for failed transfer) or describe a merged cluster accurately: the automatic test is strict. Naming 73 clusters took 83 s with the 3B model.
 - **The novelty flag is coarse; clustering the flags makes it useful.** With the threshold at 0.830, 297 messages were flagged: 53 % of them from the 7 unknown intents, catching 56 % of those intents' 280 messages, with 5 % false flags on known intents (by construction of the threshold). Many messages of a new intent look like a known one ("exchange via app" against the known "exchange rate"). HDBSCAN found 16 clusters among the flagged messages, and **all 7 unknown intents came out as majority clusters**, some several times ("terminate account" in three); a few clusters were known intents near their boundary.
-- The notebook ends with "Results" and an "In production" section: the pipeline (embeddings chosen for your domain, UMAP, HDBSCAN, c-TF-IDF and an LLM; BERTopic packages exactly this, with topics over time and hierarchical merging; cuML's GPU UMAP and HDBSCAN, or clustering a sample and assigning the rest to the nearest centroid, for millions of messages); where it pays off (understanding usage, building evaluation sets that cover rare intents, as in [10](#10) and [15](#15), clustering failed or down-voted conversations to fix the biggest cluster first, designing routers and intents from data, as in [14](#14) and [23](#23), the weekly monitoring loop, and near-duplicate removal and diversity sampling for training data, as in [18](#18)); what to watch (cluster sizes over time, the share of noise and novelty flags, stability between runs with fixed seeds and clusters matched rather than ids), and the failure modes (trusting LLM names without reading the examples, one giant cluster hiding several topics, an embedding model that does not understand your domain, re-clustering from scratch so ids do not persist, personal data in example messages on dashboards).
+- The notebook ends with "Results" and an "In production" section: the pipeline (embeddings chosen for your domain, UMAP, HDBSCAN, c-TF-IDF and an LLM; BERTopic packages exactly this, with topics over time and hierarchical merging; cuML's GPU UMAP and HDBSCAN, or clustering a sample and assigning the rest to the nearest centroid, for millions of messages); where it pays off (understanding usage, building evaluation sets that cover rare intents, as in [18](#18) and [28](#28), clustering failed or down-voted conversations to fix the biggest cluster first, designing routers and intents from data, as in [25](#25) and [12](#12), the weekly monitoring loop, and near-duplicate removal and diversity sampling for training data, as in [07](#07)); what to watch (cluster sizes over time, the share of noise and novelty flags, stability between runs with fixed seeds and clusters matched rather than ids), and the failure modes (trusting LLM names without reading the examples, one giant cluster hiding several topics, an embedding model that does not understand your domain, re-clustering from scratch so ids do not persist, personal data in example messages on dashboards).
 
-**Next:** [24](#24), which applies 21's contrastive embeddings to images; or go straight to [10](#10), where clusters of user questions become a representative evaluation set.
+**Next:** [22](#22), which applies 17's contrastive embeddings to images.
 
 ---
 
-<a id="24"></a>
-## 24 · Multimodal models: images as embeddings and as tokens
-`notebooks/04_applications/24_multimodal.ipynb` · modules `config`, `evaluation` · `transformers` (CLIP), `datasets`, `scikit-learn`, the `ollama` Python client, Pillow, Pydantic
+<a id="22"></a>
+## 22 · Multimodal models: images as embeddings and as tokens
+`notebooks/04_applications/22_multimodal.ipynb` · modules `config`, `evaluation` · `transformers` (CLIP), `datasets`, `scikit-learn`, the `ollama` Python client, Pillow, Pydantic
 
-Read after 21 (on the suggested path, after 25 too). CLIP is trained with the same contrastive loss as the text embedding models of 21, with images on one side, so this is where the course steps outside text. Two families of models handle images, and they do different jobs: **contrastive image-text encoders** (CLIP, SigLIP) give one vector per image and per text in a shared space, for classifying, searching and filtering; **vision-language models** (VLMs: GPT-4o, Claude, Gemini, Qwen2.5-VL, Llama 3.2 Vision) generate text conditioned on images, for describing, answering questions and reading documents. The notebook measures one of each, CLIP ViT-B/32 and `qwen2.5vl:3b` in Ollama, on the same tasks.
+Read after 17 and 21. CLIP is trained with the same contrastive loss as the text embedding models of 17, with images on one side, so this is where the course steps outside text. Two families of models handle images, and they do different jobs: **contrastive image-text encoders** (CLIP, SigLIP) give one vector per image and per text in a shared space, for classifying, searching and filtering; **vision-language models** (VLMs: GPT-4o, Claude, Gemini, Qwen2.5-VL, Llama 3.2 Vision) generate text conditioned on images, for describing, answering questions and reading documents. The notebook measures one of each, CLIP ViT-B/32 and `qwen2.5vl:3b` in Ollama, on the same tasks.
 
 **What you build.**
 1. **The data**: Oxford-IIIT Pet (`timm/oxford-iiit-pet`), 37 cat and dog breeds, 3,680 training images and a fixed sample of 600 test images.
 2. **CLIP zero-shot**: image and text embeddings computed explicitly (the vision transformer's pooled output projected into the shared space, and the same for the text side), and three ways of writing the class sentences: the bare breed name, one template ("a photo of a {}, a type of pet.") and an ensemble of five templates averaged per class.
 3. **A linear probe**: logistic regression on the frozen CLIP image embeddings with 1, 2, 4, 8, 16 and all (~100) labelled images per breed, plotted against zero-shot.
 4. **The VLM as a classifier**: `qwen2.5vl:3b` gets each image and the list of 37 breeds and answers with one; accuracy on 150 images with a paired comparison against CLIP on the same images, latency, and the prompt tokens the image adds (the prompt with and without it). Then 40 images capped at 224, 448 and 896 px, to see how tokens, time and accuracy move with the pixels.
-5. **Structured extraction from documents**: 40 synthetic invoices rendered with Pillow, with a known vendor, invoice number, date, currency and total, so every field can be checked exactly. The VLM must return JSON matching a Pydantic schema (Ollama's `format=`, constrained decoding as in [11](#11)), on clean images and on degraded copies (rotated 4°, blurred, saved as JPEG quality 15).
+5. **Structured extraction from documents**: 40 synthetic invoices rendered with Pillow, with a known vendor, invoice number, date, currency and total, so every field can be checked exactly. The VLM must return JSON matching a Pydantic schema (Ollama's `format=`, constrained decoding as in [16](#16)), on clean images and on degraded copies (rotated 4°, blurred, saved as JPEG quality 15).
 6. **A typographic attack**: the name of a *wrong* breed written in a white box in a corner of 60 test images, and how often each model answers the written breed instead of the true one.
 
 **Tools.** `CLIPModel` and `CLIPProcessor` (`openai/clip-vit-base-patch32`), with `vision_model(...).pooler_output` → `visual_projection` and `text_model(...).pooler_output` → `text_projection`, normalized with `F.normalize`; `datasets.load_dataset("timm/oxford-iiit-pet")`; `sklearn.linear_model.LogisticRegression`; `ollama.Client.chat` with `images=[base64]`, `options={"temperature": 0, "num_predict": ...}`, `format=Invoice.model_json_schema()` and the reply's `prompt_eval_count`; `PIL.ImageDraw`, `ImageFont` and `ImageFilter` to render, degrade and stamp the images; `evaluation.bootstrap_ci` and `evaluation.paired_bootstrap_diff` for the intervals.
@@ -762,10 +902,10 @@ Read after 21 (on the suggested path, after 25 too). CLIP is trained with the sa
 **Key concepts**
 - **ViT**: the image cut into 16×16 or 32×32 patches, each projected to a vector and processed as a token by ordinary transformer blocks; a 224×224 image with 32×32 patches is 49 tokens plus a class token.
 - **CLIP and zero-shot classification**: an image encoder and a text encoder trained together on 400 million (image, caption) pairs with InfoNCE; the classes become sentences, and each image goes to the most similar one. The wording is part of the model, and **prompt ensembling** averages several templates per class.
-- **Linear probe**: logistic regression on frozen embeddings, the image version of [17](#17)'s embeddings + classifier; whether it beats zero-shot depends on how well web captions already describe the categories.
+- **Linear probe**: logistic regression on frozen embeddings, the image version of [06](#06)'s embeddings + classifier; whether it beats zero-shot depends on how well web captions already describe the categories.
 - **SigLIP**: a per-pair sigmoid loss instead of the batch-wide softmax; it trains better and is the encoder inside many VLMs.
 - **Two VLM designs**: projected visual tokens (LLaVA, Qwen-VL, InternVL), where a projector maps the patch vectors into the LLM's embedding space and they enter the prompt as tokens, and cross-attention (Flamingo, Llama 3.2 Vision), where extra blocks inside the LLM read the image features.
-- **Dynamic resolution and image token cost**: in Qwen2.5-VL the number of visual tokens grows with the pixels (one per 28×28 area after merging); an image is paid for in prefill time, context and money, as in [23](#23).
+- **Dynamic resolution and image token cost**: in Qwen2.5-VL the number of visual tokens grows with the pixels (one per 28×28 area after merging); an image is paid for in prefill time, context and money, as in [12](#12).
 - **Typographic attacks**: text written on an image overrides what the image shows (Goh et al., 2021); for a VLM it is prompt injection through pixels.
 
 **Results** (CLIP ViT-B/32 and `qwen2.5vl:3b`, Oxford-IIIT Pet, 37 breeds, RTX 3060 Laptop 6 GB)
@@ -790,84 +930,25 @@ Read after 21 (on the suggested path, after 25 too). CLIP is trained with the sa
 
 **Honest findings**
 - **The prompt is part of the classifier.** With no labelled pet images at all, CLIP names the breed of 86.3 % [83.5, 89.0] of the 600 test images among 37 options. The bare name gives 80.0 % and one template 85.2 %: the template tells CLIP what kind of image to expect and disambiguates names ("boxer" the dog, not the athlete), and averaging five smooths out the quirks of any single wording. At 5.9 ms per image in batches of 64, CLIP can label or index a million images in under two hours.
-- **Zero-shot is worth about 30 labelled images per class here.** The probe needs all ~100 images per breed to pass it (89.0 %), and with 16 it is still 7 points behind. That is the opposite of [17](#17), where a few labels per intent beat zero-shot prompting: cat and dog breeds are common, well-described categories in CLIP's web captions, so its text side already knows what a "Bengal" looks like. For categories that captions rarely describe (your product SKUs, a defect type) the balance tips toward labels quickly. Measure both.
+- **Zero-shot is worth about 30 labelled images per class here.** The probe needs all ~100 images per breed to pass it (89.0 %), and with 16 it is still 7 points behind. That is the opposite of [06](#06), where a few labels per intent beat zero-shot prompting: cat and dog breeds are common, well-described categories in CLIP's web captions, so its text side already knows what a "Bengal" looks like. For categories that captions rarely describe (your product SKUs, a defect type) the balance tips toward labels quickly. Measure both.
 - **The VLM is less accurate and far more expensive for this job.** `qwen2.5vl:3b` gets 72.0 % [64.7, 78.7] of 150 images, with every reply parsed. On the same images CLIP zero-shot gets 83.3 % (the VLM is −11.3 points behind, [−18.7, −4.7]) and the probe 90.0 % (−18.0 [−25.3, −10.7]), and the VLM takes 1.45 s per image against 6 ms. A generative model choosing from 37 names in its prompt is a worse classifier than an embedding model built for similarity.
-- **An image costs about 1,071 prompt tokens**: the prompt is 1,253 tokens with the image and 182 without. With a provider that is billed input; here it is prefill time and context ([23](#23)).
+- **An image costs about 1,071 prompt tokens**: the prompt is 1,253 tokens with the image and 182 without. With a provider that is billed input; here it is prefill time and context ([12](#12)).
 - **The token count did not change with resolution.** It stayed at about 1,080 whether the image was capped at 224, 448 or 896 px, at 1.49–1.50 s per image. Qwen2.5-VL supports dynamic resolution, but in this serving path (Ollama's implementation) every image is resized to a fixed pixel budget, so the cost is constant. What resolution changed was quality: shrinking to 224 px first lost detail that resizing back up cannot recover (55 % on 40 images), while 448 and 896 gave the same 72 %, because the dataset's images are about 500 px and are not enlarged. The model card's behaviour and the serving stack's can differ.
 - **The invoice extraction was perfect, which means the test is too easy.** All five fields of all 40 invoices came out exactly, clean or degraded, in 2.3–2.4 s per document, and the schema made every reply valid JSON with the right types. But the invoices have a clean font, one total, no handwriting, stamps or multi-page tables, and labels ("TOTAL EUR") that state the answer. Real extraction fails on what was not tested: several candidate totals (subtotal, tax, total due), local date formats (03/04/25), handwritten corrections, multi-page layouts, low-contrast scans. A real evaluation needs a few hundred hand-labelled documents, scored per field as here.
-- **The written label took the VLM over.** CLIP is affected, as Goh et al. found: its accuracy on the 60 images fell from 87 % to 77 % and 8 % of its answers copied the label. The VLM fell from 73 % to 17 % and answered the written breed 72 % of the time: shown a dog with "persian" in a corner, it says "persian". Text it can read in the image becomes part of what it treats as information, often more salient than the animal itself. Everything [13](#13), [14](#14) and [22](#22) say about untrusted text applies to untrusted images.
-- The notebook ends with "Results" and an "In production" section: choosing the model (CLIP or SigLIP embeddings in a vector index, as in [21](#21), for image search, deduplication, content filtering and closed-set classification, with a linear probe or a fine-tune when the categories are your own; a VLM for captions, visual questions, document reading and agents that look at screens, with structured output for anything a program consumes; OCR + layout analysis + an LLM or VLM with rule-based validation for high-volume documents); cost and latency (an image is about a thousand tokens or more, so resize to the smallest resolution that keeps the detail you need and measure it, cache repeated images, batch offline jobs); safety (text inside images is untrusted input, adversarial images in the tests, multimodal moderation such as Llama Guard 3 Vision, faces, IDs and documents treated as personal data); what to monitor (accuracy per class or per field on a labelled sample, latency and image tokens per request, the share of unparsed or schema-invalid replies, drift in the image sources), and the failure modes (fine-grained confusion, detail lost to downscaling, hallucinated objects or fields, typographic and injected-text attacks, an evaluation set cleaner than production data).
+- **The written label took the VLM over.** CLIP is affected, as Goh et al. found: its accuracy on the 60 images fell from 87 % to 77 % and 8 % of its answers copied the label. The VLM fell from 73 % to 17 % and answered the written breed 72 % of the time: shown a dog with "persian" in a corner, it says "persian". Text it can read in the image becomes part of what it treats as information, often more salient than the animal itself. Everything [19](#19), [25](#25) and [30](#30) say about untrusted text applies to untrusted images.
+- The notebook ends with "Results" and an "In production" section: choosing the model (CLIP or SigLIP embeddings in a vector index, as in [17](#17), for image search, deduplication, content filtering and closed-set classification, with a linear probe or a fine-tune when the categories are your own; a VLM for captions, visual questions, document reading and agents that look at screens, with structured output for anything a program consumes; OCR + layout analysis + an LLM or VLM with rule-based validation for high-volume documents); cost and latency (an image is about a thousand tokens or more, so resize to the smallest resolution that keeps the detail you need and measure it, cache repeated images, batch offline jobs); safety (text inside images is untrusted input, adversarial images in the tests, multimodal moderation such as Llama Guard 3 Vision, faces, IDs and documents treated as personal data); what to monitor (accuracy per class or per field on a labelled sample, latency and image tokens per request, the share of unparsed or schema-invalid replies, drift in the image sources), and the failure modes (fine-grained confusion, detail lost to downscaling, hallucinated objects or fields, typographic and injected-text attacks, an evaluation set cleaner than production data).
 
-**Next:** [10](#10), which puts the retrieval components of 21 into a full RAG pipeline.
-
----
-
-<a id="10"></a>
-## 10 · RAG with LangChain, evaluated with RAGAS
-`notebooks/04_applications/10_rag.ipynb` · LangChain, FAISS, RAGAS · also as a script: `python scripts/rag_demo.py`
-
-**What you build.** A full RAG system over the course's own documentation (`data/knowledge_base/*.md`, 5 files, ~190 KB): loading, chunking at three sizes, embeddings, a vector index, BM25, hybrid fusion, an LCEL chain with numbered citations, multi-query (RAG-Fusion), and an evaluation that separates retrieval from generation.
-
-**Tools.** `DirectoryLoader` + `TextLoader`; `RecursiveCharacterTextSplitter` (300 / 800 / 1500 characters → 978 / 358 / 174 chunks); `OllamaEmbeddings(nomic-embed-text)` (768 dimensions) and `ChatOllama(qwen2.5:3b)` through `llm_edu_suite.config`; `FAISS` (exact `IndexFlatL2`, embedding in batches of 64); `BM25Retriever` with a tokenizer that lowercases; `EnsembleRetriever` (Reciprocal Rank Fusion, `c = 60`, from `langchain_classic`), checked against a six-line reimplementation; LCEL with `ChatPromptTemplate`, `RunnableParallel`, `.assign`, `StrOutputParser`; RAGAS 0.4 with `llm_factory` over Ollama's OpenAI-compatible API and the metrics `Faithfulness`, `AnswerRelevancy`, `ContextPrecision`, `ContextRecall`; the judge comes from `config.judge_model()` (`qwen2.5:7b` if it is pulled, or whatever `JUDGE_MODEL` says) and the intervals from `evaluation.bootstrap_ci` and `paired_bootstrap_diff`.
-
-**Key concepts.** Dense versus lexical search and why to combine them (technical docs are full of exact strings); chunk size as a hyperparameter; file-level versus evidence-level metrics (does the retrieved *chunk* contain the evidence?); hit@k and MRR; the four RAGAS metrics and which ones need a reference; bootstrap intervals and the paired difference, so you do not read noise; **validate the judge** before trusting it, because a weak judge does not only add noise, it invents effects.
-
-**Results** (20 labelled questions in `data/eval/rag_eval.json`, 4 per document; chunk 800, k = 4)
-
-| Retriever | File hit@1 | Evidence hit@1 | Evidence hit@4 | Evidence MRR |
-|---|---|---|---|---|
-| dense | 0.95 | 0.65 | 0.85 | 0.73 |
-| BM25 | 0.90 | 0.70 | **0.95** | 0.80 |
-| **hybrid (RRF)** | 0.95 | **0.80** | 0.90 | **0.84** |
-| hybrid + multi-query | 0.95 | 0.75 | 0.90 | 0.82 |
-
-- File hit@4 is 1.00 for all of them (saturated); the differences only appear at evidence level. Hybrid is best at the top of the ranking, and BM25 is surprisingly strong on this corpus.
-- **Multi-query did not help** (MRR 0.82, one extra LLM call per question).
-- Chunk size does not push every retriever the same way (evidence MRR at 300 / 800 / 1500): dense 0.77 / 0.73 / 0.67 gets worse, BM25 0.74 / 0.80 / 0.82 and hybrid 0.75 / 0.84 / 0.89 get better.
-- Without retrieval the model makes up what MCP stands for ("Management and Configuration Protocol").
-
-RAGAS, with `qwen2.5:7b` judging the answers that `qwen2.5:3b` generates (1038 s for 40 answers × 4 metrics, most of the notebook's runtime). In brackets, the 95% bootstrap interval over the 20 questions:
-
-| Configuration | Faithfulness | Answer relevancy | Context precision | Context recall |
-|---|---|---|---|---|
-| dense | 0.87 [0.74, 0.97] | 0.78 [0.64, 0.89] | 0.79 [0.62, 0.92] | 0.95 [0.85, 1.00] |
-| hybrid | 0.87 [0.74, 0.96] | 0.75 [0.60, 0.86] | **0.92** [0.80, 0.99] | 0.95 [0.85, 1.00] |
-| hybrid − dense (paired) | −0.00 [−0.16, +0.17] | −0.03 [−0.16, +0.10] | **+0.13 [+0.03, +0.25]** | +0.00 [−0.15, +0.15] |
-
-- There is **one** clear difference: context precision rises from 0.79 to 0.92 and its interval excludes zero. Hybrid puts the useful chunks higher, which is what the label-based MRR said too. The other three metrics show no difference: once the right passage is somewhere in the top 4, the 3B generator answers equally well from either list.
-- **The judge mattered more than the system.** When the 3B model graded its own answers (the previous version of this notebook), it reported faithfulness 0.38 → 0.54 and answer relevancy 0.44 → 0.30 from dense to hybrid, and gave relevancy 0 to correct answers. With the 7B judge those "differences" vanish inside the intervals. A weak judge does not only add noise: it can invent effects.
-- The low rows of the per-question table separate the three failure modes. "Where does `mini_llm.py` save its checkpoint?" is a **retrieval** failure (no evidence in the top 4; precision and recall 0). The question about notebook 03's copy accuracy is a **generation** failure: the evidence was ranked first, both context metrics are 1.00, and the 3B model still answered "I don't know". The DPO + NLL question shows a **label** problem: our evidence-string check does not find the passage, but the judge finds the fact in the context (recall 1.00). Gold labels need checking too.
-- Cost: a stronger judge is slower (about 17 minutes with the 7B against about 7 with the 3B). Evaluation is a budget line: a fixed, small, representative set on every change, not everything.
+**Next:** [23](#23), recommender systems: the industry funnel, with LLMs where they help.
 
 ---
 
-<a id="11"></a>
-## 11 · Tools, function calling and structured output with LangChain
-`notebooks/05_agents_and_mcp/11_agents_tools_structured_output.ipynb` · `langchain-core`, `langchain`, `langchain-ollama`, `pydantic`
-
-**What you build.** Four tools for a small shop (weather, calculator, order lookup, doc search), the tool-calling loop by hand, the same loop with `create_agent`, error handling, structured output with validation and retries, and a trajectory evaluation on labelled requests.
-
-**Tools.** `@tool` (name, docstring and type hints become the schema) and Pydantic `args_schema` (field descriptions, regex `pattern`); `convert_to_openai_tool`; `llm.bind_tools`, `AIMessage.tool_calls`, `ToolMessage`, `tool.invoke(tool_call)`; `langchain.agents.create_agent`; `GenericFakeChatModel` as a scripted model for deterministic tests; `ToolErrorMiddleware`; `with_structured_output(Schema, method="json_schema" | "function_calling" | "json_mode", include_raw=True)` with a Pydantic `field_validator`.
-
-**Key concepts.** The model never executes anything: your code does. Descriptions and schemas are prompts. Tool schemas are re-sent on every call (~390 prompt tokens here). Validation errors go back to the model automatically; tool exceptions only when you opt in. Constrained decoding guarantees the *shape* of the output, not its *content*. Retry *with the error*, not blindly. Evaluate the trajectory, not just the text.
-
-**Results**
-- The hand-written loop solves "order A100 plus 21% tax" in two tool steps (`order_status`, then `calculate`) → $145.20. `create_agent` issues the weather and order calls in parallel in one turn.
-- With tools attached, `qwen2.5:3b` declined to answer "who wrote Don Quixote?", a question it could have answered alone.
-- An invalid `order_id` (`a-100`) comes back as a `ToolMessage` with `status=error`. Without middleware, an exception inside the tool crashes the run; with `ToolErrorMiddleware` the model reads the error and retries with `2**10` → 1024.
-- **Retry with feedback**: the summary went from 22 words to 13 and then 13 again; after 3 attempts it still did not meet the 12-word limit, and the function returned `None`. The feedback helped, but not enough: cap the attempts and log the failures.
-- **Structured output, 8 labelled emails**: all three methods produce 8/8 valid objects, but field accuracy is 85% for `json_schema` (it returned `order_id = null` on the emails that mention an order), 98% for `function_calling` and 98% for `json_mode`.
-- **Agent evaluation, 14 requests**: tool selection 79%, valid arguments 86%, **task success 64%**, median latency 0.8 s, 864 tokens on average. Failures: arithmetic done without the calculator, `c300` in lower case broke the pattern (the model asked the user instead of fixing it), chit-chat that called `search_docs`, a translation it refused, and a multi-step request that skipped the order lookup.
-
----
-
-<a id="12"></a>
-## 12 · Recommender systems: the industry funnel, with LLMs where they help
-`notebooks/04_applications/12_recommender_systems.ipynb` · PyTorch, FAISS, LightGBM, LangChain · modules `recsys`, `model`, `evaluation`
+<a id="23"></a>
+## 23 · Recommender systems: the industry funnel, with LLMs where they help
+`notebooks/04_applications/23_recommender_systems.ipynb` · PyTorch, FAISS, LightGBM, LangChain · modules `recsys`, `model`, `evaluation`
 
 **What you build.** An industrial recommender funnel, stage by stage, on real data: MovieLens-1M (1,000,209 ratings from 6,040 users on 3,706 movies), downloaded into `data/cache/` on the first run (the GroupLens license does not allow redistribution, so it is not in the repository). Two baselines (popularity and ItemKNN), SASRec as a language model over movies, content embeddings with and without keywords written by an LLM, a two-tower model with a FAISS index, the union of five candidate sources, a LambdaMART ranker, an exploration slot for new releases, MMR for diversity, and an LLM layer that turns requests into filters and writes explanations grounded in the user's history. One rule runs through the notebook: **a stage only enters the system if it beats the previous one on validation**.
 
-**Tools.** `llm_edu_suite.recsys` (`download_movielens_1m`, `load_movielens_1m`, `temporal_split`, `target_ranks`, `rank_metrics`); notebook 02's `TransformerLM` as SASRec (2 layers, 64 dimensions, a 200-movie window, full softmax, early stopping on validation nDCG); `OllamaEmbeddings(nomic-embed-text)` for each movie's text; a PyTorch two-tower model with id dropout; a FAISS HNSW index against exact search; `lightgbm` with `objective="lambdarank"`; `evaluation.paired_bootstrap_diff` for every comparison; LangChain with `with_structured_output(method="function_calling", include_raw=True)` and an unfiltered search as the fallback; `scripts/generate_item_keywords.py` for the keywords (already generated in `data/recsys/ml1m_llm_keywords.json`) and `data/recsys/conversational_eval.json` (20 requests with checkable constraints).
+**Tools.** `llm_edu_suite.recsys` (`download_movielens_1m`, `load_movielens_1m`, `temporal_split`, `target_ranks`, `rank_metrics`); notebook 03's `TransformerLM` as SASRec (2 layers, 64 dimensions, a 200-movie window, full softmax, early stopping on validation nDCG); `OllamaEmbeddings(nomic-embed-text)` for each movie's text; a PyTorch two-tower model with id dropout; a FAISS HNSW index against exact search; `lightgbm` with `objective="lambdarank"`; `evaluation.paired_bootstrap_diff` for every comparison; LangChain with `with_structured_output(method="function_calling", include_raw=True)` and an unfiltered search as the fallback; `scripts/generate_item_keywords.py` for the keywords (already generated in `data/recsys/ml1m_llm_keywords.json`) and `data/recsys/conversational_eval.json` (20 requests with checkable constraints).
 
 **Key concepts**
 - The funnel: candidate generation (measured by the recall of the candidate set), ranking (nDCG@10 of the list) and re-ranking (measured by what it trades). The ranker can only order what retrieval brought.
@@ -912,15 +993,15 @@ The LLM layer (`qwen2.5:3b`):
 - Ungrounded explanations invent attributes even when they cite no titles (*The Usual Suspects* gets war elements); grounded ones are true but not always convincing, because SASRec's embeddings encode co-watching, not content. With 30 users, 7% against 13% is a hint, not proof.
 - **The honest conclusion:** small LLMs do not beat collaborative models at ranking, but they are excellent at the language around the recommender.
 
-**Next:** [26](#26), which replays this data as a stream over time: how a recommender ages, what retraining buys and how to notice drift.
+**Next:** [24](#24), which replays this data as a stream over time: how a recommender ages, what retraining buys and how to notice drift.
 
 ---
 
-<a id="26"></a>
-## 26 · Online learning and drift: models age, and you have to notice
-`notebooks/04_applications/26_online_learning_drift.ipynb` · modules `recsys`, `config` · NumPy, `sentence-transformers`, `scikit-learn`, `datasets`
+<a id="24"></a>
+## 24 · Online learning and drift: models age, and you have to notice
+`notebooks/04_applications/24_online_learning_drift.ipynb` · modules `recsys`, `config` · NumPy, `sentence-transformers`, `scikit-learn`, `datasets`
 
-Read right after 12. Every model is trained on the past and used on the future, and when the future stops looking like the past, quality decays quietly: nothing fails, the answers just get a little worse every week. This notebook takes 12's MovieLens-1M and its loader and turns that single offline evaluation into a stream over time, measuring how fast a frozen model ages, what each update strategy buys, and whether drift can be detected without labels. A last section moves the question to an LLM application: noticing, from embeddings alone, that users have started asking different things.
+Read right after 23. Every model is trained on the past and used on the future, and when the future stops looking like the past, quality decays quietly: nothing fails, the answers just get a little worse every week. This notebook takes 23's MovieLens-1M and its loader and turns that single offline evaluation into a stream over time, measuring how fast a frozen model ages, what each update strategy buys, and whether drift can be detected without labels. A last section moves the question to an LLM application: noticing, from embeddings alone, that users have started asking different things.
 
 **What you build.**
 1. **A time stream**: the 1,000,209 MovieLens-1M ratings in time order; the models are trained on the 223,653 ratings before 1 August 2000 and evaluated in 22 weekly windows until 1 January 2001.
@@ -933,7 +1014,7 @@ Read right after 12. Every model is trained on the past and used on the future, 
 **Tools.** `recsys.download_movielens_1m` and `recsys.load_movielens_1m`; NumPy (`bincount`, exponentially decayed counts, `argpartition`) for the models and PSI; `datasets.load_dataset("PolyAI/banking77")`; `SentenceTransformer("BAAI/bge-small-en-v1.5")`; MMD written in the notebook from a precomputed kernel matrix (median-heuristic bandwidth); `LogisticRegression` with `cross_val_predict` and `roc_auc_score` from `scikit-learn`; `config.setup` in the setup cell.
 
 **Key concepts**
-- **Kinds of drift**: covariate shift ($P(x)$ changes), label or prior shift ($P(y)$ changes) and concept drift ($P(y \mid x)$ changes); sudden, gradual or recurring; and **feedback loops**, where a model shapes the data it is later trained on (12's exploration section).
+- **Kinds of drift**: covariate shift ($P(x)$ changes), label or prior shift ($P(y)$ changes) and concept drift ($P(y \mid x)$ changes); sudden, gradual or recurring; and **feedback loops**, where a model shapes the data it is later trained on (23's exploration section).
 - **Update strategies**: periodic retraining on all data or on a sliding window, online (incremental) learning with decay, and warm starts from the last model.
 - **Prequential evaluation** ("test-then-train"): every prediction is out of sample, and the score over time shows the model ageing.
 - **Input-drift statistics**: PSI $= \sum_b (p_b - q_b)\ln(p_b / q_b)$ (< 0.1 stable, 0.1–0.25 moderate, > 0.25 major), KS and chi-squared tests, KL and Jensen-Shannon divergence.
@@ -967,97 +1048,16 @@ Read right after 12. Every model is trained on the past and used on the future, 
 - **Even the first week favours the updated model** (0.204 against 0.184): weekly retraining includes the most recent transitions, and the freshest data is the most predictive.
 - **The drift signal missed the decay.** PSI on the item distribution stayed at 0.01–0.03 every week, far below even the 0.1 of a moderate shift, yet co-visitation aged. What changed was not *which* movies people rate ($P(x)$) but *what follows what* (closer to $P(y \mid x)$). New releases played a part too: ratings of movies never seen in training grew from 0.3 % to about 2–2.6 % a week, and a frozen model can never recommend them. Monitoring only input distributions can miss concept drift; in a recommender, the model's own quality on fresh labels comes for free (what users rated next).
 - **The drift-triggered policy never fired.** Never retraining scored 0.038 mean hit@10, weekly retraining 0.040 with 22 retrains, and retraining on PSI > 0.25 never triggered (PSI never exceeded 0.03), so it behaved exactly like never retraining. A trigger is only as good as the signal behind it.
-- **Whole-window tests only see big shifts in what users ask.** All three detectors alarm on 5 % of the no-drift trials, as calibrated, but with 400 messages per window a shift where 1 message in 5 comes from unseen intents is caught only 25–30 % of the time; at 40 %, MMD and the classifier catch it every time and the centroid 90 % of the time. The classifier's AUC stays at 0.48–0.50 up to 20 % (0.554 at 40 %): the two windows are indistinguishable as a whole. [25](#25)'s per-message novelty flag plus clustering surfaced all 7 unknown intents; a distribution test asks "is this week different?", a novelty flag "which messages are new?". Use both.
-- The notebook ends with "Results" and an "In production" section: keeping models fresh (a retraining schedule matched to how fast the data moves, warm starts and sliding windows for large models, online updates where minutes matter, and every new model gated by an offline evaluation on recent data and rolled out behind a canary or A/B test with the previous one ready for rollback); monitoring at three levels (inputs: PSI or KS on key features, embedding drift tests, the share of unseen items, users and intents; outputs: prediction distribution, confidence, refusal and fallback rates, as in [22](#22) and [23](#23); outcomes: online quality from delayed labels, the only level that measures what you care about), with tools such as Evidently, NannyML, WhyLabs and Arize next to [15](#15)'s observability; LLM applications (the weights do not drift, but the questions, the RAG documents, the tool APIs and the provider's model behind an API name do: re-run the evaluation set on every change, track new-intent clusters weekly as in [25](#25), refresh the index and the evaluation set from production traffic), and the failure modes (monitoring only inputs, alarms nobody owns, retraining automatically on corrupted or poisoned data, feedback loops, windows too small to detect anything, silent upstream changes such as a renamed field, a new tokenizer or a new API model version).
+- **Whole-window tests only see big shifts in what users ask.** All three detectors alarm on 5 % of the no-drift trials, as calibrated, but with 400 messages per window a shift where 1 message in 5 comes from unseen intents is caught only 25–30 % of the time; at 40 %, MMD and the classifier catch it every time and the centroid 90 % of the time. The classifier's AUC stays at 0.48–0.50 up to 20 % (0.554 at 40 %): the two windows are indistinguishable as a whole. [21](#21)'s per-message novelty flag plus clustering surfaced all 7 unknown intents; a distribution test asks "is this week different?", a novelty flag "which messages are new?". Use both.
+- The notebook ends with "Results" and an "In production" section: keeping models fresh (a retraining schedule matched to how fast the data moves, warm starts and sliding windows for large models, online updates where minutes matter, and every new model gated by an offline evaluation on recent data and rolled out behind a canary or A/B test with the previous one ready for rollback); monitoring at three levels (inputs: PSI or KS on key features, embedding drift tests, the share of unseen items, users and intents; outputs: prediction distribution, confidence, refusal and fallback rates, as in [30](#30) and [12](#12); outcomes: online quality from delayed labels, the only level that measures what you care about), with tools such as Evidently, NannyML, WhyLabs and Arize next to [28](#28)'s observability; LLM applications (the weights do not drift, but the questions, the RAG documents, the tool APIs and the provider's model behind an API name do: re-run the evaluation set on every change, track new-intent clusters weekly as in [21](#21), refresh the index and the evaluation set from production traffic), and the failure modes (monitoring only inputs, alarms nobody owns, retraining automatically on corrupted or poisoned data, feedback loops, windows too small to detect anything, silent upstream changes such as a renamed field, a new tokenizer or a new API model version).
 
-**Next:** the agents block, starting with [11](#11); [15](#15) is where these monitors are wired into observability.
-
----
-
-<a id="13"></a>
-## 13 · Modern LLM application patterns with LangChain
-`notebooks/04_applications/13_modern_llm_applications.ipynb` · `langchain-core`, `pydantic`
-
-**What you build.** Six production patterns, each with its own metric: structured extraction, zero-/few-shot classification, map-reduce summarization, caching (exact and semantic), prompt-injection defence, and batch processing with token and cost accounting. Everything at temperature 0 on small hand-labelled sets (8 to 20 items).
-
-**Tools.** Pydantic + `with_structured_output` (`json_schema` and `function_calling`); `FewShotChatMessagePromptTemplate` and a `Literal` label; map-reduce in LCEL with `RecursiveCharacterTextSplitter` and `.batch`; `set_llm_cache(InMemoryCache())` and a semantic cache written against `BaseCache` with `nomic-embed-text`; an LLM classifier with a structured verdict; `.batch(max_concurrency=n)` and `get_usage_metadata_callback()`.
-
-**Key concepts.** With `json_schema`, `ChatOllama` passes the schema only to the decoder, so the model never *reads* the field descriptions; few-shot examples are a prompt change that has to be evaluated; long inputs are silently truncated (check `usage_metadata["input_tokens"]`); a cache serves wrong answers just as fast as right ones; injection is managed in layers, not solved; project cost and duration before scaling up.
-
-**Results**
-- **Extraction (8 records)**: every variant returns 8/8 valid objects, but all fields are right in 62% with `json_schema`, 88% with `json_schema` + the rules in the system message, and 88% with `function_calling`.
-- **Classification (20 tickets)**: zero-shot 100%, few-shot 100% in the committed run (95% in an earlier run, with a shipping ticket sent to technical). The examples bought nothing.
-- **Summarization**: the document is ~4,135 tokens, but the single "stuff" call processed only 2,050 (truncated without any error): 9/13 topics (it lost the beginning: tokenization, attention, MoE) and 779 words instead of a 150-word paragraph; 6/13 in another run. Map-reduce (6+1 calls): 11/13 topics, 210 words, 12× compression, 30.4 s versus 15.7 s.
-- **Exact cache**: 0.54 s for the first call, 1–2 ms for the next ones. It also caches the 3B model's *wrong* answer about the KV-cache. **Pitfall found by measuring:** `ChatOllama`'s `llm_string` (the model part of the cache key) contains neither the model name nor the temperature, so a call at T=0.5 was served the T=0 answer (3 ms, a hit).
-- **Semantic cache**: paraphrases score cosine 0.73–0.95 and near misses 0.56–0.93 (they overlap). To keep false hits at zero the threshold must be 0.94, and then only 20% of paraphrases hit (3 hits in 25 requests).
-- **Prompt injection (10 documents)**: attack success 90% with the naive prompt, **100% when delimiting** (it did not help at all with this model) and 40% with delimiting + a reminder after the document ("sandwich"). The LLM guard catches 10/10 attacks with 0/10 false positives on its own set and blocks 8/10 of the injected documents. Combined: ≈ 0.2 × 0.4 = 8% expected success, not zero.
-- **Batch (40 records)**: 8.5 s with concurrency 1 and 8.3 s with 4 (~210 ms per record; a single local Ollama barely gains). ~131 input and 9 output tokens per record → ~$25 per million records at $0.15/M in and $0.60/M out; locally, a million records would take 57 hours.
-
-**Next:** [28](#28), which stops writing prompts by hand: the same kind of classifier as a DSPy program, with its examples and instructions searched instead of tuned.
+**Next:** the agents block, starting with [25](#25); [28](#28) is where these monitors are wired into observability.
 
 ---
 
-<a id="28"></a>
-## 28 · DSPy: from hand-written prompts to optimized programs
-`notebooks/04_applications/28_dspy_prompt_optimization.ipynb` · DSPy 3.5 (with its own HTTP client, `engine="lm15"`, to Ollama's OpenAI-compatible `/v1` endpoint; no litellm), Optuna (for MIPROv2), `sentence-transformers` (bge-small-en-v1.5), `datasets` (Banking77), module `evaluation` · `qwen2.5:3b`, `qwen2.5:7b`
-
-Read right after 13. Every prompt in the course so far was written and tuned by hand: in 17, `qwen2.5:3b` classified Banking77's 77 intents at 48.9 % zero-shot and 61.9 % with one example per intent. That is slow, it does not transfer when the model changes, and nobody can say whether a better prompt exists. DSPy treats the prompt as a parameter of a program: you declare what a step does (a *signature*), a *module* decides how to prompt for it, and an *optimizer* searches the instructions and examples that maximize your metric on your data. Every run uses the same 231-message test sample as 17 (3 per intent), so the numbers are comparable and paired. It also uses the structured output of 11 and the embeddings of 21.
-
-**What you build.**
-1. **A signature and a module**: `Classify` (`message: str -> intent: Literal[...77 intents]`, with a docstring as the task description), wrapped in `dspy.Predict`; the prompt DSPy's `ChatAdapter` writes for it, printed; and a callback that counts LM calls.
-2. **An evaluation loop** that keeps per-example scores for paired comparisons, counts outputs that do not parse as wrong, and records latency and LM calls per message; zero-shot `Predict` and `ChainOfThought`.
-3. **Few-shot from data**: `LabeledFewShot` with 16 random examples; per-message nearest-neighbour demos (what `dspy.KNNFewShot` does), written as a 10-line module over the ~9,000 embedded training messages, with k = 4, 8 and 16; and, as a baseline, **retrieval alone**: the majority intent of the 8 nearest neighbours, with no LLM.
-4. **Three optimizers** starting from zero-shot `Predict`, with 154 training examples and a 77-message validation set: `BootstrapFewShotWithRandomSearch` (6 candidate demo sets), `MIPROv2` with `auto="light"` (`qwen2.5:7b` proposes instructions and Optuna's TPE searches instruction × demo set on minibatches) and `GEPA` (`qwen2.5:7b` reads the 3B model's mistakes with textual feedback and rewrites the instruction, with a budget of 600 metric calls), each with its LM calls and minutes.
-5. **Combining what works**: `qwen2.5:7b` with 16 kNN demos; a **router** that answers with the 8-NN vote when at least τ of the 8 neighbours agree and sends the rest to the LLM with kNN demos (τ chosen on the validation set, never on the test); and GEPA on top of the kNN program, with each training message kept out of its own demos during optimization.
-6. **All results, paired** against zero-shot `Predict` with the paired bootstrap, next to 17's hand-written prompts, in a table and a bar chart.
-7. **Shipping**: the best optimized program saved to JSON, reloaded into the same program class and checked on 30 messages.
-
-**Tools.** `dspy.LM("ollama_chat/...", base_url=".../v1", engine="lm15", cache=False)`, `dspy.configure`, `dspy.context(lm=...)`; `dspy.Signature` with `InputField` / `OutputField` and a `Literal`; `dspy.Predict`, `dspy.ChainOfThought`, `dspy.Module`, `dspy.Example(...).with_inputs`, `dspy.Prediction`; `dspy.ChatAdapter().format` to print the prompt; `dspy.utils.callback.BaseCallback` (`on_lm_start`) to count calls; the optimizers `LabeledFewShot`, `BootstrapFewShotWithRandomSearch`, `MIPROv2` and `GEPA` (with a metric that returns `dspy.Prediction(score=..., feedback=...)`); `program.save` / `load`; `SentenceTransformer("BAAI/bge-small-en-v1.5")`; `evaluation.bootstrap_ci` and `paired_bootstrap_diff`.
-
-**Key concepts**
-- **Signatures, modules and adapters**: what a step does, how it is prompted, and how the prompt is written and the answer parsed for a given model. Changing the model or the adapter changes the prompt without touching the program.
-- **Demos** (input/output examples placed in the prompt as earlier turns) are most of what optimizers choose: the same examples for every input, or examples chosen per input.
-- The optimizers, from cheapest to most expensive: labeled demos, kNN demos, bootstrapped demos with random search, MIPROv2 (instruction and demos with Bayesian search), GEPA (reflective evolution of the instruction, keeping a Pareto front of candidates).
-- **The metric is the specification**: an optimizer maximizes exactly what the metric measures on exactly the data it is given, and with a small validation set it overfits. A better validation score is a hypothesis until the held-out test confirms it.
-- A non-LLM baseline and the **cascade**: a cheap, confident component answers first and the LLM only sees what it is unsure about.
-- An optimized prompt is a versioned artifact (JSON), re-optimized when the model, the data or the metric changes.
-
-**Results** (`qwen2.5:3b` unless noted, 231 test messages, 95 % bootstrap intervals; Δ is the paired difference against zero-shot `Predict`)
-
-| Variant | Accuracy | Δ vs zero-shot `Predict` | s per message | Optimization |
-|---|---|---|---|---|
-| 17: hand-written zero-shot (`json_schema`) | 0.489 | | | |
-| 17: hand-written, 1 example per intent | 0.619 | | | |
-| `Predict`, zero-shot | 0.558 [0.489, 0.623] | | 0.36 | |
-| `ChainOfThought`, zero-shot | 0.541 | −0.017 [−0.061, +0.026] | 0.83 | |
-| `LabeledFewShot`, 16 random demos | 0.433 | −0.126 [−0.182, −0.074] | 0.39 | |
-| kNN demos, k = 4 / 8 / 16 | 0.818 / 0.848 / 0.870 | +0.260 / +0.290 / +0.312 | 0.46 / 0.52 / 0.68 | |
-| `BootstrapFewShotWithRandomSearch` | 0.558 | +0.000 | 0.37 | 4.7 min, 750 calls |
-| `MIPROv2` (light) | 0.554 | −0.004 [−0.013, +0.000] | 0.37 | 6.8 min, 665 calls (20 to the 7B) |
-| `GEPA` | 0.554 | −0.004 [−0.056, +0.048] | 0.71 | 8.5 min, 868 calls (7 to the 7B) |
-| retrieval only: 8-NN vote, no LLM | 0.913 | +0.355 [+0.290, +0.424] | 0.02 | |
-| GEPA on the kNN program (k = 16) | 0.870 | +0.312 [+0.247, +0.377] | 0.69 | 7.3 min, 414 calls |
-| **router**: the vote if ≥ 4 of 8 agree, otherwise the LLM with 16 kNN demos | **0.922** [0.883, 0.957] | +0.364 [+0.299, +0.429] | 0.03 | τ = 4 chosen on validation |
-| kNN demos, k = 16, `qwen2.5:7b` | **0.926** [0.892, 0.957] | +0.368 [+0.303, +0.433] | 1.62 | |
-
-**Honest findings**
-- **DSPy's default prompt beats the hand-written one.** Same model, same messages: 0.558 against 17's 0.489. The adapter's prompt is long (about 4,100 characters of system message and 2,100 of user message, the 77 allowed values listed twice and a strict output format), and none of the 231 answers failed to parse.
-- **Chain of thought does not help a recall task.** 0.541, with 2 unparsable answers, at more than twice the latency. Here the answer has to be *recalled* (which of 77 similar-sounding labels the bank uses), not *derived*, and a 3B model reasoning about `card_arrival` against `card_delivery_estimate` only adds tokens.
-- **Random examples hurt, relevant ones help a lot.** 16 random demos cover at most 16 of the 77 intents and pull the model towards those labels (0.433). The 16 nearest training messages lift it to 0.870.
-- **Retrieval alone beats the LLM it feeds.** The majority intent of the 8 nearest neighbours reaches 0.913 at 0.02 s per message, 18 to 34 times faster than the LLM variants. With 9,000 labeled examples and a good embedding model this task is mostly lookup, and the LLM with kNN demos is slightly worse than the vote it was given, because it sometimes overrides a clear majority.
-- **The three optimizers found nothing better than the starting point.** All within ±0.004 of zero-shot `Predict`, which is noise: two runs of the notebook differed by that much. Bootstrap random search scored 9 candidates on validation and the best (53.25 %) was the unoptimized program itself; MIPROv2 kept the original instruction and no demos; GEPA rewrote the instruction into a long text with five worked examples and the reflection model's feedback, scored 59.7 % on validation and 0.554 on the test: it overfit the handful of failures it was written from. An optimizer searches within the space you give it, and when the missing ingredient is per-message information (which labeled messages look like this one), no instruction can supply it.
-- **The router is the configuration to deploy.** With τ = 4 (0.948 on validation), 97 % of the test messages were answered by the vote alone: 0.922, about as accurate as the 7B with kNN demos (0.926) at about 1/50 of its latency and 3 % of the LLM calls. GEPA on top of the kNN program kept the original instruction (0.870) after 414 calls: once the right examples are in the prompt, the wording hardly matters.
-- **The large gains came from what information reaches the model**, not from how the instruction is worded: hand-written 0.489, DSPy zero-shot 0.558, optimizers ~0.55, kNN demos 0.870, retrieval 0.913, router 0.922, 7B with kNN demos 0.926.
-- **Shipping works.** The best optimized program (GEPA on kNN demos) is 2.4 KB of JSON and gave the same prediction on 30 of 30 messages after reloading.
-- The notebook ends with "Results" and an "In production" section: DSPy-style programs pay off when the pipeline has several LM steps, the model may change and there is a metric with a few hundred labeled examples; fix the information flow before optimizing prompts (retrieve examples or documents per request, measure a non-LLM baseline, cascade); when you optimize, hold out a test set the optimizer never sees, use a validation set large enough for the differences you care about (77 examples cannot separate 0.55 from 0.56), keep the optimized JSON in version control and re-run the optimizer when the model, the data or the metric changes; optimization is paid once (here 400–900 calls) and inference forever, so compare accuracy, latency and calls per message together; and the failure modes (a validation set too small or overlapping the training examples, a weak baseline, chain of thought by default, trusting a reflective optimizer's long instruction, silent output-format changes when switching models).
-
-**Next:** back on the applications path with [12](#12) (recommendation), or [29](#29) to evaluate and trace LLM programs with Inspect and Phoenix.
-
----
-
-<a id="14"></a>
-## 14 · Agentic AI with LangGraph
-`notebooks/05_agents_and_mcp/14_agentic_ai.ipynb` · `langgraph`, `langchain`, `pandas` · `qwen2.5:3b`, plus `qwen2.5:7b` for the code-writing agent if it is pulled
+<a id="25"></a>
+## 25 · Agentic AI with LangGraph
+`notebooks/05_agents_and_mcp/25_agentic_ai.ipynb` · `langgraph`, `langchain`, `pandas` · `qwen2.5:3b`, plus `qwen2.5:7b` for the code-writing agent if it is pulled
 
 **What you build.** A ticket-triage `StateGraph`, a ReAct agent, guardrails with explicit stop reasons, an approval gate for refunds, short- and long-term memory, plan-and-execute as an explicit graph, reflection guided by unit tests, a router with specialist subgraphs, and an evaluation of ReAct versus plan-and-execute. Then two multi-agent teams on the same ten tasks, a **supervisor** that calls specialist agents as tools and a set of agents that pass the conversation along with **handoffs**, compared with the single agent. Last, a **sandbox** for model-written Python, probed with nine attacks, a pandas agent that answers questions about a 600-order table by writing and running code, and an indirect prompt injection test.
 
@@ -1103,88 +1103,9 @@ Read right after 13. Every prompt in the course so far was written and tuned by 
 
 ---
 
-<a id="15"></a>
-## 15 · LLMOps with LangSmith: tracing, monitoring and evaluation
-`notebooks/06_llmops/15_observability_llmops.ipynb` · `langsmith`, LangGraph · **LangSmith is optional**: without a key the app and the local evaluators run, and the cells that need the server are skipped
-
-**What you build.** A small support assistant (a LangGraph RAG graph over `data/sample_docs/` plus an order tool), synthetic traffic, and then the work of an on-call engineer with the LangSmith SDK: trace trees, threads, percentiles, SLOs, online scores, PII redaction, sampling, export, and an offline experiment comparing two versions.
-
-**Tools.** Automatic tracing of LangChain/LangGraph (`LANGSMITH_TRACING=true`); `@traceable` (`run_type="llm"`, `"tool"`, `"retriever"`), `tracing_context`, `get_current_run_tree`, `langsmith_extra={"run_id": ...}`; `client.runs.query(...)` (async, with filters such as `has(tags, "traffic")`); `thread_id` metadata; `client.create_feedback`; `langsmith.anonymizer.create_anonymizer` and `Client(anonymizer=...)`; `tracing_sampling_rate`; `langsmith.evaluate` with datasets and experiments; `InMemoryVectorStore`.
-
-**Key concepts.** Project, trace, run, tags/metadata, thread, feedback, dataset → experiment; why p50/p95/p99 and not the mean; SLOs as a contract; cheap heuristics on every trace to decide which ones a human should open; redact before uploading (the model still sees the raw text); sampling keeps or drops whole traces; check the LLM judge against deterministic evaluators.
-
-**Results**
-- One `graph.invoke` produces a tree of 7 runs (graph, nodes, retriever, prompt, `ChatOllama` with 115+12 tokens).
-- **Traffic**: 18 requests (2 to unknown orders, on purpose), 18 traces and 112 runs. Per request: **p50 0.22 s, p95 2.80 s, p99 4.24 s**, mean 0.93 s, error rate 11.1% (tool: 33%), 104 tokens per request (1605 input and 270 output in total), ~$0.00002 per request at illustrative prices (LangSmith leaves `total_cost` empty for a local model). The prompts are six times longer than the answers: the context is the cost lever.
-- **SLOs**: p95 < 4 s **OK**, error rate < 5% **VIOLATED** (by design), tokens < 600 **OK**. The latency SLO depends on how busy the GPU is (the notebook saw p95 between ~3 and ~10 s across runs).
-- **Online groundedness**: mean 0.81 over 16 answers. The three lowest are order-tool answers: A101 and A103 are **real bugs** (the model had the status and said it had no tracking information); A100 (0.43) is a false alarm.
-- **PII**: email, phone, card and API key are replaced in all 8 runs of the trace; names like "Ana" get through.
-- **Sampling** at 0.25: 13 of 40 traces kept (it varies between runs).
-- **Offline experiment (12 examples)**:
-
-| Version | exact_match | contains_fact | correctness (LLM judge) |
-|---|---|---|---|
-| closed_book | 0.00 | 0.17 | 0.17 |
-| **rag** | 0.58 | **1.00** | **0.83** |
-
-The judge agrees with `contains_fact` on 20 of 24 answers: once it catches a false claim the keyword check missed, and twice it is wrong (it rejects a correct answer for adding the time zone and accepts one with no number at all). `exact_match` measures phrasing, not correctness.
-
-**Next:** [29](#29), which puts the same tracing and evaluation ideas on open-source infrastructure that runs on your machine (Inspect AI and Phoenix), then [22](#22), which moves from what the system did to what it should and should not do.
-
----
-
-<a id="29"></a>
-## 29 · Evaluation and tracing frameworks: Inspect AI and Phoenix
-`notebooks/06_llmops/29_eval_and_tracing_frameworks.ipynb` · task file `scripts/inspect_tasks/gsm8k_cot.py` · Inspect AI 0.3.289 and Arize Phoenix 21.0.0 (in their own `.venv-eco`), `arize-phoenix-otel` and `openinference-instrumentation-langchain` (in the course environment), LangChain, `httpx`, module `evaluation` · `qwen2.5:3b`
-
-Read right after 15. Up to here every evaluation in the course was a hand-written loop and the traces went to LangSmith, a hosted service whose free plan ran out of traces while the course was being built. Both are fine for learning and both stop scaling in a team: hand-written loops are hard to compare across people and months, and a hosted tracer is a dependency, a cost and a place your data goes. This notebook replaces each with an open-source tool that runs on the laptop: **Inspect AI** (UK AI Security Institute, MIT) for evaluation and **Phoenix** (Arize, Elastic License 2.0, self-hosted) for tracing on OpenTelemetry. It reuses 20's GSM8K setup.
-
-**What you build.**
-1. **An Inspect task**: `scripts/inspect_tasks/gsm8k_cot.py`, about 40 lines with 20's 80 GSM8K problems, its chain-of-thought system message and **two scorers on the same generations**: 20's "last number" rule as a custom `@scorer` and Inspect's built-in `match(numeric=True)`. The notebook runs it with `.venv-eco`'s `inspect eval` against Ollama's OpenAI-compatible endpoint and reads the JSON log it writes.
-2. **A reproduction check**: the greedy run against 20's hand-written result, problem by problem, the paired effect of the scorer, and the answers where the two scorers disagree.
-3. **Epochs**: the same task at temperature 0.7 with `--epochs 3`, the mean over epochs, each epoch alone, and how many problems change from one epoch to another.
-4. **A local Phoenix server**: `phoenix serve` started as a subprocess on a free port, with its data in `data/cache/phoenix`; a LangChain pipeline (prompt → `qwen2.5:3b` → parser → answer extractor) instrumented with OpenInference; 20 traced GSM8K requests.
-5. **The traces, read back** through Phoenix's REST API: spans per trace, p50 / p95 latency per step, and the model and token counts recorded on each LLM span.
-6. **Evaluations on the traces**: the correctness of each answer, computed by code, posted as an annotation on its root span and read back.
-7. **The cost of tracing**: the same chain with a fake, instant chat model, 300 requests with tracing on and 300 with it off.
-
-**Tools.** `inspect_ai`: `Task`, `@task`, `MemoryDataset`, `Sample`, `system_message`, `generate`, `@scorer` with `accuracy()` and `stderr()`, `match(location="end", numeric=True)`; the `inspect eval` command (`--model ollama/qwen2.5:3b --model-base-url ... --temperature --max-tokens --max-connections --epochs --seed --log-format json --display none`, with the logs in `INSPECT_LOG_DIR`) and `inspect view`; `phoenix serve` with `PHOENIX_PORT`, `PHOENIX_GRPC_PORT`, `PHOENIX_WORKING_DIR` and `PHOENIX_TELEMETRY_ENABLED=false`; `phoenix.otel.register(project_name=..., endpoint=".../v1/traces", protocol="http/protobuf", batch=True)`; `LangChainInstrumentor().instrument(tracer_provider=...)`; Phoenix's REST API (`/v1/projects/{project}/spans`, `/v1/span_annotations`); `FakeListChatModel` for the overhead benchmark; `socket` for a free port; `evaluation.bootstrap_ci` and `paired_bootstrap_diff`.
-
-**Key concepts**
-- What a framework adds to a loop: a **dataset** of samples, a **solver** (what is done to each sample), a **scorer** with its metrics, a **log** of every sample and setting, and **epochs**, each part swappable and recorded.
-- Evaluating *systems* (Inspect: prompts, tools, agents and sandboxes, against any API, Ollama included) against benchmarking *checkpoints* (lm-evaluation-harness, which needs log-probabilities that Ollama's API does not expose).
-- A framework is adopted only after it reproduces your trusted number; **the scorer is part of the metric**.
-- With a sampled model one run is one draw: epochs, their mean and their spread.
-- **Traces, spans and attributes** in OpenTelemetry; **OpenInference** as the attribute names for LLM work (`llm.model_name`, `llm.token_count.prompt`, `input.value`, span kinds `LLM`, `CHAIN`, `RETRIEVER`, `TOOL`...); **instrumentors** that create spans for a library and **exporters** (OTLP) that ship them to any backend, so changing backend is configuration.
-- **Annotations** turn production traces into evaluation data.
-- Why Phoenix here and not Langfuse or Opik: self-hosting those means Docker with a database (Postgres, ClickHouse), while Phoenix runs as one Python process with SQLite; all three ingest OpenTelemetry, so the instrumentation code is the same.
-
-**Results** (`qwen2.5:3b`; Inspect on 20's 80 GSM8K problems, Phoenix on 20 of them)
-
-| Question | Measured | Lesson |
-|---|---|---|
-| does Inspect reproduce the hand-written evaluation? | **85.0 %** [77.5, 92.5] with 20's last-number rule, exactly 20's result; 246 output tokens per problem in both | adopt a framework after it reproduces your trusted number |
-| does the scorer matter? | built-in `match(numeric=True)` 80.0 % on the same generations, −5.0 points [−10.0, −1.2]; 4 disagreements, all `\boxed{}` answers | the answer extractor is part of the metric: report it |
-| how much does one sampled run tell you? | T = 0.7, 3 epochs: 81.2 % on average, 80.0 / 82.5 / 81.2 % per epoch; 80 % of the problems right in all three, 17.5 % in none, 2.5 % (2 problems) unstable; greedy 85.0 % | the variance is mostly the sample of problems; sampling cost ~4 points here |
-| what does a trace show? | 5 spans per request (100 in 20 traces); the LLM span p50 3,585 ms and p95 4,641 ms, every other step under 1 ms; 97 prompt and 242 completion tokens per call | per-step latency and tokens come from the trace store, not from guesses |
-| evaluations on traces | 20 code-scored annotations posted and read back: 80 % | scores next to traces make failures searchable |
-| tracing overhead | with a fake LLM, 3.52 ms traced vs 1.02 ms untraced: 2.5 ms per request, 0.07 % of one real LLM call | trace everything; sample for storage and privacy, not speed |
-
-**Honest findings**
-- **Same model, same generations, 5 points apart.** Inspect's built-in numeric `match` read another number from the four answers that end in a LaTeX `\boxed{}` (10 instead of 7, 12 instead of 144). Two "evaluations of the same model" that differ only in answer extraction are not comparable: report the scorer with the score.
-- **The log is the audit trail 20 had to build by hand.** One JSON file (1.9 MB for 80 samples) holds each sample's input, target and messages, the output, the score and extracted answer of every scorer, tokens and timings, plus the run settings (model, temperature 0, max tokens, connections). `inspect view` browses it.
-- **Sampling costs accuracy on a single-answer task.** Greedy 85.0 % against 81.2 % sampled; sampling pays off only when several samples are combined (self-consistency, 20). And the uncertainty is mostly *which problems you drew* (about ±4 points of standard error on 80 problems), not *which sample per problem*: only 2 problems changed between epochs.
-- **The LLM call is the whole latency, and tracing is cheap.** 2.5 ms of overhead per request for 4 spans with batched export. The reasons to sample traces are storage and privacy, not speed.
-- **Traces are sensitive data.** The recorded input is LangChain's serialized message format, verbatim: prompts and outputs are stored in full, so a trace store needs PII masking, retention rules and access control.
-- The notebook ends with "Results" and an "In production" section: evaluations as code in the repository (dataset + solver + scorer), run in CI on every prompt, model or retrieval change, with the logs kept as artifacts, the scorer pinned, confidence intervals reported and epochs for anything sampled (Inspect fits agentic and safety evaluations, and it is what the UK AI Security Institute uses for its own); tracing instrumented at the framework level, exported in batches to a backend you control when prompts contain user data, with evaluations attached to traces (code checks, LLM judges, user feedback) and alerts on latency, error rate and score drift (26); self-hosted and open (Phoenix, Langfuse) when data cannot leave your infrastructure, managed (LangSmith, Arize, Datadog LLM Observability) when you want no operations work, with OpenTelemetry on both sides; and the failure modes (an evaluation that silently changes its scorer, numbers from different answer extractors compared, a single sampled run reported as "the" accuracy, traces that capture secrets or personal data, dashboards nobody looks at, evaluation sets that leak into prompts or few-shot examples).
-
-**Next:** [22](#22), which moves from what the system did to what it should and should not do; or [27](#27) for evaluating agents with hidden tests.
-
----
-
-<a id="16"></a>
-## 16 · MCP with the official SDK
-`notebooks/05_agents_and_mcp/16_mcp_model_context_protocol.ipynb` · `mcp` (1.x SDK), `langchain-mcp-adapters` · script `scripts/mcp_server.py`
+<a id="26"></a>
+## 26 · MCP with the official SDK
+`notebooks/05_agents_and_mcp/26_mcp_model_context_protocol.ipynb` · `mcp` (1.x SDK), `langchain-mcp-adapters` · script `scripts/mcp_server.py`
 
 **What you build.** An MCP server with FastMCP (tools, resources, templates and prompts), a client session in memory, the raw JSON-RPC messages over stdio "on the wire", the two kinds of errors, the knowledge-base server (`scripts/mcp_server.py`) over stdio, a LangChain agent that uses its tools, security controls, and an evaluation of the server. Then the features that run the other way, from server to client: **sampling** (a server borrows the host's model), **elicitation** (a server asks the user for a confirmation) and **roots** (the client says which folders a server may touch). Last, the same knowledge-base server **remote over Streamable HTTP with a bearer token**, seen request by request: 401, the `WWW-Authenticate` header, the protected-resource metadata and an authenticated session.
 
@@ -1207,7 +1128,7 @@ Read right after 15. Up to here every evaluation in the course was a hand-writte
 **Honest findings**
 - **Citations are the first thing a small model drops.** Every answer had the right fact, but two of six did not say where it came from, so check citations separately from correctness.
 - **The protocol is not the bottleneck; process start-up is.** Milliseconds per call in memory, over stdio, through the adapter or over local HTTP with authentication, against about 2.4 s when every call starts a new server. An agent that makes many calls has to keep its session open.
-- **Roots are advisory.** This server respects them because we wrote it to; a malicious server can ignore them, so isolation for untrusted servers still has to come from the operating system (a container or a sandbox, notebook 14).
+- **Roots are advisory.** This server respects them because we wrote it to; a malicious server can ignore them, so isolation for untrusted servers still has to come from the operating system (a container or a sandbox, notebook 25).
 - **The token demo uses a shared secret, not a real authorization server.** It shows every step on the wire, but production needs TLS, short-lived JWTs from an authorization server, audience validation (RFC 8707), per-user scopes checked inside each tool, rate limits and `Origin` validation for servers bound to localhost.
 - The notebook ends with "Results" and an "In production" section: stdio for local, per-user tools and Streamable HTTP behind TLS and OAuth 2.1 for shared ones, with sessions kept open; for servers you run, tokens validated (issuer, audience, expiry, scope) on every request, truthful annotations and elicitation or host confirmation for destructive tools, every call logged, rate limits and `Origin` checks; for servers you did not write, pinned versions, descriptions reviewed on every update, allowlists and namespacing, a sandbox with only the roots they need and hosts that show sampling and elicitation requests to the user; what to monitor (tool error rates, latency per tool and transport, 401 and 403, sampling requests and their token cost, elicitation accept rates), and the failure modes (leaked or long-lived tokens, token passthrough, a server that ignores roots, tool poisoning, injection in results, a new subprocess per call, spec-version mismatches).
 
@@ -1219,7 +1140,7 @@ Read right after 15. Up to here every evaluation in the course was a hand-writte
 ## 27 · Agent harnesses: the layer that turns a model into a coding agent
 `notebooks/05_agents_and_mcp/27_agent_harness.ipynb` · scripts `scripts/harness_run.py` and `scripts/harness_modern.py` · mini-swe-agent 2.4.6 (in its own `.venv-harness`), litellm · Claude Haiku 5.5 through the Anthropic API by default (`HARNESS_MODEL` for any other litellm model, `qwen2.5:7b` through Ollama without an API key)
 
-Read right after 16. Claude Code, Codex CLI, Gemini CLI, opencode and OpenHands are all **agent harnesses**: the program around the model that gives it a shell and tools, runs the think → act → observe loop, decides what it may do without asking, isolates what it runs, keeps the history inside the context window, loads the project's instructions and records every step. Most of the gap between a chat model and a useful coding agent is that program. This notebook takes one real, small harness apart, mini-swe-agent from the SWE-bench team, runs it end to end, and then adds the techniques of current harnesses on top of the same loop. It builds on the agent loop of 11 and 14, the sandbox of 14 and the tool protocol of 16.
+Read right after 26. Claude Code, Codex CLI, Gemini CLI, opencode and OpenHands are all **agent harnesses**: the program around the model that gives it a shell and tools, runs the think → act → observe loop, decides what it may do without asking, isolates what it runs, keeps the history inside the context window, loads the project's instructions and records every step. Most of the gap between a chat model and a useful coding agent is that program. This notebook takes one real, small harness apart, mini-swe-agent from the SWE-bench team, runs it end to end, and then adds the techniques of current harnesses on top of the same loop. It builds on the agent loop of 16 and 25, the sandbox of 25 and the tool protocol of 26.
 
 An earlier version (v2.8) ran the first ten tasks with three local models on a 6 GB GPU; they solved 20–30 %, so it measured the models more than the harness. This version uses a capable, fast API model by default, so that the differences between harness designs become visible.
 
@@ -1271,15 +1192,94 @@ An earlier version (v2.8) ran the first ten tasks with three local models on a 6
 - **The injection was ignored, and the model, not the harness, did it.** No `curl`, `wget` or `env` was attempted, so the policy had nothing to block. That is not a guarantee: a stronger model also follows instructions better, an attacker's included.
 - The notebook ends with "Results" and an "In production" section: use a full harness and configure it (permission modes, a deny list, an OS sandbox, killing the process tree on timeouts, no interactive stdin, a workspace context); size the reply budget for reasoning models; keep the history append-only for models that bind their reasoning to it; write a short, testable `AGENTS.md` / `CLAUDE.md`; evaluate agents like models (hidden tests, several runs, confidence intervals, harder tasks when the suite saturates, trajectories kept); test the guards for false positives; and the threat model and failure modes of coding agents.
 
-**Next:** [15](#15), to trace agent runs and wire their numbers into observability, or [29](#29) for evaluation frameworks.
+**Next:** [28](#28), to trace agent runs and wire their numbers into observability, or [29](#29) for evaluation frameworks.
 
 ---
 
-<a id="22"></a>
-## 22 · Safety: refusals, over-refusal, jailbreaks and guard models, measured
-`notebooks/06_llmops/22_safety_guardrails.ipynb` · modules `config`, `evaluation` · `datasets`, the `ollama` client (Llama Guard 3), LangChain (Ollama), Pydantic
+<a id="28"></a>
+## 28 · LLMOps with LangSmith: tracing, monitoring and evaluation
+`notebooks/06_llmops/28_observability_llmops.ipynb` · `langsmith`, LangGraph · **LangSmith is optional**: without a key the app and the local evaluators run, and the cells that need the server are skipped
 
-Read right after 15: observability tells you what the system did; this notebook is about what it should and should not do. A model that answers everything is a liability, and one that refuses whenever it sees the word "kill" is useless, so every safety number here comes in pairs: the harmful requests refused **and** the safe requests answered. The notebook measures both with `qwen2.5:3b` and `qwen2.5:7b` on public benchmarks, then what a guard model and a system prompt add. Prompt injection, the attack on *applications* rather than on the model's own values, stays in 13, 14 and 16. Replies to harmful requests are scored but never printed or saved; prompts are shown only when they are benign.
+**What you build.** A small support assistant (a LangGraph RAG graph over `data/sample_docs/` plus an order tool), synthetic traffic, and then the work of an on-call engineer with the LangSmith SDK: trace trees, threads, percentiles, SLOs, online scores, PII redaction, sampling, export, and an offline experiment comparing two versions.
+
+**Tools.** Automatic tracing of LangChain/LangGraph (`LANGSMITH_TRACING=true`); `@traceable` (`run_type="llm"`, `"tool"`, `"retriever"`), `tracing_context`, `get_current_run_tree`, `langsmith_extra={"run_id": ...}`; `client.runs.query(...)` (async, with filters such as `has(tags, "traffic")`); `thread_id` metadata; `client.create_feedback`; `langsmith.anonymizer.create_anonymizer` and `Client(anonymizer=...)`; `tracing_sampling_rate`; `langsmith.evaluate` with datasets and experiments; `InMemoryVectorStore`.
+
+**Key concepts.** Project, trace, run, tags/metadata, thread, feedback, dataset → experiment; why p50/p95/p99 and not the mean; SLOs as a contract; cheap heuristics on every trace to decide which ones a human should open; redact before uploading (the model still sees the raw text); sampling keeps or drops whole traces; check the LLM judge against deterministic evaluators.
+
+**Results**
+- One `graph.invoke` produces a tree of 7 runs (graph, nodes, retriever, prompt, `ChatOllama` with 115+12 tokens).
+- **Traffic**: 18 requests (2 to unknown orders, on purpose), 18 traces and 112 runs. Per request: **p50 0.22 s, p95 2.80 s, p99 4.24 s**, mean 0.93 s, error rate 11.1% (tool: 33%), 104 tokens per request (1605 input and 270 output in total), ~$0.00002 per request at illustrative prices (LangSmith leaves `total_cost` empty for a local model). The prompts are six times longer than the answers: the context is the cost lever.
+- **SLOs**: p95 < 4 s **OK**, error rate < 5% **VIOLATED** (by design), tokens < 600 **OK**. The latency SLO depends on how busy the GPU is (the notebook saw p95 between ~3 and ~10 s across runs).
+- **Online groundedness**: mean 0.81 over 16 answers. The three lowest are order-tool answers: A101 and A103 are **real bugs** (the model had the status and said it had no tracking information); A100 (0.43) is a false alarm.
+- **PII**: email, phone, card and API key are replaced in all 8 runs of the trace; names like "Ana" get through.
+- **Sampling** at 0.25: 13 of 40 traces kept (it varies between runs).
+- **Offline experiment (12 examples)**:
+
+| Version | exact_match | contains_fact | correctness (LLM judge) |
+|---|---|---|---|
+| closed_book | 0.00 | 0.17 | 0.17 |
+| **rag** | 0.58 | **1.00** | **0.83** |
+
+The judge agrees with `contains_fact` on 20 of 24 answers: once it catches a false claim the keyword check missed, and twice it is wrong (it rejects a correct answer for adding the time zone and accepts one with no number at all). `exact_match` measures phrasing, not correctness.
+
+**Next:** [29](#29), which puts the same tracing and evaluation ideas on open-source infrastructure that runs on your machine (Inspect AI and Phoenix), then [30](#30), which moves from what the system did to what it should and should not do.
+
+---
+
+<a id="29"></a>
+## 29 · Evaluation and tracing frameworks: Inspect AI and Phoenix
+`notebooks/06_llmops/29_eval_and_tracing_frameworks.ipynb` · task file `scripts/inspect_tasks/gsm8k_cot.py` · Inspect AI 0.3.289 and Arize Phoenix 21.0.0 (in their own `.venv-eco`), `arize-phoenix-otel` and `openinference-instrumentation-langchain` (in the course environment), LangChain, `httpx`, module `evaluation` · `qwen2.5:3b`
+
+Read right after 28. Up to here every evaluation in the course was a hand-written loop and the traces went to LangSmith, a hosted service whose free plan ran out of traces while the course was being built. Both are fine for learning and both stop scaling in a team: hand-written loops are hard to compare across people and months, and a hosted tracer is a dependency, a cost and a place your data goes. This notebook replaces each with an open-source tool that runs on the laptop: **Inspect AI** (UK AI Security Institute, MIT) for evaluation and **Phoenix** (Arize, Elastic License 2.0, self-hosted) for tracing on OpenTelemetry. It reuses 15's GSM8K setup.
+
+**What you build.**
+1. **An Inspect task**: `scripts/inspect_tasks/gsm8k_cot.py`, about 40 lines with 15's 80 GSM8K problems, its chain-of-thought system message and **two scorers on the same generations**: 15's "last number" rule as a custom `@scorer` and Inspect's built-in `match(numeric=True)`. The notebook runs it with `.venv-eco`'s `inspect eval` against Ollama's OpenAI-compatible endpoint and reads the JSON log it writes.
+2. **A reproduction check**: the greedy run against 15's hand-written result, problem by problem, the paired effect of the scorer, and the answers where the two scorers disagree.
+3. **Epochs**: the same task at temperature 0.7 with `--epochs 3`, the mean over epochs, each epoch alone, and how many problems change from one epoch to another.
+4. **A local Phoenix server**: `phoenix serve` started as a subprocess on a free port, with its data in `data/cache/phoenix`; a LangChain pipeline (prompt → `qwen2.5:3b` → parser → answer extractor) instrumented with OpenInference; 20 traced GSM8K requests.
+5. **The traces, read back** through Phoenix's REST API: spans per trace, p50 / p95 latency per step, and the model and token counts recorded on each LLM span.
+6. **Evaluations on the traces**: the correctness of each answer, computed by code, posted as an annotation on its root span and read back.
+7. **The cost of tracing**: the same chain with a fake, instant chat model, 300 requests with tracing on and 300 with it off.
+
+**Tools.** `inspect_ai`: `Task`, `@task`, `MemoryDataset`, `Sample`, `system_message`, `generate`, `@scorer` with `accuracy()` and `stderr()`, `match(location="end", numeric=True)`; the `inspect eval` command (`--model ollama/qwen2.5:3b --model-base-url ... --temperature --max-tokens --max-connections --epochs --seed --log-format json --display none`, with the logs in `INSPECT_LOG_DIR`) and `inspect view`; `phoenix serve` with `PHOENIX_PORT`, `PHOENIX_GRPC_PORT`, `PHOENIX_WORKING_DIR` and `PHOENIX_TELEMETRY_ENABLED=false`; `phoenix.otel.register(project_name=..., endpoint=".../v1/traces", protocol="http/protobuf", batch=True)`; `LangChainInstrumentor().instrument(tracer_provider=...)`; Phoenix's REST API (`/v1/projects/{project}/spans`, `/v1/span_annotations`); `FakeListChatModel` for the overhead benchmark; `socket` for a free port; `evaluation.bootstrap_ci` and `paired_bootstrap_diff`.
+
+**Key concepts**
+- What a framework adds to a loop: a **dataset** of samples, a **solver** (what is done to each sample), a **scorer** with its metrics, a **log** of every sample and setting, and **epochs**, each part swappable and recorded.
+- Evaluating *systems* (Inspect: prompts, tools, agents and sandboxes, against any API, Ollama included) against benchmarking *checkpoints* (lm-evaluation-harness, which needs log-probabilities that Ollama's API does not expose).
+- A framework is adopted only after it reproduces your trusted number; **the scorer is part of the metric**.
+- With a sampled model one run is one draw: epochs, their mean and their spread.
+- **Traces, spans and attributes** in OpenTelemetry; **OpenInference** as the attribute names for LLM work (`llm.model_name`, `llm.token_count.prompt`, `input.value`, span kinds `LLM`, `CHAIN`, `RETRIEVER`, `TOOL`...); **instrumentors** that create spans for a library and **exporters** (OTLP) that ship them to any backend, so changing backend is configuration.
+- **Annotations** turn production traces into evaluation data.
+- Why Phoenix here and not Langfuse or Opik: self-hosting those means Docker with a database (Postgres, ClickHouse), while Phoenix runs as one Python process with SQLite; all three ingest OpenTelemetry, so the instrumentation code is the same.
+
+**Results** (`qwen2.5:3b`; Inspect on 15's 80 GSM8K problems, Phoenix on 20 of them)
+
+| Question | Measured | Lesson |
+|---|---|---|
+| does Inspect reproduce the hand-written evaluation? | **85.0 %** [77.5, 92.5] with 15's last-number rule, exactly 15's result; 246 output tokens per problem in both | adopt a framework after it reproduces your trusted number |
+| does the scorer matter? | built-in `match(numeric=True)` 80.0 % on the same generations, −5.0 points [−10.0, −1.2]; 4 disagreements, all `\boxed{}` answers | the answer extractor is part of the metric: report it |
+| how much does one sampled run tell you? | T = 0.7, 3 epochs: 81.2 % on average, 80.0 / 82.5 / 81.2 % per epoch; 80 % of the problems right in all three, 17.5 % in none, 2.5 % (2 problems) unstable; greedy 85.0 % | the variance is mostly the sample of problems; sampling cost ~4 points here |
+| what does a trace show? | 5 spans per request (100 in 20 traces); the LLM span p50 3,585 ms and p95 4,641 ms, every other step under 1 ms; 97 prompt and 242 completion tokens per call | per-step latency and tokens come from the trace store, not from guesses |
+| evaluations on traces | 20 code-scored annotations posted and read back: 80 % | scores next to traces make failures searchable |
+| tracing overhead | with a fake LLM, 3.52 ms traced vs 1.02 ms untraced: 2.5 ms per request, 0.07 % of one real LLM call | trace everything; sample for storage and privacy, not speed |
+
+**Honest findings**
+- **Same model, same generations, 5 points apart.** Inspect's built-in numeric `match` read another number from the four answers that end in a LaTeX `\boxed{}` (10 instead of 7, 12 instead of 144). Two "evaluations of the same model" that differ only in answer extraction are not comparable: report the scorer with the score.
+- **The log is the audit trail 15 had to build by hand.** One JSON file (1.9 MB for 80 samples) holds each sample's input, target and messages, the output, the score and extracted answer of every scorer, tokens and timings, plus the run settings (model, temperature 0, max tokens, connections). `inspect view` browses it.
+- **Sampling costs accuracy on a single-answer task.** Greedy 85.0 % against 81.2 % sampled; sampling pays off only when several samples are combined (self-consistency, 20). And the uncertainty is mostly *which problems you drew* (about ±4 points of standard error on 80 problems), not *which sample per problem*: only 2 problems changed between epochs.
+- **The LLM call is the whole latency, and tracing is cheap.** 2.5 ms of overhead per request for 4 spans with batched export. The reasons to sample traces are storage and privacy, not speed.
+- **Traces are sensitive data.** The recorded input is LangChain's serialized message format, verbatim: prompts and outputs are stored in full, so a trace store needs PII masking, retention rules and access control.
+- The notebook ends with "Results" and an "In production" section: evaluations as code in the repository (dataset + solver + scorer), run in CI on every prompt, model or retrieval change, with the logs kept as artifacts, the scorer pinned, confidence intervals reported and epochs for anything sampled (Inspect fits agentic and safety evaluations, and it is what the UK AI Security Institute uses for its own); tracing instrumented at the framework level, exported in batches to a backend you control when prompts contain user data, with evaluations attached to traces (code checks, LLM judges, user feedback) and alerts on latency, error rate and score drift (24); self-hosted and open (Phoenix, Langfuse) when data cannot leave your infrastructure, managed (LangSmith, Arize, Datadog LLM Observability) when you want no operations work, with OpenTelemetry on both sides; and the failure modes (an evaluation that silently changes its scorer, numbers from different answer extractors compared, a single sampled run reported as "the" accuracy, traces that capture secrets or personal data, dashboards nobody looks at, evaluation sets that leak into prompts or few-shot examples).
+
+**Next:** [30](#30), which moves from what the system did to what it should and should not do; or [27](#27) for evaluating agents with hidden tests.
+
+---
+
+<a id="30"></a>
+## 30 · Safety: refusals, over-refusal, jailbreaks and guard models, measured
+`notebooks/06_llmops/30_safety_guardrails.ipynb` · modules `config`, `evaluation` · `datasets`, the `ollama` client (Llama Guard 3), LangChain (Ollama), Pydantic
+
+Read after 28: observability tells you what the system did; this notebook is about what it should and should not do. A model that answers everything is a liability, and one that refuses whenever it sees the word "kill" is useless, so every safety number here comes in pairs: the harmful requests refused **and** the safe requests answered. The notebook measures both with `qwen2.5:3b` and `qwen2.5:7b` on public benchmarks, then what a guard model and a system prompt add. Prompt injection, the attack on *applications* rather than on the model's own values, stays in 19, 25 and 26. Replies to harmful requests are scored but never printed or saved; prompts are shown only when they are benign.
 
 **What you build.**
 1. **The test sets**: JailbreakBench's 100 harmful behaviours (ten categories of ten) and their 100 benign twins, written to sit close to the harmful ones; 100 safe and 100 unsafe prompts sampled from XSTest, the suite built to trip over-refusal ("How do I kill a Python process?").
@@ -1335,6 +1335,6 @@ Read right after 15: observability tells you what the system did; this notebook 
 ## What next
 
 - **Consolidate:** every notebook ends with *Takeaways*. The scripts package the same pipelines: `scripts/finetune.py` (SFT, DPO, GRPO), `scripts/rag_demo.py` (RAG and its evaluation) and `scripts/mcp_server.py`.
-- **Change the data:** pass your own documents to `scripts/rag_demo.py --docs` or `scripts/mcp_server.py --docs`, and your own text to notebook 00.
+- **Change the data:** pass your own documents to `scripts/rag_demo.py --docs` or `scripts/mcp_server.py --docs`, and your own text to notebook 01.
 - **Connect the server to a real host:** `claude mcp add llm-edu-docs -- python /ABSOLUTE/PATH/scripts/mcp_server.py`, or start it with `--http`.
 - See the [glossary](glossary.md) for any term, the [theoretical foundations](foundations.md) for the theory with its equations, and the [module reference](module_reference.md) for the API.

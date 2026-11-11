@@ -9,7 +9,7 @@ Pretraining data
 - `TokenDataset` / `get_batch`   contiguous windows of tokens as (x, y) pairs, where y is x shifted by one
 
 Chat templates, loss masking and preference pairs for fine-tuning are handled by Hugging Face
-(`tokenizer.apply_chat_template`) and TRL in notebooks 07 and 08.
+(`tokenizer.apply_chat_template`) and TRL in notebooks 13 and 14.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Notebook 29 - Open-source evaluation and tracing frameworks: Inspect AI and Arize Phoenix
 
 Builds 29_eval_and_tracing_frameworks.ipynb. Run: python tools/build_notebooks.py 29
-Read it after notebook 15 (observability). Result commentary cells contain {{R_...}} markers filled after execution.
+Read it after notebook 28 (observability). Result commentary cells contain {{R_...}} markers filled after execution.
 Needs the isolated environment described in scripts/inspect_tasks/gsm8k_cot.py (.venv-eco).
 """
 from _common import *  # noqa: F401,F403
@@ -10,16 +10,16 @@ nb = NB()
 nb.md(r'''
 # 29 · Evaluation and tracing frameworks: Inspect AI and Phoenix
 
-Up to here every evaluation in the course was a hand-written loop, and the traces went to LangSmith (notebook 15), a hosted service whose free plan ran out of traces while this course was being built. Both choices are fine for learning and both stop scaling in a team: hand-written loops are hard to compare across people and months, and a hosted tracer is a dependency, a cost and a place your data goes.
+Up to here every evaluation in the course was a hand-written loop, and the traces went to LangSmith (notebook 28), a hosted service whose free plan ran out of traces while this course was being built. Both choices are fine for learning and both stop scaling in a team: hand-written loops are hard to compare across people and months, and a hosted tracer is a dependency, a cost and a place your data goes.
 
 This notebook replaces each with the open-source tool teams actually use, chosen from Good AI List's *AI evaluation and observability* category for running locally on this machine:
 
 | tool | layer | what we measure |
 |---|---|---|
-| **Inspect AI** (UK AI Security Institute, MIT) | evaluation framework: datasets, solvers, scorers, logs, epochs | notebook 20's GSM8K result reproduced; how much the scorer changes the score; variance over epochs |
+| **Inspect AI** (UK AI Security Institute, MIT) | evaluation framework: datasets, solvers, scorers, logs, epochs | notebook 15's GSM8K result reproduced; how much the scorer changes the score; variance over epochs |
 | **Arize Phoenix** (Elastic License 2.0, self-hosted) | tracing and observability on OpenTelemetry | spans from a LangChain pipeline; latency and tokens per step from the trace store; correctness written back as annotations; tracing overhead |
 
-Read it **after notebook 15**, whose tracing and evaluation ideas it puts on open infrastructure. It reuses notebook 20's GSM8K setup.
+Read it **after notebook 28**, whose tracing and evaluation ideas it puts on open infrastructure. It reuses notebook 15's GSM8K setup.
 
 **Why these two and not the alternatives** (as of November 2026):
 - **lm-evaluation-harness** (EleutherAI) is the standard for *benchmarking model checkpoints* (it powers leaderboards) and needs log-probabilities, which Ollama's API does not expose. **Inspect** evaluates *systems*: prompts, tools, agents and sandboxes, against any API, including Ollama.
@@ -60,9 +60,9 @@ ver = subprocess.run([os.path.join(ECO, "python"), "-c", "import inspect_ai, pho
 print(f"Inspect AI {ver[0]} | Phoenix {ver[1]} | both in {os.path.relpath(ECO, ROOT)}")
 ''')
 nb.md(r'''
-## 1. Inspect AI: the GSM8K evaluation of notebook 20, as a task
+## 1. Inspect AI: the GSM8K evaluation of notebook 15, as a task
 
-The task file is `scripts/inspect_tasks/gsm8k_cot.py`, about 40 lines: notebook 20's 80 problems, its chain-of-thought system message, and **two scorers on the same generations**, our "last number" rule and Inspect's built-in `match(numeric=True)`. It runs from the command line like any Inspect evaluation; we call it from Python and read the JSON log it writes.
+The task file is `scripts/inspect_tasks/gsm8k_cot.py`, about 40 lines: notebook 15's 80 problems, its chain-of-thought system message, and **two scorers on the same generations**, our "last number" rule and Inspect's built-in `match(numeric=True)`. It runs from the command line like any Inspect evaluation; we call it from Python and read the JSON log it writes.
 ''')
 nb.code(r'''
 print(open(TASK, encoding="utf-8").read().split('"""', 2)[2].strip())
@@ -98,7 +98,7 @@ print("\nrun settings recorded in the log:", {k: greedy["eval"][k] for k in ("mo
 nb.md(r'''
 ### 1.1 Does the framework reproduce the hand-written loop?
 
-Notebook 20 measured **85.0 %** for greedy chain of thought on these 80 problems with its own loop. Same model, prompt, decoding and extraction should give the same number, and we can check problem by problem. Where the two scorers disagree, we print the answers to see which rule is right.
+Notebook 15 measured **85.0 %** for greedy chain of thought on these 80 problems with its own loop. Same model, prompt, decoding and extraction should give the same number, and we can check problem by problem. Where the two scorers disagree, we print the answers to see which rule is right.
 ''')
 nb.code(r'''
 def per_sample(log, scorer):
@@ -106,7 +106,7 @@ def per_sample(log, scorer):
 ours, builtin = per_sample(greedy, "last_number"), per_sample(greedy, "match")
 for name, v in (("Inspect, last-number scorer", ours), ("Inspect, built-in match(numeric)", builtin)):
     m, lo, hi = bootstrap_ci(v); print(f"{name:34s} {m:.1%} [{lo:.1%}, {hi:.1%}]")
-print(f"{'notebook 20, hand-written loop':34s} 85.0%")
+print(f"{'notebook 15, hand-written loop':34s} 85.0%")
 d, lo, hi = paired_bootstrap_diff(ours, builtin)
 print(f"\nscorer effect on the same outputs: {d:+.1%} [{lo:+.1%}, {hi:+.1%}] | disagreements: {int((ours != builtin).sum())} of {len(ours)}")
 by_id = {s["id"]: s for s in greedy["samples"]}
@@ -118,7 +118,7 @@ for i in np.where(ours != builtin)[0][:4]:
 ''')
 nb.md(r'''
 **What Inspect reproduces, and what it adds.**
-- **The same number as the hand-written loop.** With notebook 20's last-number rule as a custom scorer, Inspect gives **85.0%** [77.5%, 92.5%] on the same 80 problems. That is exactly notebook 20's result, and the greedy runs also match in length (246 output tokens per problem in both).
+- **The same number as the hand-written loop.** With notebook 15's last-number rule as a custom scorer, Inspect gives **85.0%** [77.5%, 92.5%] on the same 80 problems. That is exactly notebook 15's result, and the greedy runs also match in length (246 output tokens per problem in both).
 
   A framework is worth adopting only if it can reproduce your trusted numbers first. Here it does.
 - **The scorer is part of the metric.** Inspect's built-in `match(numeric=True)` scored the *same generations* at **80.0%**, which is −5.0 points [−10.0, −1.2] on a paired comparison. The four disagreements all end with a LaTeX `\boxed{}` answer, and the built-in scorer read another number of the text (10 instead of 7, 12 instead of 144). Two "evaluations of the same model" that differ only in answer extraction can be 5 points apart. **Report the scorer with the score.**
@@ -127,11 +127,11 @@ nb.md(r'''
   - the output, the score of every scorer and the extracted answer;
   - token usage per model and timings.
 
-  The run settings (model, temperature 0, max tokens, connections) are recorded too. That is the audit trail notebook 20 had to build by hand, and `inspect view` browses it.
+  The run settings (model, temperature 0, max tokens, connections) are recorded too. That is the audit trail notebook 15 had to build by hand, and `inspect view` browses it.
 
 ### 1.2 Epochs: how much does one sampled run tell you?
 
-At temperature 0.7 (the setting of notebook 20's self-consistency), each problem is answered 3 times (`--epochs 3`). Inspect reports the mean over epochs with its standard error; from the log we also get every epoch separately, which shows how far a single run can land from the average.
+At temperature 0.7 (the setting of notebook 15's self-consistency), each problem is answered 3 times (`--epochs 3`). Inspect reports the mean over epochs with its standard error; from the log we also get every epoch separately, which shows how far a single run can land from the average.
 ''')
 nb.code(r'''
 sampled = inspect_eval("--temperature", "0.7", "--epochs", "3", "--seed", "0")
@@ -147,7 +147,7 @@ grid = np.array([[E[e][i] for e in sorted(E)] for i in sorted(E[1])])
 print(f"problems right in all 3 epochs {np.mean(grid.sum(1) == 3):.1%} | in none {np.mean(grid.sum(1) == 0):.1%} | "
       f"unstable (right in 1 or 2) {np.mean((grid.sum(1) > 0) & (grid.sum(1) < 3)):.1%}")
 tok = [s["model_usage"][next(iter(s["model_usage"]))]["output_tokens"] for s in greedy["samples"]]
-print(f"greedy run: {np.mean(tok):.0f} output tokens per problem (notebook 20: 246)")
+print(f"greedy run: {np.mean(tok):.0f} output tokens per problem (notebook 15: 246)")
 ''')
 nb.md(r'''
 **What sampling variance looks like.**
@@ -158,7 +158,7 @@ nb.md(r'''
   - only 2.5% (2 problems) changed between epochs.
 
   The uncertainty is mostly *which problems you drew* (the ±4 points of the 80-problem standard error), not *which sample you drew per problem*.
-- **Sampling costs accuracy here:** greedy decoding scored 85.0% and sampling 81.2%. For a single-answer task, temperature 0 is the right default. Sampling pays off when you take several samples and combine them (self-consistency, notebook 20).
+- **Sampling costs accuracy here:** greedy decoding scored 85.0% and sampling 81.2%. For a single-answer task, temperature 0 is the right default. Sampling pays off when you take several samples and combine them (self-consistency, notebook 15).
 - `--epochs` makes this measurement a flag instead of a loop. With a sampled model, a single run is one draw: report the mean over epochs and its spread.
 
 ## 2. Phoenix: tracing on OpenTelemetry, on your own machine
@@ -255,7 +255,7 @@ print("one LLM span's input, as recorded:", str(attr(llm_spans[0], "input.value"
 nb.md(r'''
 ### 2.2 Writing evaluations back onto the traces
 
-A trace store becomes an evaluation store when scores are attached to spans. We grade each request with code (is the extracted number right?) and post the result as an annotation on its root span, then read the annotations back and recompute the accuracy from Phoenix alone. With real traffic there is no reference answer, and the annotator is an LLM judge (notebooks 10 and 15) or a person reviewing a sample, but the mechanics are the same.
+A trace store becomes an evaluation store when scores are attached to spans. We grade each request with code (is the extracted number right?) and post the result as an annotation on its root span, then read the annotations back and recompute the accuracy from Phoenix alone. With real traffic there is no reference answer, and the annotator is an LLM judge (notebooks 18 and 28) or a person reviewing a sample, but the mechanics are the same.
 ''')
 nb.code(r'''
 roots = sorted([s for s in spans if s["parent_id"] is None], key=lambda s: s["start_time"])
@@ -314,7 +314,7 @@ nb.md(r'''
 
 | question | measured | lesson |
 |---|---|---|
-| does Inspect reproduce the hand-written evaluation? | 85.0% on notebook 20's 80 GSM8K problems with the same rule; same output length | adopt a framework after it reproduces your trusted number |
+| does Inspect reproduce the hand-written evaluation? | 85.0% on notebook 15's 80 GSM8K problems with the same rule; same output length | adopt a framework after it reproduces your trusted number |
 | does the scorer matter? | built-in `match` 80.0% on the same generations (−5.0 points [−10.0, −1.2]); 4 disagreements, all `\boxed{}` answers | the answer extractor is part of the metric: report it |
 | how much does one sampled run tell you? | T = 0.7, 3 epochs: 80.0 / 82.5 / 81.2%; 2.5% of problems unstable; greedy 85.0% | variance is mostly the sample of problems; sampling cost ~4 points here |
 | what does tracing show? | 5 spans per request; LLM p50 3.6 s, everything else < 1 ms; 97 / 242 tokens per call | per-step latency and tokens come from the trace store, not from guesses |
@@ -330,11 +330,11 @@ nb.md(r'''
 - Pin the scorer, report confidence intervals, and use epochs for anything sampled.
 - Inspect is a good fit for agentic and safety evaluations (tools, sandboxes, multi-turn). It is what the UK AI Security Institute uses for its own model evaluations.
 
-**Tracing** (Phoenix, Langfuse, LangSmith of notebook 15, OpenLLMetry, any OpenTelemetry backend):
+**Tracing** (Phoenix, Langfuse, LangSmith of notebook 28, OpenLLMetry, any OpenTelemetry backend):
 - Instrument at the framework level (LangChain, LlamaIndex, OpenAI SDK instrumentors).
 - Export with batching, and send traces to a backend you control when prompts contain user data.
-- Attach evaluations to traces: code checks, LLM judges (notebook 15) and user feedback.
-- Alert on latency, error rate and score drift (notebook 26).
+- Attach evaluations to traces: code checks, LLM judges (notebook 28) and user feedback.
+- Alert on latency, error rate and score drift (notebook 24).
 
 **Choosing.**
 - Self-hosted and open (Phoenix, Langfuse) when data cannot leave your infrastructure.
@@ -349,7 +349,7 @@ nb.md(r'''
 - Dashboards nobody looks at.
 - Evaluation sets that leak into prompts or few-shot examples.
 
-**Next:** notebook 22 (safety and guardrails), or notebook 27 for evaluating agents with hidden tests.
+**Next:** notebook 30 (safety and guardrails), or notebook 27 for evaluating agents with hidden tests.
 ''')
 nb.save(notebook_path("29_eval_and_tracing_frameworks.ipynb"))
 print("29_eval_and_tracing_frameworks.ipynb written")

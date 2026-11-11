@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Post-training with the Hugging Face stack (transformers + peft + trl) on the small synthetic tasks of notebooks 07-08.
+Post-training with the Hugging Face stack (transformers + peft + trl) on the small synthetic tasks of notebooks 13 and 14.
 
     python scripts/finetune.py sft                       # LoRA SFT of SmolLM2-135M-Instruct on booking -> JSON extraction
     python scripts/finetune.py sft --full                # full fine-tuning instead of LoRA (needs more VRAM)
@@ -24,7 +24,7 @@ import time
 
 MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"
 
-# Task 1: extract a restaurant booking from a sentence as strict JSON (notebooks 07 and 08)
+# Task 1: extract a restaurant booking from a sentence as strict JSON (notebooks 13 and 14)
 
 TRAIN_NAMES = ["Ana", "Luis", "Marta", "Pablo", "Sofia", "Diego", "Elena", "Jorge", "Lucia", "Carlos", "Irene", "Tomas",
                "Nuria", "Raul", "Clara", "Hugo", "Paula", "Adrian", "Sara", "Mario", "Laura", "Ivan", "Julia", "Victor"]
@@ -144,7 +144,7 @@ def completion_labels(tokenizer, prompt: list, completion: list):
     return full_ids, labels
 
 
-# Task 2: two-digit arithmetic with a verifiable answer (GRPO in notebook 08)
+# Task 2: two-digit arithmetic with a verifiable answer (GRPO in notebook 14)
 
 MATH_SYSTEM = "Answer with the number only."
 

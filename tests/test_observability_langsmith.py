@@ -1,8 +1,8 @@
 """
-Tests for notebook 15 (LLMOps with LangSmith).
+Tests for notebook 28 (LLMOps with LangSmith).
 
 The notebook's pure helpers (PII rules, groundedness, evaluators, latency summary) are defined in the HELPERS string
-of tools/notebooks/nb15_observability_llmops.py. We read that string with `ast` (without running the generator, which
+of tools/notebooks/nb28_observability_llmops.py. We read that string with `ast` (without running the generator, which
 would rewrite the notebook) and execute it, so these tests check exactly the code the notebook ships.
 
 Everything here runs offline. The one network test is skipped unless LangSmith and Ollama are both configured.
@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-GENERATOR = os.path.join(os.path.dirname(__file__), "..", "tools", "notebooks", "nb15_observability_llmops.py")
+GENERATOR = os.path.join(os.path.dirname(__file__), "..", "tools", "notebooks", "nb28_observability_llmops.py")
 
 
 def _load_helpers() -> dict:
@@ -23,7 +23,7 @@ def _load_helpers() -> dict:
             ns: dict = {}
             exec(compile(ast.literal_eval(node.value), "nb15_HELPERS", "exec"), ns)
             return ns
-    raise AssertionError("HELPERS not found in the notebook 15 generator")
+    raise AssertionError("HELPERS not found in the notebook 28 generator")
 
 
 H = _load_helpers()

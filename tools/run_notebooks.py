@@ -2,7 +2,7 @@
 Execute notebooks headlessly and report pass/fail and duration for each one. They run in place, so they keep their outputs.
 
     python tools/run_notebooks.py                       # every notebook under notebooks/ (all topic folders)
-    python tools/run_notebooks.py 05_pretraining.ipynb  # only some of them (by file name, wherever they live)
+    python tools/run_notebooks.py 08_pretraining.ipynb  # only some of them (by file name, wherever they live)
     python tools/run_notebooks.py 05 10 14              # ... or by number
 
 The exit code is 1 if any notebook fails, so the script can be used in CI.

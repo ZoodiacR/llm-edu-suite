@@ -1,5 +1,5 @@
 """
-Fast tests for the Hugging Face post-training code in scripts/finetune.py (the tasks of notebooks 07-08).
+Fast tests for the Hugging Face post-training code in scripts/finetune.py (the tasks of notebooks 13 and 14).
 
 They run on CPU in about 15 seconds. The tokenizer and training tests need SmolLM2-135M-Instruct in the local
 Hugging Face cache and are skipped otherwise (they never download anything).

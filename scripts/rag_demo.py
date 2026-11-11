@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 RAG over a folder of .md / .txt files with LangChain: hybrid retrieval (FAISS + BM25 fused with RRF) and an
-answer with numbered citations. The same pipeline as notebook 10, packaged as a command-line tool.
+answer with numbered citations. The same pipeline as notebook 18, packaged as a command-line tool.
 
     python scripts/rag_demo.py --ask "Why must an MCP stdio server never print to stdout?"
     python scripts/rag_demo.py --eval data/eval/rag_eval.json            # retrieval hit rate and MRR (fast)

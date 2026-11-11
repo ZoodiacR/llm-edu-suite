@@ -18,7 +18,7 @@ fi
 "$PY" -m pip install -r requirements.txt
 "$PY" -m ipykernel install --user --name llm-edu-suite --display-name "Python (llm-edu-suite)"
 
-# Local LLMs for notebooks 10-16 (Ollama). Install it from https://ollama.com if it is missing.
+# Local LLMs for the notebooks that call Ollama. Install it from https://ollama.com if it is missing.
 if command -v ollama >/dev/null 2>&1; then
   ollama pull qwen2.5:3b
   ollama pull nomic-embed-text
