@@ -585,8 +585,8 @@ Un **servidor MCP** construido con el SDK oficial de MCP para Python (`mcp.serve
 
 | Primitiva | Nombre | Descripción |
 |---|---|---|
-| tool | `search_docs(query, k=3)` | Búsqueda BM25 sobre los documentos (`rank_bm25`). Cada línea de los documentos de ejemplo (salvo los títulos) es una frase autocontenida, así que cada línea es un pasaje; el nombre del fichero se añade al pasaje para la búsqueda. Devuelve los `k` mejores (limitado a 1–10) como líneas `[fichero] pasaje`, o `no results`. Anotada con `readOnlyHint: true`. |
-| tool | `calculate(expression)` | Aritmética segura: la expresión se analiza con `ast` y solo se evalúan números, `+ - * / ** %` y paréntesis; cualquier otra cosa es un error de herramienta (`isError: true`). Anotada con `readOnlyHint: true`. |
+| tool | `search_docs(query, k=3)` | Búsqueda BM25 sobre los documentos (`rank_bm25`). Cada línea de los documentos de ejemplo (salvo los títulos) es una frase autocontenida, así que cada línea es un pasaje; el nombre del fichero se añade al pasaje para la búsqueda. Devuelve los `k` mejores (limitado a 1–10) como líneas `[fichero] pasaje`, o `no results`. Anotada como de solo lectura, no destructiva, idempotente y de mundo cerrado (las cuatro pistas declaradas). |
+| tool | `calculate(expression)` | Aritmética segura: la expresión se analiza con `ast` y solo se evalúan números, `+ - * / ** %` y paréntesis; cualquier otra cosa es un error de herramienta (`isError: true`). Anotada como de solo lectura, no destructiva, idempotente y de mundo cerrado (las cuatro pistas declaradas). |
 | tool | `create_ticket(title, priority="normal")` | Acción de escritura simulada (`priority` ∈ `low`, `normal`, `high`). Devuelve el ticket (`id`, `title`, `priority`, `created`) como JSON. Anotada con `destructiveHint: true`, así que un host bien hecho **pide confirmación**. |
 | resource | `docs://index` | Lista JSON de todos los documentos con su URI y su título. |
 | resource template | `docs://{name}` | El texto completo de un documento, p. ej. `docs://shipping.md`. |

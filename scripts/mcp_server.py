@@ -112,7 +112,9 @@ def build_server(docs_dir: str = DEFAULT_DOCS, log_level: str = "WARNING", token
                                   "Use search_docs before answering policy questions and cite the file names.",
                      log_level=log_level, host=host, port=port, **auth)
 
-    @server.tool(annotations=ToolAnnotations(title="Search docs", readOnlyHint=True, openWorldHint=False))
+    # All four hints are set explicitly on every tool: some clients and directories reject tools with missing hints.
+    @server.tool(annotations=ToolAnnotations(title="Search docs", readOnlyHint=True, destructiveHint=False,
+                                             idempotentHint=True, openWorldHint=False))
     def search_docs(query: str, k: int = 3) -> str:
         """Search the company documentation (refunds, shipping, security, support).
         Returns the k best passages, one per line, each prefixed with its source file in brackets."""
@@ -120,7 +122,8 @@ def build_server(docs_dir: str = DEFAULT_DOCS, log_level: str = "WARNING", token
         best = sorted(range(len(passages)), key=lambda i: -scores[i])[:max(1, min(k, 10))]
         return "\n".join(f"[{passages[i][0]}] {passages[i][1]}" for i in best if scores[i] > 0) or "no results"
 
-    @server.tool(annotations=ToolAnnotations(title="Calculator", readOnlyHint=True, openWorldHint=False))
+    @server.tool(annotations=ToolAnnotations(title="Calculator", readOnlyHint=True, destructiveHint=False,
+                                             idempotentHint=True, openWorldHint=False))
     def calculate(expression: str) -> str:
         """Evaluate an arithmetic expression, e.g. '(17 * 23) + 4'."""
         try:

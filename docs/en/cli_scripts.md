@@ -585,8 +585,8 @@ An **MCP server** built with the official MCP Python SDK (`mcp.server.fastmcp.Fa
 
 | Primitive | Name | Description |
 |---|---|---|
-| tool | `search_docs(query, k=3)` | BM25 search over the docs (`rank_bm25`). Each non-heading line of the sample docs is one self-contained sentence, so each line is one passage; the file name is added to the passage for matching. Returns the best `k` (clamped to 1–10) as `[file] passage` lines, or `no results`. Annotated `readOnlyHint: true`. |
-| tool | `calculate(expression)` | Safe arithmetic: the expression is parsed with `ast` and only numbers and `+ - * / ** %` and parentheses are evaluated; anything else is a tool error (`isError: true`). Annotated `readOnlyHint: true`. |
+| tool | `search_docs(query, k=3)` | BM25 search over the docs (`rank_bm25`). Each non-heading line of the sample docs is one self-contained sentence, so each line is one passage; the file name is added to the passage for matching. Returns the best `k` (clamped to 1–10) as `[file] passage` lines, or `no results`. Annotated read-only, non-destructive, idempotent and closed-world (all four hints set). |
+| tool | `calculate(expression)` | Safe arithmetic: the expression is parsed with `ast` and only numbers and `+ - * / ** %` and parentheses are evaluated; anything else is a tool error (`isError: true`). Annotated read-only, non-destructive, idempotent and closed-world (all four hints set). |
 | tool | `create_ticket(title, priority="normal")` | A simulated write action (`priority` ∈ `low`, `normal`, `high`). Returns the ticket (`id`, `title`, `priority`, `created`) as JSON. Annotated `destructiveHint: true`, so a well-behaved host **asks for confirmation**. |
 | resource | `docs://index` | JSON list of every document with its URI and title. |
 | resource template | `docs://{name}` | The full text of one document, e.g. `docs://shipping.md`. |

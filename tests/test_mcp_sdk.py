@@ -49,6 +49,10 @@ def test_lists_expected_tools_with_annotations():
     assert tools["calculate"].annotations.readOnlyHint is True
     assert tools["create_ticket"].annotations.destructiveHint is True
     assert tools["create_ticket"].inputSchema["properties"]["priority"]["enum"] == ["low", "normal", "high"]
+    # every tool declares all four hints explicitly (directories reject tools with missing hints)
+    for t in tools.values():
+        for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"):
+            assert isinstance(getattr(t.annotations, hint), bool), f"{t.name}: {hint} not set"
 
 
 def test_calculate_and_tool_errors():

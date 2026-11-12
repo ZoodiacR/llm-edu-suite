@@ -731,8 +731,8 @@ nb.md(r'''
 
 - **Conformance**: all 14 checks pass. The server behaves as a client expects, including the two error channels and the resource template.
 - **Retrieval**: BM25 puts the right document first for all 6 questions (6/6 top-1). The sample docs are small and each answer sits in one sentence that shares words with the question, so this is an easy set. A real knowledge base needs the evaluation of notebook 18.
-- **Agent**: qwen2.5:3b called `docs_search_docs` for every question, and all 6 answers contain the key fact. It cited the right file in 4 of 6: the refund and the express-shipping answers have no citation. Citations are the first thing a small model drops, so check them separately from correctness. The time per question (printed above) is almost all model inference: it ranges from under a second to over ten seconds depending on how busy the GPU is, while the MCP calls themselves add only milliseconds (8.4).
-- **Latency**: a `tools/call` costs about 1.6 ms in memory and about 3.0 ms over stdio pipes (p50). The LangChain tool layer adds about another millisecond. All of this is negligible next to an LLM call. The expensive case is the default stateless adapter tool: **about 2.4 seconds per call**, because each call starts a Python subprocess, imports the server and repeats the handshake (the start-up time from section 5). For an agent that makes many calls, keep the session open. A remote Streamable HTTP server adds network latency and needs authentication (OAuth 2.1 in the spec).
+- **Agent**: qwen2.5:3b called `docs_search_docs` for every question, and all 6 answers contain the key fact. It cited the right file in 5 of 6: the express-shipping answer has no citation (an earlier run also missed the refund one). Citations are the first thing a small model drops, so check them separately from correctness. The time per question (printed above) is almost all model inference: it ranges from under a second to over ten seconds depending on how busy the GPU is, while the MCP calls themselves add only milliseconds (8.4).
+- **Latency**: a `tools/call` costs about 1.7 ms in memory and about 3.4 ms over stdio pipes (p50). The LangChain tool layer adds a fraction of a millisecond more (3.7 ms). All of this is negligible next to an LLM call. The expensive case is the default stateless adapter tool: **about 2.5 seconds per call**, because each call starts a Python subprocess, imports the server and repeats the handshake (the start-up time from section 5). For an agent that makes many calls, keep the session open. A remote Streamable HTTP server adds network latency and needs authentication (OAuth 2.1 in the spec).
 ''')
 nb.md(r'''
 ## 9. Beyond tools: what the client offers back, and remote servers
@@ -853,7 +853,7 @@ async with create_connected_server_and_client_session(ws, sampling_callback=samp
 nb.md(r'''
 **What the numbers say.**
 
-- **Sampling.** The server produced accurate one-sentence summaries of two documents without having a model of its own: each `summarize_doc` call took 0.5–1.2 s, of which all but a few milliseconds were the host's model (`qwen2.5:3b`) answering the sampling request. The host saw every request (`SAMPLING_LOG`) and applied a policy (refuse anything above 500 tokens). That is the point of sampling: the user's host decides which model runs, what it costs and whether it runs at all.
+- **Sampling.** The server produced accurate one-sentence summaries of two documents without having a model of its own: each `summarize_doc` call took 0.7–1.2 s, of which all but a few milliseconds were the host's model (`qwen2.5:3b`) answering the sampling request. The host saw every request (`SAMPLING_LOG`) and applied a policy (refuse anything above 500 tokens). That is the point of sampling: the user's host decides which model runs, what it costs and whether it runs at all.
 - **Elicitation.** The three possible user answers took three different paths, and the server respected each one. *Decline* and *cancel* kept the note, *accept* deleted it, and only `draft-2` is left. The confirmation came from the person, through the host's UI, not from the model. A model can be talked into calling `delete_note`, but it cannot answer the elicitation for the user.
 - **Roots.** The server listed the shared folder and refused the repository root with a tool error (`isError=True`), which goes back to the model as a normal failure. Note that roots are *advisory*: this server checks them because we wrote it to. A malicious server can ignore them, so filesystem isolation for untrusted servers still has to come from the operating system (a container or a sandbox, notebook 25).
 
@@ -903,7 +903,7 @@ nb.md(r'''
 
 - **Unauthenticated and wrong-token requests were rejected with HTTP 401.** Each carried the `WWW-Authenticate: Bearer` header pointing to the protected-resource metadata, which names the authorization server and the required scope (`docs:read`). That is what a compliant client uses to discover where to get a token.
 - **With the token, the same knowledge-base server works unchanged over the network.** Same tools, same answers.
-- **The cost of going remote is small on localhost.** A call over Streamable HTTP with token validation took 5.2 ms at p50, against 3.0 ms over stdio and 1.6 ms in memory, all far below a model call. Over a real network add the round-trip time (tens of ms), plus a TLS handshake once per connection.
+- **The cost of going remote is small on localhost.** A call over Streamable HTTP with token validation took 6.0 ms at p50, against 3.4 ms over stdio and 1.7 ms in memory, all far below a model call. Over a real network add the round-trip time (tens of ms), plus a TLS handshake once per connection.
 
 What we skipped, and production needs:
 - TLS (HTTPS);
@@ -935,13 +935,13 @@ nb.md(r'''
 |---|---|---|
 | conformance (8.1) | 14 of 14 checks pass: tools, two error channels, resources and template, prompts | test the server you actually run |
 | retrieval of `search_docs` (8.2) | 6/6 top-1 on the sample questions (an easy set) | the tool behind MCP still needs its own evaluation |
-| agent over MCP (8.3) | 6/6 answers with the key fact; 4/6 cite the right file | citations are the first thing a small model drops |
-| transport cost (8.4) | p50 1.6 ms in memory, 3.0 ms stdio, 3.4 ms through the LangChain adapter, about 2.4 s with a new session per call | keep sessions open; the protocol is not the bottleneck |
+| agent over MCP (8.3) | 6/6 answers with the key fact; 5/6 cite the right file | citations are the first thing a small model drops |
+| transport cost (8.4) | p50 1.7 ms in memory, 3.4 ms stdio, 3.7 ms through the LangChain adapter, about 2.5 s with a new session per call | keep sessions open; the protocol is not the bottleneck |
 | security (7) | allowlist + namespacing, human confirmation for destructive tools, injected text in tool results handled as data | servers are untrusted code and untrusted text |
-| sampling (9) | two summaries from the host's model, 0.5–1.2 s each, every request visible to the host | model choice and cost stay with the user |
+| sampling (9) | two summaries from the host's model, 0.7–1.2 s each, every request visible to the host | model choice and cost stay with the user |
 | elicitation (9) | decline / accept / cancel all respected; only the accepted deletion happened | irreversible actions are confirmed by the person |
 | roots (9) | shared folder listed, repository root refused | roots scope a cooperative server; they are not isolation |
-| remote server + OAuth (9) | 401 without or with a wrong token; works with the token; 5.2 ms p50 per call | a remote server is a resource server |
+| remote server + OAuth (9) | 401 without or with a wrong token; works with the token; 6.0 ms p50 per call | a remote server is a resource server |
 
 ## In production
 
